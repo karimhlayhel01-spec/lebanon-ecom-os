@@ -1,26 +1,93 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Neutral commerce base */
+  --background: #f6f6f7;
+  --surface: #ffffff;
+  --surface-subtle: #fbfbfc;
+  --foreground: #1a1c1d;
+
+  /* Accent (single clean commerce green) */
+  --cedar: #008060;
+  --cedar-deep: #006e52;
+
+  /* Secondary / links (clean blue) */
+  --sea: #005bd3;
+  --sea-light: #1a73e8;
+
+  /* Neutrals */
+  --ink: #1a1c1d;
+  --stone: #e1e3e5;
+  --stone-dark: #6b7177;
+  --sand: #f0f1f2;
+  --foam: #ffffff;
+  --accent: #008060;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-cedar: var(--cedar);
+  --color-cedar-deep: var(--cedar-deep);
+  --color-sea: var(--sea);
+  --color-sea-light: var(--sea-light);
+  --color-stone: var(--stone);
+  --color-stone-dark: var(--stone-dark);
+  --color-sand: var(--sand);
+  --color-ink: var(--ink);
+  --color-foam: var(--foam);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-inter);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Headings: same clean sans, tighter tracking + strong weight */
+.font-display {
+  font-family: var(--font-inter), system-ui, sans-serif;
+  letter-spacing: -0.02em;
+  font-weight: 650;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: rise-in 0.4s ease-out both;
+}
+
+.animate-rise-delay {
+  animation: rise-in 0.5s ease-out 0.08s both;
+}
+
+/* Kept for compatibility; no decorative pulse in a commerce UI */
+.animate-soft-pulse {
+  animation: none;
+}
+
+/* Reusable commerce surface */
+.surface-card {
+  background: var(--surface);
+  border: 1px solid var(--stone);
+  border-radius: 0.75rem;
+  box-shadow:
+    0 1px 2px rgba(26, 28, 29, 0.04),
+    0 1px 3px rgba(26, 28, 29, 0.06);
 }
