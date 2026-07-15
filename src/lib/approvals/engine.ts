@@ -127,8 +127,14 @@ export type DecideApprovalResult =
     }
   | {
       ok: false;
-      error: "not_found" | "already_decided" | "missing_acknowledgements";
+      error:
+        | "not_found"
+        | "already_decided"
+        | "missing_acknowledgements"
+        | "transition_failed";
       missing?: string[];
+      /** Present when the guarded FSM advance failed. */
+      transition?: FsmResult;
     };
 
 /**
@@ -152,6 +158,43 @@ export async function decideApproval(
   );
   if (!outcome.ok) return outcome;
 
+  // Rejects and side-only gates only need the approval row updated.
+  if (outcome.status === "rejected") {
+    await db
+      .update(schema.approvalRequests)
+      .set({
+        status: outcome.status,
+        acknowledgements: JSON.stringify(outcome.acknowledgements),
+        decisionNote: outcome.decisionNote,
+        decidedAt: nowIso(),
+      })
+      .where(eq(schema.approvalRequests.id, id));
+    return { ok: true, status: "rejected" };
+  }
+
+  const target = gateTargetState(row.gateId as ApprovalGateId);
+
+  // Transition gates: advance first; only commit approval if the FSM accepts.
+  if (target && isPrimaryState(target)) {
+    const transition = await advanceJourney(row.workspaceId, target);
+    if (!transition.ok) {
+      return { ok: false, error: "transition_failed", transition };
+    }
+
+    await db
+      .update(schema.approvalRequests)
+      .set({
+        status: outcome.status,
+        acknowledgements: JSON.stringify(outcome.acknowledgements),
+        decisionNote: outcome.decisionNote,
+        decidedAt: nowIso(),
+      })
+      .where(eq(schema.approvalRequests.id, id));
+
+    return { ok: true, status: "approved", transition };
+  }
+
+  // Side-only gate: no journey transition.
   await db
     .update(schema.approvalRequests)
     .set({
@@ -161,16 +204,6 @@ export async function decideApproval(
       decidedAt: nowIso(),
     })
     .where(eq(schema.approvalRequests.id, id));
-
-  if (outcome.status === "rejected") {
-    return { ok: true, status: "rejected" };
-  }
-
-  const target = gateTargetState(row.gateId as ApprovalGateId);
-  if (target && isPrimaryState(target)) {
-    const transition = await advanceJourney(row.workspaceId, target);
-    return { ok: true, status: "approved", transition };
-  }
 
   return { ok: true, status: "approved" };
 }

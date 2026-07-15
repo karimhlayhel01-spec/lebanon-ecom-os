@@ -1,6 +1,10 @@
 export const MIN_BUDGET_USD = 2000;
 export const MARGIN_BEFORE_ADS_MIN = 0.7;
 export const MARGIN_AFTER_ADS_MIN = 0.35;
+/** Marketing estimate per order is capped at this share of the sell price. */
+export const MARKETING_COST_PCT_OF_PRICE = 0.2;
+/** Monthly follow-on budget is spread across this many days for the estimate. */
+export const MARKETING_BUDGET_DAYS = 30;
 export const DISCOVERY_INITIAL_COUNT = 5;
 export const DISCOVERY_SHOW_MORE_MAX = 5;
 export const DISCOVERY_SESSION_CAP = 25;
