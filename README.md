@@ -8,6 +8,7 @@ Founder operating system for importing and selling **one SKU** in Lebanon — bi
 - **Done — M1:** Shared Business Memory (repositories, allowed-field edits) + journey FSM
 - **Done — M2:** Human Approvals engine + server transition guards
 - **Done — M3:** Shared Margin skill (70% / 35%) with unit tests
+- **Done — M4:** Product Discovery (fit, show-more, demand confirm, Tier-1, accept flow)
 
 ## Stack
 
@@ -47,7 +48,7 @@ Open [http://localhost:3005](http://localhost:3005) — you will be redirected t
 
 1. Sign up → creates user + single workspace (1 founder, 1 Shopify store slot) + journey/side status rows  
 2. Complete onboarding (min budget **$2,000**, Lebanon sellability + COD notices)  
-3. Land on dashboard in **discovery** with empty shortlist slot (no agents yet)
+3. Land on dashboard in **discovery** and start a Product Discovery session
 
 ## Shared Business Memory (M1)
 
@@ -67,6 +68,16 @@ Open [http://localhost:3005](http://localhost:3005) — you will be redirected t
 - `landed_cost = product + intl_ship + clearance_taxes + local_courier`; margin before/after ads with `est_mkt/order = min(20% × price, monthly_follow_on_budget / 30)`
 - Gates: margin before ads **≥ 70%**, after ads **≥ 35%**; failures return a human-readable block reason (never an all-blocked dead end)
 
+## Product Discovery (M4)
+
+- Curated catalog **v1** in `src/lib/discovery/catalog.ts` with an injectable `DemandProvider` seam (MCP swaps in later, no rewrite)
+- Deterministic **Fit skill** (`src/lib/skills/fit.ts`): order **budget → experience → risk → time → storage → workload**, likes soft; yields **Strong / Okay** (Okay requires a risk-read acknowledgement)
+- Uses the **Shared Margin skill** (70% / 35%); blocked products show an explanation and the shortlist is never an all-blocked dead end
+- Session reveal: **5** ability-matched products, **show more** up to 5× → **max 25 per session**
+- **Demand confirm** before accept: founder signal (URL / note / screenshot) + AI structured summary; differentiation shown per product
+- **Tier-1** conflict (Ishtari / EGLOW / Platza) → customize with supplier or drop
+- **Accept** routes through Human Approvals (`accept_product`), advances `discovery → supplier_sample`, and writes Topic B basics + active SKU
+
 ## Not built yet
 
-Product Discovery agent and the supplier / marketing / finance path — later milestones.
+The supplier / marketing / finance path — later milestones.
