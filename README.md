@@ -7,6 +7,7 @@ Founder operating system for importing and selling **one SKU** in Lebanon — bi
 - **Done — M0:** App shell + UI polish (auth, onboarding wizard, dashboard, EN/AR RTL)
 - **Done — M1:** Shared Business Memory (repositories, allowed-field edits) + journey FSM
 - **Done — M2:** Human Approvals engine + server transition guards
+- **Done — M3:** Shared Margin skill (70% / 35%) with unit tests
 
 ## Stack
 
@@ -60,6 +61,12 @@ Open [http://localhost:3005](http://localhost:3005) — you will be redirected t
 - Server transition guards: reaching a gated state requires an approved gate. `store_setup` needs no approval; `store_ready` is a side status, never a batch/selling prerequisite
 - Gate → transition map: `accept_product → supplier_sample`, `sample_decision → sample_approved`, `batch_ordered → batch_ordered`, `batch_arrived_ready → batch_arrived_ready`, `mark_selling → selling`
 
+## Shared Margin skill (M3)
+
+- One deterministic module in `src/lib/skills/margin.ts`, shared by Discovery and Finance
+- `landed_cost = product + intl_ship + clearance_taxes + local_courier`; margin before/after ads with `est_mkt/order = min(20% × price, monthly_follow_on_budget / 30)`
+- Gates: margin before ads **≥ 70%**, after ads **≥ 35%**; failures return a human-readable block reason (never an all-blocked dead end)
+
 ## Not built yet
 
-Product Discovery agent, Shared Margin skill, and the supplier / marketing / finance path — later milestones.
+Product Discovery agent and the supplier / marketing / finance path — later milestones.
