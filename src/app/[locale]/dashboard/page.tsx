@@ -1,9 +1,15 @@
+import { eq } from "drizzle-orm";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { redirect, Link } from "@/i18n/navigation";
+import { db, schema } from "@/db";
 import { getSessionUser } from "@/lib/auth";
 import { getDashboardContext } from "@/lib/workspace";
+import { getDiscoveryView } from "@/lib/discovery/service";
 import { logoutAction } from "@/actions/auth";
+import { startDiscoveryAction } from "@/actions/discovery";
 import { PauseResumeControls } from "@/components/dashboard/PauseResumeControls";
+import { DiscoveryBoard } from "@/components/discovery/DiscoveryBoard";
+import type { AppLocale } from "@/i18n/routing";
 
 type Props = {
   params: Promise<{ locale: string }>;
@@ -27,11 +33,26 @@ export default async function DashboardPage({ params }: Props) {
   const brand = await getTranslations("Brand");
   const states = await getTranslations("States");
   const auth = await getTranslations("Auth");
+  const disc = await getTranslations("Discovery");
 
+  const workspace = ctx!.workspace;
   const journey = ctx!.journey;
   const side = ctx!.side!;
   const primaryState = journey?.primaryState ?? "discovery";
   const isPaused = primaryState === "paused";
+
+  const inDiscovery = primaryState === "discovery" && !isPaused;
+  const discovery = inDiscovery
+    ? await getDiscoveryView(workspace.id, locale as AppLocale)
+    : null;
+
+  const activeSku = workspace.activeSkuId
+    ? await db
+        .select({ name: schema.skuCards.name })
+        .from(schema.skuCards)
+        .where(eq(schema.skuCards.id, workspace.activeSkuId))
+        .get()
+    : null;
   const displayState = (
     isPaused ? "paused" : primaryState
   ) as
@@ -97,22 +118,44 @@ export default async function DashboardPage({ params }: Props) {
 
         <div className="mt-8 grid gap-5 lg:grid-cols-3">
           <section className="animate-rise space-y-5 lg:col-span-2">
-            <div className="surface-card p-5">
-              <h2 className="font-display text-lg text-ink">{t("nextCta")}</h2>
-              <p className="mt-2 text-sm text-stone-dark">
-                {t("nextCtaPlaceholder")}
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-dashed border-stone bg-surface-subtle p-5">
-              <h2 className="font-display text-lg text-ink">{t("shortlist")}</h2>
-              <p className="mt-2 text-sm text-stone-dark">{t("shortlistEmpty")}</p>
-            </div>
-
-            <div className="surface-card p-5">
-              <h2 className="font-display text-lg text-ink">{t("coaching")}</h2>
-              <p className="mt-2 text-sm text-stone-dark">{t("coachingSlot")}</p>
-            </div>
+            {inDiscovery ? (
+              discovery ? (
+                <DiscoveryBoard view={discovery} />
+              ) : (
+                <div className="surface-card p-6 text-center">
+                  <h2 className="font-display text-lg text-ink">
+                    {disc("title")}
+                  </h2>
+                  <p className="mx-auto mt-2 max-w-md text-sm text-stone-dark">
+                    {disc("startHint")}
+                  </p>
+                  <form action={startDiscoveryAction} className="mt-4">
+                    <button
+                      type="submit"
+                      className="rounded-md bg-cedar px-5 py-2.5 text-sm font-semibold text-foam shadow-sm transition hover:bg-cedar-deep"
+                    >
+                      {disc("startCta")}
+                    </button>
+                  </form>
+                </div>
+              )
+            ) : side.productAccepted && activeSku ? (
+              <div className="surface-card p-5">
+                <h2 className="font-display text-lg text-ink">
+                  {disc("acceptedTitle")}
+                </h2>
+                <p className="mt-2 text-sm text-stone-dark">
+                  {disc("acceptedBody", { name: activeSku.name })}
+                </p>
+              </div>
+            ) : (
+              <div className="surface-card p-5">
+                <h2 className="font-display text-lg text-ink">{t("nextCta")}</h2>
+                <p className="mt-2 text-sm text-stone-dark">
+                  {t("nextCtaPlaceholder")}
+                </p>
+              </div>
+            )}
           </section>
 
           <aside className="animate-rise-delay space-y-5">

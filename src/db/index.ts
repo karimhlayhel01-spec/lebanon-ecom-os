@@ -121,6 +121,7 @@ export function ensureMigrated() {
       not_recommended INTEGER NOT NULL DEFAULT 0,
       demand_confirmed INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'shown',
+      rank INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS demand_signals (
@@ -254,6 +255,7 @@ export function ensureMigrated() {
 
   // Additive column migrations for DBs created before a column existed.
   ensureColumn("journey_states", "blocked_from_state", "TEXT");
+  ensureColumn("product_candidates", "rank", "INTEGER NOT NULL DEFAULT 0");
 
   migrated = true;
 }

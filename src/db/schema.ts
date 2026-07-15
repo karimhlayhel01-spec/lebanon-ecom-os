@@ -136,6 +136,7 @@ export const productCandidates = sqliteTable("product_candidates", {
   notRecommended: integer("not_recommended", { mode: "boolean" }).notNull().default(false),
   demandConfirmed: integer("demand_confirmed", { mode: "boolean" }).notNull().default(false),
   status: text("status").notNull().default("shown"), // shown | accepted | rejected
+  rank: integer("rank").notNull().default(0),
   createdAt: text("created_at").notNull(),
 });
 
