@@ -6,7 +6,7 @@ Founder operating system for importing and selling **one SKU** in Lebanon — bi
 
 - **Done — M0:** App shell + UI polish (auth, onboarding wizard, dashboard, EN/AR RTL)
 - **Done — M1:** Shared Business Memory (repositories, allowed-field edits) + journey FSM
-- **Local / pending commit — M2:** Human Approvals engine + server transition guards (built in `src/lib/approvals/`; not yet pushed)
+- **Done — M2:** Human Approvals engine + server transition guards
 
 ## Stack
 
@@ -53,6 +53,12 @@ Open [http://localhost:3005](http://localhost:3005) — you will be redirected t
 - Repositories in `src/lib/memory/` are the single source of truth per workspace
 - Allowed-field policy (`src/lib/memory/allowed-fields.ts`): memory is system-written; founders may only edit an explicit allow-list of fields
 - Journey FSM in `src/lib/journey/fsm.ts`: `discovery → supplier_sample → sample_approved → store_setup → batch_ordered → batch_arrived_ready → selling`, plus `paused` / `blocked` overlays
+
+## Human Approvals (M2)
+
+- Approval engine in `src/lib/approvals/` — first-class `ApprovalRequest` records with acknowledgement enforcement
+- Server transition guards: reaching a gated state requires an approved gate. `store_setup` needs no approval; `store_ready` is a side status, never a batch/selling prerequisite
+- Gate → transition map: `accept_product → supplier_sample`, `sample_decision → sample_approved`, `batch_ordered → batch_ordered`, `batch_arrived_ready → batch_arrived_ready`, `mark_selling → selling`
 
 ## Not built yet
 
