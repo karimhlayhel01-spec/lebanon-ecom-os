@@ -9,6 +9,7 @@ Founder operating system for importing and selling **one SKU** in Lebanon — bi
 - **Done — M2:** Human Approvals engine + server transition guards
 - **Done — M3:** Shared Margin skill (70% / 35%) with unit tests
 - **Done — M4:** Product Discovery (fit, show-more, demand confirm, Tier-1, accept flow)
+- **Done — M5:** Full guided path — Topic B SKU card → Supplier/Import (sample-first + batch) → Store side-status → stage-aware Marketing → Topic A/Finance panel → Orchestrator (CTAs + coaching)
 
 ## Stack
 
@@ -78,6 +79,94 @@ Open [http://localhost:3005](http://localhost:3005) — you will be redirected t
 - **Tier-1** conflict (Ishtari / EGLOW / Platza) → customize with supplier or drop
 - **Accept** routes through Human Approvals (`accept_product`), advances `discovery → supplier_sample`, and writes Topic B basics + active SKU
 
-## Not built yet
+## Guided path after accept (M5)
 
-The supplier / marketing / finance path — later milestones.
+Once a product is accepted the dashboard composes the full operator journey. Every panel is bilingual (EN/AR), edits stay inside the allowed-field policy, and generated data (suppliers, creatives) is deterministic per SKU.
+
+### Topic B — SKU card (`src/lib/sku/`)
+
+- Built from the accepted product; sections: **basics, ship fitness, storage, handling, import/batch, money snapshot, marketing hooks**
+- Founder **notes are editable** (`saveSkuNotesAction`); everything else is system-written
+- Translatable note keys use an `@` sentinel prefix so raw data (with periods) never collides with i18n keys
+
+### Supplier / Import (`src/lib/supplier/`)
+
+- **3 primaries + 2 backups each = 9 options**, with years/rating/red-flag signals
+- **Sample-first** flow: request → received → decide (`sample_decision` approval)
+- Per-option **email draft**, **payment map**, quality checklist, and a **clearance-partner TBD** placeholder
+- **>$10k MOQ** shows a soft warning and a stuck ladder; high-MOQ alternatives surfaced where possible
+- Approvals: `sample_decision`, `batch_ordered`, `batch_arrived_ready` — **`batch_ordered` never requires `store_ready`**
+
+### Store setup — side status (`src/lib/store/`)
+
+- Shopify checklist: **USD**, EN/AR drafts, **COD primary**, optional local payment, **5 courier placeholders**, policies, WhatsApp
+- `store_ready` is a **side status only** — it never blocks batch or selling
+
+### Marketing — stage-aware (`src/lib/marketing/`)
+
+- Stages: sample approved → **intro**, batch ordered → **pre-launch** (organic + max $5/day paid), batch arrived → **launch**, plus **weekly refresh** (stage id `monthly_refresh`)
+- Editable **creatives + shot lists**, EN/AR, scaled **6 / 10 / 14 by capacity**, WhatsApp required
+- Marketing kits are separate from Topic A money advice; `start_launch_marketing` gates launch/refresh
+
+### Topic A + Finance panel (`src/lib/finance/`)
+
+- Weekly inputs: sales, orders, Meta/TikTok spend, COD collected/outstanding, courier fees, per-SKU sold/left
+- **Preview advice before selling**; real advice only after the founder marks **selling** (`mark_selling`)
+- Uses the **Shared Margin skill**; **invest-next** recommendation appears after **4 weeks** of Topic A entries
+
+### Orchestrator (`src/lib/orchestrator/`)
+
+- Computes the **next CTA(s)** and **coaching cards** from journey + side statuses
+- **Parallel CTAs after `sample_approved`** (store setup vs. batch order)
+- Coaching respects priority: **safety → margins → budget/experience → risk → likes**
+
+## Preview (local QA) — REMOVABLE
+
+> Temporary local-only QA harness for walking the full guided path without hand-filling every form. **Off by default**, gated by the `PREVIEW_MODE` env flag. Delete this whole section (and the files listed below) before shipping a clean v1. It uses no real Shopify / Meta / courier / Demand APIs — everything routes through the existing services, repos, and approval gates.
+
+### Enable + seed
+
+```bash
+# 1) Seed the demo founder to a stage (writes to the local SQLite DB)
+npm run db:seed:preview -- selling      # full path (default if omitted)
+#   stages: discovery | accepted | sample_approved | batch_arrived_ready | selling
+
+# 2) Run the app with the flag ON
+PREVIEW_MODE=1 npm run dev -- -p 3005
+```
+
+Then either:
+
+- **Log in** at `/en/auth/login` (or `/ar/...`) with the demo credentials below, **or**
+- Open **`/en/preview`** (only visible when `PREVIEW_MODE=1`) and click a stage to seed + jump straight into the dashboard.
+
+Demo credentials:
+
+- **Email:** `preview@local.dev`
+- **Password:** `preview1234`
+
+When the flag is on, the dashboard shows a **"Preview data — local QA only"** banner. Each stage is cumulative and re-seeds the demo workspace from scratch (only the `preview@local.dev` user is touched; real accounts are untouched).
+
+### Stages
+
+| Stage | What you can verify |
+| --- | --- |
+| `discovery` | Onboarding complete, discovery board with 5 products |
+| `accepted` | Topic B SKU card visible |
+| `sample_approved` | Supplier sample approved; store + marketing intro unlocked |
+| `batch_arrived_ready` | Batch ordered + arrived; store ready; launch marketing |
+| `selling` | Selling; saved founder cost quotes (batch + margins use the quoted path), 4 weekly Topic A entries incl. one intentional <35% after-ads warning week, automatic actual margins, and **invest-next** unlocked |
+
+### Delete preview later (one pass)
+
+Remove all of the following, then this README section:
+
+- `src/lib/preview/` (folder: `config.ts`, `seed.ts`, `actions.ts`)
+- `src/components/preview/` (folder: `PreviewBanner.tsx`, `PreviewControls.tsx`)
+- `src/app/[locale]/preview/` (folder: `page.tsx`)
+- `scripts/seed-preview.ts`
+- The `db:seed:preview` script line in `package.json`
+- The `"Preview"` namespace in `messages/en.json` and `messages/ar.json`
+- In `src/app/[locale]/dashboard/page.tsx`: the two `// PREVIEW (removable)` imports and the `{isPreviewMode() && <PreviewBanner />}` line
+
+Nothing in the core OS imports the preview module, so removal leaves the app unchanged (`PREVIEW_MODE` simply stops mattering).

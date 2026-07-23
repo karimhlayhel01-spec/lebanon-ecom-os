@@ -58,8 +58,10 @@ describe("shared margin skill — pass / fail", () => {
     expect(r.passBefore).toBe(false);
     expect(r.passAfter).toBe(false);
     expect(r.pass).toBe(false);
-    expect(r.blockReason).toContain("before ads is 25%");
-    expect(r.blockReason).toContain("after ads is 15%");
+    // Skills return stable note keys; DiscoveryBoard translates with % params.
+    expect(r.blockReason).toBe("@margin.failBefore @margin.failAfter");
+    expect(r.marginBefore).toBeCloseTo(0.25, 10);
+    expect(r.marginAfter).toBeCloseTo(0.15, 10);
   });
 
   it("treats the 70% before-ads threshold as inclusive", () => {
@@ -94,13 +96,13 @@ describe("shared margin skill — pass / fail", () => {
     expect(r.passBefore).toBe(false);
     expect(r.passAfter).toBe(true);
     expect(r.pass).toBe(false);
-    expect(r.blockReason).toContain("before ads is 55%");
-    expect(r.blockReason).not.toContain("after ads");
+    expect(r.blockReason).toBe("@margin.failBefore");
+    expect(r.marginBefore).toBeCloseTo(0.55, 10);
   });
 
   it("guards against a zero or negative sell price", () => {
     const r = computeMargin(input({ sellPrice: 0 }));
     expect(r.pass).toBe(false);
-    expect(r.blockReason).toBe("Sell price must be greater than zero.");
+    expect(r.blockReason).toBe("@margin.sellPrice");
   });
 });

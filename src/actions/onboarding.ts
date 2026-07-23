@@ -171,6 +171,8 @@ export async function completeOnboardingAction(
     .update(schema.sideStatuses)
     .set({
       onboardingComplete: true,
+      // Meaningful profile edit resets the Discovery reject-all ladder (Fix #13).
+      ...(!isFirstCompletion ? { discoveryExhaustedRounds: 0 } : {}),
       updatedAt,
     })
     .where(eq(schema.sideStatuses.workspaceId, workspace.id));

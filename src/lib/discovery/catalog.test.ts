@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { CATALOG, curatedDemandProvider } from "@/lib/discovery/catalog";
+import {
+  landedCostOf,
+  selectLandedCostPool,
+} from "@/lib/discovery/service";
+import { MAX_LANDED_SOFT_OVERAGE } from "@/lib/constants";
 import { computeMargin } from "@/lib/skills/margin";
 
 function evaluate() {
@@ -43,6 +48,39 @@ describe("curated catalog", () => {
         expect(allowed.has(m)).toBe(true);
       }
     }
+  });
+});
+
+describe("discovery landed-cost pool (Fix #2)", () => {
+  it("hard-excludes products way over maxLandedCost (> 1.2×)", () => {
+    // Seed profile: maxLandedCost = 18 → ceiling 21.6.
+    const pool = selectLandedCostPool(CATALOG, 18);
+    const keys = new Set(pool.map((p) => p.key));
+    // smart_scale ($22) and premium_blender ($25) are way over 21.6.
+    expect(keys.has("smart_scale")).toBe(false);
+    expect(keys.has("premium_blender")).toBe(false);
+    // Every product left is within the 1.2× band.
+    for (const p of pool) {
+      expect(landedCostOf(p)).toBeLessThanOrEqual(18 * MAX_LANDED_SOFT_OVERAGE);
+    }
+  });
+
+  it("keeps products only slightly over maxLandedCost (<= 1.2×)", () => {
+    // maxLandedCost = 20 → ceiling 24. smart_scale ($22) is slightly over → stays.
+    const pool = selectLandedCostPool(CATALOG, 20);
+    const keys = new Set(pool.map((p) => p.key));
+    expect(keys.has("smart_scale")).toBe(true);
+    // premium_blender ($25) is still over 24 → excluded.
+    expect(keys.has("premium_blender")).toBe(false);
+  });
+
+  it("never returns an empty pool — falls back to least-over products", () => {
+    // maxLandedCost so low every product is way over → fallback to least-over.
+    const pool = selectLandedCostPool(CATALOG, 1);
+    expect(pool.length).toBeGreaterThan(0);
+    // Fallback is sorted cheapest landed cost first.
+    const costs = pool.map(landedCostOf);
+    expect(costs).toEqual([...costs].sort((a, b) => a - b));
   });
 });
 

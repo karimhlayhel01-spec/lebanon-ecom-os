@@ -256,6 +256,24 @@ export function ensureMigrated() {
   // Additive column migrations for DBs created before a column existed.
   ensureColumn("journey_states", "blocked_from_state", "TEXT");
   ensureColumn("product_candidates", "rank", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("sku_cards", "quoted_costs", "TEXT");
+  ensureColumn("sku_cards", "reported_margin", "TEXT");
+  ensureColumn(
+    "side_statuses",
+    "cost_quotes_saved",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  ensureColumn(
+    "side_statuses",
+    "discovery_exhausted_rounds",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  ensureColumn(
+    "discovery_sessions",
+    "exhaustion_counted",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  ensureColumn("side_statuses", "batch_arrival_eta", "TEXT");
 
   migrated = true;
 }

@@ -1,10 +1,11 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import {
   DISCOVERY_INITIAL_COUNT,
   DISCOVERY_SESSION_CAP,
   DISCOVERY_SHOW_MORE_MAX,
+  MAX_LANDED_SOFT_OVERAGE,
 } from "@/lib/constants";
 import { computeFit, type FitProfile } from "@/lib/skills/fit";
 import { computeMargin } from "@/lib/skills/margin";
@@ -17,11 +18,25 @@ import {
   type DemandProvider,
 } from "@/lib/discovery/catalog";
 import {
+  classifyDiscoveryLadder,
+  suggestionsForPassReasons,
+  type DiscoveryLadder,
+  type DiscoveryPassReason,
+} from "@/lib/discovery/ladder";
+import {
   createApprovalRequest,
   decideApproval,
 } from "@/lib/approvals/engine";
 import { getJourney } from "@/lib/memory/repos";
+import { buildSkuSections, footprintForCatalogKey } from "@/lib/sku/service";
 import type { AppLocale } from "@/i18n/routing";
+
+export type { DiscoveryLadder, DiscoveryPassReason } from "@/lib/discovery/ladder";
+export {
+  classifyDiscoveryLadder,
+  DISCOVERY_PASS_REASONS,
+  suggestionsForPassReasons,
+} from "@/lib/discovery/ladder";
 
 type OnboardingRow = typeof schema.onboardingProfiles.$inferSelect;
 type CandidateRow = typeof schema.productCandidates.$inferSelect;
@@ -43,8 +58,27 @@ function toFitProfile(onboarding: OnboardingRow): FitProfile {
   };
 }
 
-function landedCostOf(p: CatalogProduct): number {
+export function landedCostOf(p: CatalogProduct): number {
   return p.productCost + p.intlShip + p.clearanceTaxes + p.localCourier;
+}
+
+/**
+ * Fix #2 — select the discovery source pool by per-unit landed cost.
+ *
+ * Products at or under `maxLandedCost × MAX_LANDED_SOFT_OVERAGE` stay in (the
+ * soft budget Fit penalty handles "slightly over"); products way over are
+ * hard-excluded. Never all-blocked: if the band is empty (maxLandedCost set so
+ * low that every product is way over), fall back to the least-over products
+ * (cheapest landed cost first) so Discovery is never a blank dead-end.
+ */
+export function selectLandedCostPool(
+  catalog: readonly CatalogProduct[],
+  maxLandedCost: number,
+): CatalogProduct[] {
+  const overageCeiling = maxLandedCost * MAX_LANDED_SOFT_OVERAGE;
+  const withinBand = catalog.filter((p) => landedCostOf(p) <= overageCeiling);
+  if (withinBand.length > 0) return withinBand;
+  return [...catalog].sort((a, b) => landedCostOf(a) - landedCostOf(b));
 }
 
 export async function getActiveSession(workspaceId: string) {
@@ -71,23 +105,57 @@ async function poolSize(sessionId: string): Promise<number> {
   return rows.length;
 }
 
-/**
- * Start a discovery session: score the curated catalog against the founder's
- * ability profile + Shared Margin skill, rank so acceptable products come
- * first (never an all-blocked page), and reveal the first 5.
- */
-export async function startDiscoverySession(
+function catalogKeyFromCandidate(row: {
+  fitBreakdown: string;
+}): string | null {
+  try {
+    const key = JSON.parse(row.fitBreakdown).catalogKey;
+    return typeof key === "string" && key ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Catalog keys already shown/rejected/accepted in this workspace. */
+export async function getSeenCatalogKeys(
   workspaceId: string,
-  onboarding: OnboardingRow,
-) {
+): Promise<Set<string>> {
   ensureMigrated();
+  const rows = await db
+    .select({ fitBreakdown: schema.productCandidates.fitBreakdown })
+    .from(schema.productCandidates)
+    .where(eq(schema.productCandidates.workspaceId, workspaceId))
+    .all();
+  const keys = new Set<string>();
+  for (const row of rows) {
+    const key = catalogKeyFromCandidate(row);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
 
-  const existing = await getActiveSession(workspaceId);
-  if (existing) return existing;
+type ScoredProduct = {
+  p: CatalogProduct;
+  landedCost: number;
+  fit: ReturnType<typeof computeFit>;
+  margin: ReturnType<typeof computeMargin>;
+};
 
+/**
+ * Score + rank catalog products for a profile. Excludes seen keys. Same Fit /
+ * Margin / maxLanded rules as the first session (never-all-blocked ranking).
+ */
+export function scoreRankCatalog(
+  onboarding: OnboardingRow,
+  excludeKeys: ReadonlySet<string> = new Set(),
+): ScoredProduct[] {
   const profile = toFitProfile(onboarding);
+  const sourceCatalog = selectLandedCostPool(
+    CATALOG,
+    onboarding.maxLandedCost,
+  ).filter((p) => !excludeKeys.has(p.key));
 
-  const scored = CATALOG.map((p) => {
+  const scored = sourceCatalog.map((p) => {
     const landedCost = landedCostOf(p);
     const fit = computeFit(profile, {
       category: p.category,
@@ -109,8 +177,6 @@ export async function startDiscoverySession(
     return { p, landedCost, fit, margin };
   });
 
-  // Rank: acceptable (margins pass and not oversized) first, then recommended,
-  // then by fit score. Guarantees the first page is never all-blocked.
   scored.sort((a, b) => {
     const aAcc = a.margin.pass && !a.p.oversized ? 0 : 1;
     const bAcc = b.margin.pass && !b.p.oversized ? 0 : 1;
@@ -121,18 +187,104 @@ export async function startDiscoverySession(
     return b.fit.score - a.fit.score;
   });
 
+  return scored;
+}
+
+export async function countRemainingEligible(
+  workspaceId: string,
+  onboarding: OnboardingRow,
+): Promise<number> {
+  const seen = await getSeenCatalogKeys(workspaceId);
+  return scoreRankCatalog(onboarding, seen).length;
+}
+
+async function getExhaustedRounds(workspaceId: string): Promise<number> {
+  const side = await db
+    .select({
+      discoveryExhaustedRounds: schema.sideStatuses.discoveryExhaustedRounds,
+    })
+    .from(schema.sideStatuses)
+    .where(eq(schema.sideStatuses.workspaceId, workspaceId))
+    .get();
+  return side?.discoveryExhaustedRounds ?? 0;
+}
+
+export async function resetDiscoveryExhaustedRounds(
+  workspaceId: string,
+): Promise<void> {
+  ensureMigrated();
+  await db
+    .update(schema.sideStatuses)
+    .set({ discoveryExhaustedRounds: 0, updatedAt: nowIso() })
+    .where(eq(schema.sideStatuses.workspaceId, workspaceId));
+}
+
+/**
+ * When the visible list is empty and show-more is done, count this session
+ * once toward the exhausted-round ladder.
+ */
+async function maybeCountExhaustion(workspaceId: string): Promise<void> {
+  const session = await getActiveSession(workspaceId);
+  if (!session || session.exhaustionCounted) return;
+
+  const total = await poolSize(session.id);
+  const cap = Math.min(DISCOVERY_SESSION_CAP, total);
+  const canShowMore =
+    session.showMoreUsed < DISCOVERY_SHOW_MORE_MAX &&
+    session.productsShown < cap;
+
+  const shownRows = await db
+    .select({
+      id: schema.productCandidates.id,
+      rank: schema.productCandidates.rank,
+    })
+    .from(schema.productCandidates)
+    .where(
+      and(
+        eq(schema.productCandidates.sessionId, session.id),
+        eq(schema.productCandidates.status, "shown"),
+      ),
+    )
+    .all();
+  const visibleCount = shownRows.filter(
+    (r) => r.rank < session.productsShown,
+  ).length;
+
+  if (visibleCount > 0 || canShowMore) return;
+
+  const rounds = await getExhaustedRounds(workspaceId);
+  await db
+    .update(schema.discoverySessions)
+    .set({ exhaustionCounted: true })
+    .where(eq(schema.discoverySessions.id, session.id));
+  await db
+    .update(schema.sideStatuses)
+    .set({
+      discoveryExhaustedRounds: rounds + 1,
+      updatedAt: nowIso(),
+    })
+    .where(eq(schema.sideStatuses.workspaceId, workspaceId));
+}
+
+async function insertSessionPool(
+  workspaceId: string,
+  scored: ScoredProduct[],
+): Promise<typeof schema.discoverySessions.$inferSelect | undefined> {
+  const pool = scored.slice(0, DISCOVERY_SESSION_CAP);
+  if (pool.length === 0) return undefined;
+
   const sessionId = newId();
   const createdAt = nowIso();
   await db.insert(schema.discoverySessions).values({
     id: sessionId,
     workspaceId,
     showMoreUsed: 0,
-    productsShown: DISCOVERY_INITIAL_COUNT,
+    productsShown: Math.min(DISCOVERY_INITIAL_COUNT, pool.length),
     status: "active",
+    exhaustionCounted: false,
     createdAt,
   });
 
-  const pool = scored.slice(0, DISCOVERY_SESSION_CAP);
   await db.insert(schema.productCandidates).values(
     pool.map(({ p, fit, margin }, i) => ({
       id: newId(),
@@ -169,6 +321,78 @@ export async function startDiscoverySession(
   return getActiveSession(workspaceId);
 }
 
+/**
+ * Start a discovery session: score the curated catalog against the founder's
+ * ability profile + Shared Margin skill, rank so acceptable products come
+ * first (never an all-blocked page), and reveal the first 5.
+ */
+export async function startDiscoverySession(
+  workspaceId: string,
+  onboarding: OnboardingRow,
+) {
+  ensureMigrated();
+
+  const existing = await getActiveSession(workspaceId);
+  if (existing) return existing;
+
+  const scored = scoreRankCatalog(onboarding);
+  return insertSessionPool(workspaceId, scored);
+}
+
+/**
+ * Fix #13 B — close the exhausted session and open a new one with the same
+ * onboarding filters, excluding catalog keys already seen in this workspace.
+ */
+export async function continueDiscoverySession(
+  workspaceId: string,
+  onboarding: OnboardingRow,
+): Promise<{ ok: true } | { ok: false; error: "no_session" | "catalog_exhausted" }> {
+  ensureMigrated();
+
+  const existing = await getActiveSession(workspaceId);
+  if (!existing) return { ok: false, error: "no_session" };
+
+  await maybeCountExhaustion(workspaceId);
+
+  // Score next pool before closing — keep the exhausted session if nothing left (D).
+  const seen = await getSeenCatalogKeys(workspaceId);
+  const scored = scoreRankCatalog(onboarding, seen);
+  if (scored.length === 0) return { ok: false, error: "catalog_exhausted" };
+
+  await db
+    .update(schema.discoverySessions)
+    .set({ status: "closed" })
+    .where(eq(schema.discoverySessions.id, existing.id));
+
+  const session = await insertSessionPool(workspaceId, scored);
+  if (!session) return { ok: false, error: "catalog_exhausted" };
+  return { ok: true };
+}
+
+export async function submitDiscoveryPassFeedback(
+  workspaceId: string,
+  input: { reasons: DiscoveryPassReason[]; otherNote?: string },
+): Promise<{ ok: true } | { ok: false; error: "empty" }> {
+  ensureMigrated();
+  if (input.reasons.length === 0 && !input.otherNote?.trim()) {
+    return { ok: false, error: "empty" };
+  }
+  const suggestions = suggestionsForPassReasons(input.reasons);
+  await db.insert(schema.orchestratorEvents).values({
+    id: newId(),
+    workspaceId,
+    kind: "discovery_pass_feedback",
+    message: "Founder shared why they passed on Discovery matches",
+    meta: JSON.stringify({
+      reasons: input.reasons,
+      otherNote: input.otherNote?.trim() || null,
+      suggestions,
+    }),
+    createdAt: nowIso(),
+  });
+  return { ok: true };
+}
+
 /** Reveal the next batch (5) up to 5 clicks / 25 per session. */
 export async function showMore(workspaceId: string) {
   ensureMigrated();
@@ -181,6 +405,7 @@ export async function showMore(workspaceId: string) {
     session.showMoreUsed >= DISCOVERY_SHOW_MORE_MAX ||
     session.productsShown >= cap
   ) {
+    await maybeCountExhaustion(workspaceId);
     return;
   }
 
@@ -191,6 +416,7 @@ export async function showMore(workspaceId: string) {
       showMoreUsed: session.showMoreUsed + 1,
     })
     .where(eq(schema.discoverySessions.id, session.id));
+  await maybeCountExhaustion(workspaceId);
 }
 
 export async function getCandidateOwned(
@@ -213,7 +439,7 @@ export async function confirmDemand(
   input: { url?: string; note?: string; screenshotNote?: string },
   locale: AppLocale,
   provider: DemandProvider = curatedDemandProvider,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; summary?: string }> {
   ensureMigrated();
   const candidate = await getCandidateOwned(workspaceId, candidateId);
   if (!candidate) return { ok: false, error: "not_found" };
@@ -248,7 +474,7 @@ export async function confirmDemand(
     .set({ demandConfirmed: true })
     .where(eq(schema.productCandidates.id, candidateId));
 
-  return { ok: true };
+  return { ok: true, summary };
 }
 
 export async function resolveTier1(
@@ -321,6 +547,7 @@ export async function rejectCandidate(
     .update(schema.productCandidates)
     .set({ status: "rejected" })
     .where(eq(schema.productCandidates.id, candidateId));
+  await maybeCountExhaustion(workspaceId);
   return { ok: true };
 }
 
@@ -403,28 +630,41 @@ export async function acceptProduct(
   const now = nowIso();
   const skuId = newId();
 
+  let catalogKey = "";
+  try {
+    catalogKey = JSON.parse(candidate.fitBreakdown).catalogKey ?? "";
+  } catch {
+    catalogKey = "";
+  }
+
+  const sections = buildSkuSections({
+    name: candidate.name,
+    category: candidate.category,
+    sellPrice: candidate.sellPrice,
+    landedCost,
+    marginBefore: candidate.marginBefore,
+    marginAfter: candidate.marginAfter,
+    differentiation: candidate.differentiation,
+    oversized: candidate.oversizedHardBlock,
+    footprint: footprintForCatalogKey(catalogKey),
+    productCost: candidate.productCost,
+    intlShip: candidate.intlShip,
+    clearanceTaxes: candidate.clearanceTaxes,
+    localCourier: candidate.localCourier,
+  });
+
   await db.insert(schema.skuCards).values({
     id: skuId,
     workspaceId,
     productCandidateId: candidate.id,
     name: candidate.name,
-    basics: JSON.stringify({
-      category: candidate.category,
-      sellPrice: candidate.sellPrice,
-      landedCost,
-      differentiation: candidate.differentiation,
-    }),
-    shipFitness: candidate.oversizedHardBlock ? "oversized" : "standard-parcel",
-    storageAmbiance: "ambient",
-    handling: "standard",
-    importBatch: JSON.stringify({ moq: null, status: "not_ordered" }),
-    moneySnapshot: JSON.stringify({
-      sellPrice: candidate.sellPrice,
-      landedCost,
-      marginBefore: candidate.marginBefore,
-      marginAfter: candidate.marginAfter,
-    }),
-    marketingHooks: candidate.differentiation,
+    basics: sections.basics,
+    shipFitness: sections.shipFitness,
+    storageAmbiance: sections.storageAmbiance,
+    handling: sections.handling,
+    importBatch: sections.importBatch,
+    moneySnapshot: sections.moneySnapshot,
+    marketingHooks: sections.marketingHooks,
     founderNotes: "",
     createdAt: now,
     updatedAt: now,
@@ -439,6 +679,7 @@ export async function acceptProduct(
     .update(schema.sideStatuses)
     .set({
       productAccepted: true,
+      discoveryExhaustedRounds: 0,
       ...(candidate.strength === "Okay" ? { okayRiskAck: true } : {}),
       updatedAt: now,
     })
@@ -472,12 +713,17 @@ export type DiscoveryCandidateView = {
   marginBefore: number;
   marginAfter: number;
   marginsPass: boolean;
+  /** Space-separated `@margin.*` note keys (or legacy English); UI translates. */
+  marginBlockReason: string | null;
   oversized: boolean;
   fitScore: number;
   strength: "Strong" | "Okay";
+  /** `@fit.*` note key (or legacy English); UI translates. */
   riskRead: string | null;
   notRecommended: boolean;
   demandConfirmed: boolean;
+  /** Saved DemandProvider aiSummary (founder-confirmed signal). Null until confirmed. */
+  demandSummary: string | null;
   tier1Conflict: boolean;
   tier1Marketplaces: string[];
 };
@@ -489,6 +735,10 @@ export type DiscoveryView = {
   canShowMore: boolean;
   sessionCap: number;
   candidates: DiscoveryCandidateView[];
+  /** A–D empty-state ladder when the visible list is empty. */
+  ladder: DiscoveryLadder | null;
+  exhaustedRounds: number;
+  remainingEligible: number;
 };
 
 export async function getDiscoveryView(
@@ -499,20 +749,65 @@ export async function getDiscoveryView(
   const session = await getActiveSession(workspaceId);
   if (!session) return null;
 
+  await maybeCountExhaustion(workspaceId);
+  // Re-read session after possible exhaustion_counted write (rounds may bump).
+  const freshSession = (await getActiveSession(workspaceId)) ?? session;
+
   const rows = await db
     .select()
     .from(schema.productCandidates)
     .where(
       and(
-        eq(schema.productCandidates.sessionId, session.id),
+        eq(schema.productCandidates.sessionId, freshSession.id),
         eq(schema.productCandidates.status, "shown"),
       ),
     )
     .orderBy(asc(schema.productCandidates.rank))
     .all();
 
-  const visible = rows.filter((r) => r.rank < session.productsShown);
-  const cap = Math.min(DISCOVERY_SESSION_CAP, await poolSize(session.id));
+  const visible = rows.filter((r) => r.rank < freshSession.productsShown);
+  const cap = Math.min(DISCOVERY_SESSION_CAP, await poolSize(freshSession.id));
+  const canShowMore =
+    freshSession.showMoreUsed < DISCOVERY_SHOW_MORE_MAX &&
+    freshSession.productsShown < cap;
+
+  const onboarding = await db
+    .select()
+    .from(schema.onboardingProfiles)
+    .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
+    .get();
+  const remainingEligible = onboarding
+    ? await countRemainingEligible(workspaceId, onboarding)
+    : 0;
+  const exhaustedRounds = await getExhaustedRounds(workspaceId);
+  const ladder = classifyDiscoveryLadder({
+    visibleCount: visible.length,
+    canShowMore,
+    remainingEligible,
+    exhaustedRounds,
+  });
+
+  // Latest demand aiSummary per confirmed candidate (written by confirmDemand).
+  const confirmedIds = visible
+    .filter((r) => r.demandConfirmed)
+    .map((r) => r.id);
+  const demandSummaryByCandidate = new Map<string, string>();
+  if (confirmedIds.length > 0) {
+    const signals = await db
+      .select({
+        productCandidateId: schema.demandSignals.productCandidateId,
+        aiSummary: schema.demandSignals.aiSummary,
+      })
+      .from(schema.demandSignals)
+      .where(inArray(schema.demandSignals.productCandidateId, confirmedIds))
+      .orderBy(desc(schema.demandSignals.createdAt))
+      .all();
+    for (const s of signals) {
+      if (!demandSummaryByCandidate.has(s.productCandidateId)) {
+        demandSummaryByCandidate.set(s.productCandidateId, s.aiSummary);
+      }
+    }
+  }
 
   const candidates: DiscoveryCandidateView[] = visible.map((r) => {
     let catalogKey = "";
@@ -546,25 +841,31 @@ export async function getDiscoveryView(
       marginBefore: r.marginBefore,
       marginAfter: r.marginAfter,
       marginsPass: r.marginsPass,
+      marginBlockReason: r.marginBlockReason,
       oversized: r.oversizedHardBlock,
       fitScore: r.fitScore,
       strength: r.strength as "Strong" | "Okay",
       riskRead: r.riskRead,
       notRecommended: r.notRecommended,
       demandConfirmed: r.demandConfirmed,
+      demandSummary: demandSummaryByCandidate.get(r.id) ?? null,
       tier1Conflict: r.tier1Conflict,
       tier1Marketplaces,
     };
   });
 
   return {
-    sessionId: session.id,
-    productsShown: session.productsShown,
-    showMoreRemaining: Math.max(0, DISCOVERY_SHOW_MORE_MAX - session.showMoreUsed),
-    canShowMore:
-      session.showMoreUsed < DISCOVERY_SHOW_MORE_MAX &&
-      session.productsShown < cap,
+    sessionId: freshSession.id,
+    productsShown: freshSession.productsShown,
+    showMoreRemaining: Math.max(
+      0,
+      DISCOVERY_SHOW_MORE_MAX - freshSession.showMoreUsed,
+    ),
+    canShowMore,
     sessionCap: cap,
     candidates,
+    ladder,
+    exhaustedRounds,
+    remainingEligible,
   };
 }

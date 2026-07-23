@@ -207,6 +207,7 @@ export function unblockJourney(workspaceId: string) {
 
 type WorkspaceEdit = Partial<{ name: string; language: string }>;
 type SkuCardEdit = Partial<{ founderNotes: string }>;
+type MarketingKitEdit = Partial<{ items: string }>;
 type StoreReadinessEdit = Partial<{
   checklist: string;
   storeUrl: string | null;
@@ -253,6 +254,20 @@ export async function founderEditSkuCard(skuId: string, patch: SkuCardEdit) {
     .update(schema.skuCards)
     .set({ ...clean, updatedAt: nowIso() })
     .where(eq(schema.skuCards.id, skuId));
+}
+
+/** Founder edit of a marketing kit — only the creative `items` are editable. */
+export async function founderEditMarketingKit(
+  kitId: string,
+  patch: MarketingKitEdit,
+) {
+  ensureMigrated();
+  const clean = enforceFounderEdit("marketingKit", patch);
+  if (Object.keys(clean).length === 0) return;
+  await db
+    .update(schema.marketingKits)
+    .set({ ...clean, updatedAt: nowIso() })
+    .where(eq(schema.marketingKits.id, kitId));
 }
 
 /** Founder edit of store-readiness marks (checklist, URLs, courier). */

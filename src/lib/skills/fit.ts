@@ -50,6 +50,7 @@ export type FitResult = {
   score: number; // 0..100
   breakdown: FitBreakdown;
   strength: "Strong" | "Okay";
+  /** Stable i18n note key (`@fit.*`) for Okay products; UI translates via next-intl. */
   riskRead: string | null;
   notRecommended: boolean;
 };
@@ -136,13 +137,10 @@ export function computeFit(
 
   let riskRead: string | null = null;
   if (strength === "Okay") {
-    if (!riskWithinTolerance) {
-      riskRead =
-        "This product carries more risk than your stated tolerance. Review demand certainty, competition, and cash exposure before committing.";
-    } else {
-      riskRead =
-        "Fit is moderate rather than strong. Read the fit and margin notes and confirm you are comfortable before accepting.";
-    }
+    // Note keys (not English copy) — DiscoveryBoard translates under Discovery.notes.
+    riskRead = !riskWithinTolerance
+      ? "@fit.riskOverTolerance"
+      : "@fit.moderateOkay";
   }
 
   return {

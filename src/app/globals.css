@@ -40,20 +40,21 @@
   --color-foam: var(--foam);
   --color-accent: var(--accent);
   --font-sans: var(--font-inter);
-  --font-display: var(--font-inter);
+  --font-display: var(--font-bricolage);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+  font-family: var(--font-inter), var(--font-arabic), system-ui, -apple-system,
+    sans-serif;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Headings: same clean sans, tighter tracking + strong weight */
+/* Hero titles: real display face. Arabic glyphs fall through to Plex Arabic. */
 .font-display {
-  font-family: var(--font-inter), system-ui, sans-serif;
+  font-family: var(--font-bricolage), var(--font-arabic), system-ui, sans-serif;
   letter-spacing: -0.02em;
   font-weight: 650;
 }
@@ -90,4 +91,51 @@ body {
   box-shadow:
     0 1px 2px rgba(26, 28, 29, 0.04),
     0 1px 3px rgba(26, 28, 29, 0.06);
+}
+
+/* Operator cockpit hero band — soft cedar/sea atmospheric wash (no flat gray,
+   no purple glow). */
+.stage-hero {
+  position: relative;
+  border: 1px solid var(--stone);
+  border-radius: 1rem;
+  background:
+    radial-gradient(
+      120% 150% at 0% 0%,
+      color-mix(in srgb, var(--cedar) 13%, transparent),
+      transparent 58%
+    ),
+    radial-gradient(
+      120% 150% at 100% 0%,
+      color-mix(in srgb, var(--sea) 10%, transparent),
+      transparent 55%
+    ),
+    linear-gradient(180deg, var(--surface), var(--surface-subtle));
+  box-shadow: 0 1px 3px rgba(26, 28, 29, 0.05);
+}
+
+/* CTA hover lift (quiet motion) */
+.hero-cta {
+  transition:
+    transform 0.15s ease-out,
+    background-color 0.15s ease-out,
+    box-shadow 0.15s ease-out;
+}
+.hero-cta:hover {
+  transform: translateY(-1px);
+}
+
+/* Journey strip: emphasize the current step on load */
+@keyframes step-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.animate-step {
+  animation: step-pop 0.4s ease-out 0.1s both;
 }

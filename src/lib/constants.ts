@@ -8,8 +8,23 @@ export const MARKETING_BUDGET_DAYS = 30;
 export const DISCOVERY_INITIAL_COUNT = 5;
 export const DISCOVERY_SHOW_MORE_MAX = 5;
 export const DISCOVERY_SESSION_CAP = 25;
+/** After this many fully exhausted session pools, show the "why did you pass?" form. */
+export const DISCOVERY_EXHAUSTED_ROUNDS_BEFORE_WHY = 3;
+/**
+ * Per-unit landed-cost tolerance for Discovery. A product whose landed cost is
+ * at or below `maxLandedCost × MAX_LANDED_SOFT_OVERAGE` may still appear (the
+ * soft budget Fit penalty handles "slightly over"). Anything above this ceiling
+ * is way over the founder's stated per-unit max and is hard-excluded from the
+ * discovery pool. This is about per-unit landed cost, NOT total budgetUsd.
+ */
+export const MAX_LANDED_SOFT_OVERAGE = 1.2;
 export const INVEST_NEXT_MIN_WEEKS = 4;
 export const PRE_LAUNCH_MAX_DAILY_AD_SPEND = 5;
+/** Soft warning when an estimated batch order crosses this USD threshold. */
+export const BATCH_SOFT_WARNING_USD = 10000;
+/** Marketing capacity tiers = creatives per plan, by hours-per-week band. */
+export const MARKETING_CAPACITY_TIERS = [6, 10, 14] as const;
+export type MarketingCapacityTier = (typeof MARKETING_CAPACITY_TIERS)[number];
 
 export const JOURNEY_STATES = [
   "discovery",
@@ -63,12 +78,13 @@ export type MarketingStage = (typeof MARKETING_STAGES)[number];
 
 export const TIER1_MARKETPLACES = ["Ishtari", "EGLOW", "Platza"] as const;
 
+/** Last-mile delivery company option ids (labels: Store.deliveryCompanies.*). */
 export const COURIERS_TBD = [
-  "Courier TBD 1",
-  "Courier TBD 2",
-  "Courier TBD 3",
-  "Courier TBD 4",
-  "Courier TBD 5",
+  "confirm_later",
+  "partner_a",
+  "partner_b",
+  "partner_c",
+  "partner_d",
 ] as const;
 
 export const CLEARANCE_PARTNER_TBD = "Clearance partner TBD";
@@ -89,15 +105,39 @@ export const INDUSTRY_OPTIONS = [
 
 export type IndustryOptionId = (typeof INDUSTRY_OPTIONS)[number];
 
-export const STORE_CHECKLIST_KEYS = [
+/** Build-section keys (stable ids). Titles live in i18n Store.checklist.*. */
+export const STORE_CHECKLIST_BUILD_KEYS = [
   "shopifyCreated",
   "currencyUsd",
   "contentEnAr",
+  "productPublished",
   "codPrimary",
   "optionalPayments",
   "courierSelected",
   "shortPolicies",
   "whatsappConnected",
+] as const;
+
+/** Go-live section keys (stable ids). */
+export const STORE_CHECKLIST_GO_LIVE_KEYS = [
+  "sellToLebanon",
+  "shippingRates",
+  "storePublic",
+  "testCheckout",
+] as const;
+
+/** Section id → keys (stable order). Section titles: Store.buildSection / goLiveSection. */
+export const STORE_CHECKLIST_SECTIONS = [
+  { id: "buildSection", keys: STORE_CHECKLIST_BUILD_KEYS },
+  { id: "goLiveSection", keys: STORE_CHECKLIST_GO_LIVE_KEYS },
+] as const;
+
+export type StoreChecklistSectionId =
+  (typeof STORE_CHECKLIST_SECTIONS)[number]["id"];
+
+export const STORE_CHECKLIST_KEYS = [
+  ...STORE_CHECKLIST_BUILD_KEYS,
+  ...STORE_CHECKLIST_GO_LIVE_KEYS,
 ] as const;
 
 export type StoreChecklistKey = (typeof STORE_CHECKLIST_KEYS)[number];

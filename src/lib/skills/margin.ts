@@ -17,9 +17,10 @@ import {
  *   pass_before: margin_before >= 0.70
  *   pass_after:  margin_after  >= 0.35
  *
- * On failure the result carries a human-readable `blockReason` — Discovery must
- * show "blocked with explanation" and never present an all-blocked dead end.
- * This module is pure (no I/O) and fully unit-tested.
+ * On failure the result carries a stable `blockReason` of space-separated i18n
+ * note keys (`@margin.*`) — Discovery translates them (with margin % params)
+ * and never presents an all-blocked dead end. This module is pure (no I/O)
+ * and fully unit-tested.
  */
 
 export type MarginInput = {
@@ -40,12 +41,9 @@ export type MarginResult = {
   passBefore: boolean;
   passAfter: boolean;
   pass: boolean;
+  /** Space-separated `@margin.*` keys for UI translation; null when pass. */
   blockReason: string | null;
 };
-
-function pct(fraction: number): string {
-  return `${Math.round(fraction * 100)}%`;
-}
 
 export function computeLandedCost(input: MarginInput): number {
   return (
@@ -75,7 +73,7 @@ export function computeMargin(input: MarginInput): MarginResult {
       passBefore: false,
       passAfter: false,
       pass: false,
-      blockReason: "Sell price must be greater than zero.",
+      blockReason: "@margin.sellPrice",
     };
   }
 
@@ -88,21 +86,10 @@ export function computeMargin(input: MarginInput): MarginResult {
   const passAfter = marginAfter >= MARGIN_AFTER_ADS_MIN;
   const pass = passBefore && passAfter;
 
+  // Note keys (not English copy) — DiscoveryBoard translates under Discovery.notes.
   const reasons: string[] = [];
-  if (!passBefore) {
-    reasons.push(
-      `Margin before ads is ${pct(marginBefore)} (needs \u2265 ${pct(
-        MARGIN_BEFORE_ADS_MIN,
-      )}).`,
-    );
-  }
-  if (!passAfter) {
-    reasons.push(
-      `Margin after ads is ${pct(marginAfter)} (needs \u2265 ${pct(
-        MARGIN_AFTER_ADS_MIN,
-      )}).`,
-    );
-  }
+  if (!passBefore) reasons.push("@margin.failBefore");
+  if (!passAfter) reasons.push("@margin.failAfter");
 
   return {
     landedCost,

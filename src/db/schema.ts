@@ -84,11 +84,23 @@ export const sideStatuses = sqliteTable("side_statuses", {
   batchArrivedReady: integer("batch_arrived_ready", { mode: "boolean" })
     .notNull()
     .default(false),
+  /**
+   * Expected batch arrival ETA (JSON: { preset, weeks, date?, label? }).
+   * Null = founder has not set; Marketing uses default 1 month (4 weeks).
+   */
+  batchArrivalEta: text("batch_arrival_eta"),
   topicAWeekCount: integer("topic_a_week_count").notNull().default(0),
   cashLockAck: integer("cash_lock_ack", { mode: "boolean" }).notNull().default(false),
   stuckOver10kAck: integer("stuck_over_10k_ack", { mode: "boolean" })
     .notNull()
     .default(false),
+  costQuotesSaved: integer("cost_quotes_saved", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  /** Fully exhausted Discovery session pools (reject-all ladder). Reset on accept / onboarding edit. */
+  discoveryExhaustedRounds: integer("discovery_exhausted_rounds")
+    .notNull()
+    .default(0),
   updatedAt: text("updated_at").notNull(),
 });
 
@@ -100,6 +112,10 @@ export const discoverySessions = sqliteTable("discovery_sessions", {
   showMoreUsed: integer("show_more_used").notNull().default(0),
   productsShown: integer("products_shown").notNull().default(0),
   status: text("status").notNull().default("active"), // active | closed
+  /** True once this session's pool was counted toward discoveryExhaustedRounds. */
+  exhaustionCounted: integer("exhaustion_counted", { mode: "boolean" })
+    .notNull()
+    .default(false),
   createdAt: text("created_at").notNull(),
 });
 
@@ -171,6 +187,8 @@ export const skuCards = sqliteTable("sku_cards", {
   handling: text("handling").notNull(),
   importBatch: text("import_batch").notNull(),
   moneySnapshot: text("money_snapshot").notNull(),
+  quotedCosts: text("quoted_costs"), // JSON — founder-quoted unit costs + expected margin
+  reportedMargin: text("reported_margin"), // DEPRECATED — old manual "reported margin after ads". No longer written/read by product UI; after-ads margins are now computed automatically from Topic A. Left in place for a clean later cleanup.
   marketingHooks: text("marketing_hooks").notNull(),
   founderNotes: text("founder_notes").notNull().default(""),
   createdAt: text("created_at").notNull(),

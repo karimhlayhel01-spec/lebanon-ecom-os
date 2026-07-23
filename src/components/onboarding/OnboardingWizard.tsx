@@ -8,7 +8,6 @@ import {
 } from "@/actions/onboarding";
 import {
   MIN_BUDGET_USD,
-  COURIERS_TBD,
   CLEARANCE_PARTNER_TBD,
   INDUSTRY_OPTIONS,
   type IndustryOptionId,
@@ -312,9 +311,7 @@ export function OnboardingWizard({
           />
           <span>{t("sampleClearance")}</span>
         </label>
-        <p className="text-xs text-stone-dark">
-          {t("couriersNote")} {COURIERS_TBD.join(", ")}
-        </p>
+        <p className="text-xs text-stone-dark">{t("couriersNote")}</p>
         <p className="text-xs text-stone-dark">
           {t("clearanceNote")} {CLEARANCE_PARTNER_TBD}
         </p>
@@ -343,6 +340,7 @@ export function OnboardingWizard({
         </button>
         {step < 2 ? (
           <button
+            key="onboarding-next"
             type="button"
             onClick={goNext}
             className="rounded-md bg-cedar px-5 py-2.5 text-sm font-semibold text-foam shadow-sm transition hover:bg-cedar-deep"
@@ -351,6 +349,7 @@ export function OnboardingWizard({
           </button>
         ) : (
           <button
+            key="onboarding-submit"
             type="submit"
             disabled={pending || selectedIndustries.size === 0}
             className="rounded-md bg-cedar px-5 py-2.5 text-sm font-semibold text-foam shadow-sm transition hover:bg-cedar-deep disabled:opacity-60"

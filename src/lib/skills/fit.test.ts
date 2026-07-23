@@ -40,7 +40,8 @@ describe("fit skill", () => {
       product({ risk: 2 }),
     );
     expect(r.strength).toBe("Okay");
-    expect(r.riskRead).toContain("risk");
+    // Skills return stable note keys; DiscoveryBoard translates for EN/AR UI.
+    expect(r.riskRead).toBe("@fit.riskOverTolerance");
   });
 
   it("marks a moderate-fit product as Okay even within risk tolerance", () => {
@@ -50,7 +51,7 @@ describe("fit skill", () => {
     );
     expect(r.score).toBeLessThan(70);
     expect(r.strength).toBe("Okay");
-    expect(r.riskRead).not.toBeNull();
+    expect(r.riskRead).toBe("@fit.moderateOkay");
   });
 
   it("applies a soft +5 bonus for a liked category", () => {

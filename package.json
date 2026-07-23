@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
+    "db:seed:preview": "tsx scripts/seed-preview.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,43 +1,58 @@
-import { eq } from "drizzle-orm";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import { redirect, Link } from "@/i18n/navigation";
-import { db, schema } from "@/db";
-import { getSessionUser } from "@/lib/auth";
-import { getDashboardContext } from "@/lib/workspace";
+import { Link } from "@/i18n/navigation";
+import { requireOnboardedContext } from "@/lib/workspace";
 import { getDiscoveryView } from "@/lib/discovery/service";
-import { logoutAction } from "@/actions/auth";
+import { getSkuView } from "@/lib/sku/service";
+import { getFinancePanel } from "@/lib/finance/service";
+import { getOrchestration } from "@/lib/orchestrator/service";
 import { startDiscoveryAction } from "@/actions/discovery";
-import { PauseResumeControls } from "@/components/dashboard/PauseResumeControls";
+import { AppHeader } from "@/components/dashboard/AppHeader";
+import { CompactSku } from "@/components/dashboard/CompactSku";
+import { StageHero, type HeroCta } from "@/components/dashboard/StageHero";
+import { JourneyStrip, type JourneyStep } from "@/components/dashboard/JourneyStrip";
+import { WeekSnapshot } from "@/components/dashboard/WeekSnapshot";
 import { DiscoveryBoard } from "@/components/discovery/DiscoveryBoard";
+import { OrchestratorPanel } from "@/components/orchestrator/OrchestratorPanel";
+import { isPreviewMode } from "@/lib/preview/config"; // PREVIEW (removable)
+import { PreviewBanner } from "@/components/preview/PreviewBanner"; // PREVIEW (removable)
 import type { AppLocale } from "@/i18n/routing";
 
 type Props = {
   params: Promise<{ locale: string }>;
 };
 
+function stageStep(state: string): JourneyStep {
+  switch (state) {
+    case "discovery":
+      return "discovery";
+    case "supplier_sample":
+      return "accepted";
+    case "sample_approved":
+    case "store_setup":
+      return "sample";
+    case "batch_ordered":
+      return "batch";
+    case "batch_arrived_ready":
+      return "arrived";
+    case "selling":
+      return "selling";
+    default:
+      return "discovery";
+  }
+}
+
 export default async function DashboardPage({ params }: Props) {
   const { locale } = await params;
   setRequestLocale(locale);
 
-  const user = await getSessionUser();
-  if (!user) {
-    redirect({ href: "/auth/login", locale });
-  }
-
-  const ctx = await getDashboardContext(user!);
-  if (!ctx || !ctx.side?.onboardingComplete) {
-    redirect({ href: "/onboarding", locale });
-  }
+  const ctx = await requireOnboardedContext(locale);
 
   const t = await getTranslations("Dashboard");
-  const brand = await getTranslations("Brand");
-  const states = await getTranslations("States");
-  const auth = await getTranslations("Auth");
   const disc = await getTranslations("Discovery");
 
-  const workspace = ctx!.workspace;
-  const journey = ctx!.journey;
-  const side = ctx!.side!;
+  const workspace = ctx.workspace;
+  const journey = ctx.journey;
+  const side = ctx.side!;
   const primaryState = journey?.primaryState ?? "discovery";
   const isPaused = primaryState === "paused";
 
@@ -46,86 +61,224 @@ export default async function DashboardPage({ params }: Props) {
     ? await getDiscoveryView(workspace.id, locale as AppLocale)
     : null;
 
-  const activeSku = workspace.activeSkuId
-    ? await db
-        .select({ name: schema.skuCards.name })
-        .from(schema.skuCards)
-        .where(eq(schema.skuCards.id, workspace.activeSkuId))
-        .get()
-    : null;
-  const displayState = (
-    isPaused ? "paused" : primaryState
-  ) as
-    | "discovery"
-    | "supplier_sample"
-    | "sample_approved"
-    | "store_setup"
-    | "batch_ordered"
-    | "batch_arrived_ready"
-    | "selling"
-    | "paused"
-    | "blocked";
+  const skuView =
+    !inDiscovery && side.productAccepted
+      ? await getSkuView(workspace.id)
+      : null;
+
+  const sampleApproved =
+    side.sampleStatus === "approved" ||
+    [
+      "sample_approved",
+      "store_setup",
+      "batch_ordered",
+      "batch_arrived_ready",
+      "selling",
+    ].includes(primaryState);
+  const isSelling = primaryState === "selling";
+  const showFinance = side.batchArrivedReady || isSelling;
+  const financeView = showFinance ? await getFinancePanel(workspace.id) : null;
+
+  const orchestration = await getOrchestration(workspace.id);
+
+  // Stage from which we drive the hero (paused reflects the paused-from state).
+  const heroState = isPaused
+    ? (journey?.pausedFromState ?? "discovery")
+    : primaryState;
+
+  const storeWhisper =
+    side.storeReadyPercent < 100
+      ? { label: t("heroStoreWhisper", { pct: side.storeReadyPercent }), href: "/store" }
+      : null;
+
+  const hero: {
+    eyebrow: string;
+    title: string;
+    subline: string;
+    ctas: HeroCta[];
+    whisper: { label: string; href: string } | null;
+  } = (() => {
+    if (isPaused) {
+      return {
+        eyebrow: t("heroPausedEyebrow"),
+        title: t("heroPausedTitle"),
+        subline: t("heroPausedSub"),
+        ctas: [],
+        whisper: null,
+      };
+    }
+    switch (primaryState) {
+      case "discovery":
+        return {
+          eyebrow: t("heroDiscoveryEyebrow"),
+          title: t("heroDiscoveryTitle"),
+          subline: t("heroDiscoverySub"),
+          ctas: [
+            {
+              href: "#discovery",
+              label: discovery ? t("ctaContinueDiscovery") : t("ctaStartDiscovery"),
+              tone: "primary",
+            },
+          ],
+          whisper: null,
+        };
+      case "supplier_sample": {
+        const label =
+          side.sampleStatus === "in_flight" || side.sampleStatus === "requested"
+            ? t("ctaSampleDecision")
+            : side.sampleStatus === "rejected"
+              ? t("ctaSampleRetry")
+              : t("ctaRequestSample");
+        return {
+          eyebrow: t("heroSampleEyebrow"),
+          title: t("heroSampleTitle"),
+          subline: t("heroSampleSub"),
+          ctas: [{ href: "/supplier", label, tone: "primary" }],
+          whisper: null,
+        };
+      }
+      case "sample_approved":
+      case "store_setup": {
+        // Cost quotes are the obvious next step until saved: promote them to the
+        // primary CTA (deep-link to Supplier #cost-quotes) and keep batch as a
+        // parallel action — never removed (marking batch stays allowed).
+        const quotesSaved = side.costQuotesSaved;
+        const storeCta: HeroCta = {
+          href: "/store",
+          label: t("ctaStoreSetup"),
+          tone: "parallel",
+        };
+        const batchCta: HeroCta = {
+          href: "/supplier",
+          label: t("ctaOrderBatch"),
+          tone: quotesSaved ? "primary" : "parallel",
+        };
+        return {
+          eyebrow: t("heroSetupEyebrow"),
+          title: t("heroSetupTitle"),
+          subline: quotesSaved ? t("heroSetupSub") : t("heroSetupSubCosts"),
+          ctas: quotesSaved
+            ? [batchCta, storeCta]
+            : [
+                {
+                  href: "/supplier#cost-quotes",
+                  label: t("ctaEnterCosts"),
+                  tone: "primary",
+                },
+                batchCta,
+                storeCta,
+              ],
+          whisper: {
+            label: t("heroMarketingIntroWhisper"),
+            href: "/marketing?stage=intro_pdf",
+          },
+        };
+      }
+      case "batch_ordered":
+        return {
+          eyebrow: t("heroOrderedEyebrow"),
+          title: t("heroOrderedTitle"),
+          subline: t("heroOrderedSub"),
+          ctas: [
+            { href: "/supplier", label: t("ctaMarkArrived"), tone: "primary" },
+            {
+              href: "/marketing?stage=pre_launch",
+              label: t("ctaPreLaunch"),
+              tone: "parallel",
+            },
+          ],
+          whisper: storeWhisper,
+        };
+      case "selling":
+        return {
+          eyebrow: t("heroSellingEyebrow"),
+          title: t("heroSellingTitle"),
+          subline: t("heroSellingSub"),
+          ctas: [
+            { href: "/finance", label: t("ctaLogWeek"), tone: "primary" },
+            {
+              href: "/marketing?stage=monthly_refresh",
+              label: t("ctaMonthlyRefresh"),
+              tone: "parallel",
+            },
+          ],
+          whisper: null,
+        };
+      case "batch_arrived_ready":
+      default:
+        return {
+          eyebrow: t("heroBatchEyebrow"),
+          title: t("heroBatchTitle"),
+          subline: t("heroBatchSub"),
+          ctas: [
+            { href: "/finance", label: t("ctaStartSelling"), tone: "primary" },
+            {
+              href: "/marketing?stage=launch",
+              label: t("ctaLaunchMarketing"),
+              tone: "parallel",
+            },
+          ],
+          whisper: storeWhisper,
+        };
+    }
+  })();
+
+  const tools: Array<{ href: "/sku" | "/supplier" | "/store" | "/marketing"; label: string }> =
+    side.productAccepted
+      ? [
+          { href: "/sku", label: t("toolSku") },
+          { href: "/supplier", label: t("toolSupplier") },
+          ...(sampleApproved
+            ? ([
+                { href: "/store", label: t("toolStore") },
+                { href: "/marketing", label: t("toolMarketing") },
+              ] as const)
+            : []),
+        ]
+      : [];
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-stone bg-surface">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-3.5">
-          <Link
-            href="/"
-            className="font-display text-lg font-semibold tracking-tight text-ink"
-          >
-            {brand("name")}
-          </Link>
-          <div className="flex items-center gap-3">
-            <Link
-              href="/onboarding?edit=1"
-              className="rounded-md border border-stone px-3 py-2 text-sm font-medium text-ink transition hover:bg-sand"
-            >
-              {t("editOnboarding")}
-            </Link>
-            <PauseResumeControls isPaused={isPaused} />
-            <form action={logoutAction}>
-              <button
-                type="submit"
-                className="rounded-md border border-stone px-3 py-2 text-sm font-medium text-ink transition hover:bg-sand"
-              >
-                {auth("logout")}
-              </button>
-            </form>
-          </div>
-        </div>
-      </header>
+      <AppHeader isPaused={isPaused} />
 
-      <main className="mx-auto w-full max-w-6xl px-6 py-8">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="font-display text-2xl text-ink">{t("title")}</h1>
-            <p className="mt-1 text-sm text-stone-dark">
-              {t("greeting", { name: user!.name })}
-            </p>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <span className="text-sm text-stone-dark">{t("stateChip")}</span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-cedar/30 bg-cedar/10 px-3 py-1.5 text-sm font-semibold text-cedar-deep">
-              <span className="size-1.5 rounded-full bg-cedar" aria-hidden />
-              {states(displayState)}
-              {isPaused && journey?.pausedFromState
-                ? ` ← ${states(journey.pausedFromState as "discovery")}`
-                : ""}
+      <main id="top" className="mx-auto w-full max-w-6xl px-6 py-8">
+        {isPreviewMode() && <PreviewBanner />}
+
+        <StageHero
+          eyebrow={hero.eyebrow}
+          title={hero.title}
+          subline={hero.subline}
+          ctas={hero.ctas}
+          whisper={hero.whisper}
+        />
+
+        {tools.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-stone-dark">
+              {t("toolsLabel")}
             </span>
+            {tools.map((tool) => (
+              <Link
+                key={tool.href}
+                href={tool.href}
+                className="rounded-full border border-stone bg-surface px-3 py-1 text-xs font-medium text-ink transition hover:bg-sand"
+              >
+                {tool.label}
+              </Link>
+            ))}
           </div>
-        </div>
+        )}
 
-        <div className="mt-8 grid gap-5 lg:grid-cols-3">
+        <div className="mt-5 grid gap-5 lg:grid-cols-3">
           <section className="animate-rise space-y-5 lg:col-span-2">
             {inDiscovery ? (
               discovery ? (
-                <DiscoveryBoard view={discovery} />
+                <div id="discovery">
+                  <DiscoveryBoard view={discovery} />
+                </div>
               ) : (
-                <div className="surface-card p-6 text-center">
-                  <h2 className="font-display text-lg text-ink">
-                    {disc("title")}
-                  </h2>
+                <div id="discovery" className="surface-card p-6 text-center">
+                  <h2 className="font-display text-lg text-ink">{disc("title")}</h2>
                   <p className="mx-auto mt-2 max-w-md text-sm text-stone-dark">
                     {disc("startHint")}
                   </p>
@@ -139,15 +292,15 @@ export default async function DashboardPage({ params }: Props) {
                   </form>
                 </div>
               )
-            ) : side.productAccepted && activeSku ? (
-              <div className="surface-card p-5">
-                <h2 className="font-display text-lg text-ink">
-                  {disc("acceptedTitle")}
-                </h2>
-                <p className="mt-2 text-sm text-stone-dark">
-                  {disc("acceptedBody", { name: activeSku.name })}
-                </p>
-              </div>
+            ) : skuView ? (
+              <>
+                {isSelling && financeView && <WeekSnapshot view={financeView} />}
+                <CompactSku
+                  sku={skuView}
+                  actual={financeView?.currentActual ?? null}
+                  quiet
+                />
+              </>
             ) : (
               <div className="surface-card p-5">
                 <h2 className="font-display text-lg text-ink">{t("nextCta")}</h2>
@@ -159,52 +312,10 @@ export default async function DashboardPage({ params }: Props) {
           </section>
 
           <aside className="animate-rise-delay space-y-5">
-            <div className="surface-card p-5">
-              <h2 className="font-display text-base text-ink">
-                {t("sideStatuses")}
-              </h2>
-              <ul className="mt-4 space-y-3 text-sm">
-                <li className="flex items-center justify-between gap-2 border-b border-stone pb-3">
-                  <span className="text-stone-dark">{t("onboarding")}</span>
-                  <span className="font-medium text-cedar-deep">
-                    {side.onboardingComplete ? t("complete") : t("pending")}
-                  </span>
-                </li>
-                <li className="flex items-center justify-between gap-2 border-b border-stone pb-3">
-                  <span className="text-stone-dark">{t("product")}</span>
-                  <span className="font-medium text-ink">
-                    {side.productAccepted ? t("yes") : t("no")}
-                  </span>
-                </li>
-                <li className="flex items-center justify-between gap-2 border-b border-stone pb-3">
-                  <span className="text-stone-dark">{t("sample")}</span>
-                  <span className="font-medium text-ink">{side.sampleStatus}</span>
-                </li>
-                <li className="flex items-center justify-between gap-2 border-b border-stone pb-3">
-                  <span className="text-stone-dark">{t("storeReady")}</span>
-                  <span className="font-medium text-ink">
-                    {side.storeReadyPercent}%
-                  </span>
-                </li>
-                <li className="flex items-center justify-between gap-2 border-b border-stone pb-3">
-                  <span className="text-stone-dark">{t("marketing")}</span>
-                  <span className="font-medium text-ink">
-                    {side.marketingStage}
-                  </span>
-                </li>
-                <li className="flex items-center justify-between gap-2">
-                  <span className="text-stone-dark">{t("batch")}</span>
-                  <span className="font-medium text-ink">
-                    {side.batchOrdered ? t("yes") : t("no")}
-                  </span>
-                </li>
-              </ul>
-            </div>
-
-            <div className="surface-card p-5">
-              <h2 className="font-display text-base text-ink">{t("finance")}</h2>
-              <p className="mt-2 text-sm text-stone-dark">{t("financeSlot")}</p>
-            </div>
+            <JourneyStrip current={stageStep(heroState)} />
+            {orchestration && !isPaused && (
+              <OrchestratorPanel view={orchestration} coachingOnly />
+            )}
           </aside>
         </div>
       </main>

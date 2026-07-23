@@ -78,14 +78,14 @@
     "lebanonRequired": "You must acknowledge Lebanon sellability.",
     "codComfort": "COD comfort & notes",
     "codNoticeTitle": "Cash on delivery (COD)",
-    "codNoticeBody": "COD is common in Lebanon and carries collection risk, refusal rates, and courier fees. Plan margins and cash flow accordingly.",
+    "codNoticeBody": "COD means the buyer pays you in cash to the delivery person on arrival — not a payment to your China supplier. It is common in Lebanon and carries collection risk, refusal rates, and last-mile courier fees. Plan margins and cash flow accordingly.",
     "sampleClearance": "I am ready to handle sample clearance with a partner when needed.",
     "deliveryBand": "Expected delivery band (days)",
     "back": "Back",
     "next": "Next",
     "submit": "Finish onboarding",
     "errorGeneric": "Something went wrong. Check the form and try again.",
-    "couriersNote": "Courier partners (placeholder):",
+    "couriersNote": "Door delivery companies are chosen later in Store setup (placeholders until you confirm a real partner).",
     "clearanceNote": "Clearance partner (placeholder):"
   },
   "Dashboard": {
@@ -100,21 +100,119 @@
     "marketing": "Marketing",
     "batch": "Batch",
     "nextCta": "Next step",
-    "nextCtaPlaceholder": "Product discovery will appear here (coming soon).",
+    "nextCtaPlaceholder": "No product accepted yet. Start or continue Discovery to pick your first SKU.",
     "shortlist": "Shortlist",
-    "shortlistEmpty": "Empty shortlist slot — discovery agent not started yet.",
+    "shortlistEmpty": "No shortlist yet — accept a product in Discovery first.",
     "coaching": "Coaching",
-    "coachingSlot": "Coaching card slot — guidance will appear here.",
+    "coachingSlot": "Coaching tips appear here as you move through the journey.",
     "finance": "Finance",
-    "financeSlot": "Finance panel — empty for now.",
+    "financeSlot": "Finance opens after your batch arrives.",
+    "financeLive": "Live · {n} weeks logged",
+    "financePreview": "Preview — open the panel",
+    "financeLocked": "Unlocks when your batch arrives.",
     "editOnboarding": "Edit onboarding",
+    "languageSwitch": "Language",
+    "languageEn": "EN",
+    "languageAr": "ع",
+    "languageEnFull": "English",
+    "languageArFull": "Arabic",
     "pause": "Pause journey",
     "resume": "Resume journey",
     "paused": "Paused",
     "complete": "Done",
     "pending": "Pending",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "backToDashboard": "← Dashboard",
+    "backToDashboardCta": "Back to dashboard",
+    "openSku": "Open SKU",
+    "openSupplier": "Open supplier",
+    "openStore": "Open store",
+    "openMarketing": "Open marketing",
+    "openFinance": "Open finance",
+    "pageSku": "Product SKU",
+    "pageSupplier": "Supplier & import",
+    "pageStore": "Store setup",
+    "pageMarketing": "Marketing",
+    "pageFinance": "Finance",
+    "supplierStatusPick": "Pick a supplier and mark a sample request (you contact them).",
+    "supplierStatusSampleInFlight": "Sample in progress — decide when it arrives.",
+    "supplierStatusApproved": "Sample approved — mark your first batch ordered after you place it externally.",
+    "supplierStatusBatchOrdered": "Batch marked ordered — mark it arrived when it lands.",
+    "supplierStatusBatchArrived": "Batch arrived and ready.",
+    "storeTeaserStatus": "{pct}% ready (progress only).",
+    "marketingTeaserStatus": "Stage: {stage}.",
+    "emptySku": "No product accepted yet. Accept a product in discovery to see its full SKU.",
+    "emptySupplier": "Accept a product first — your supplier shortlist and sample flow appear here.",
+    "emptyStore": "Approve a sample first — then store setup opens as a parallel side track. It never blocks marking a batch ordered.",
+    "emptyMarketing": "Approve a sample first — marketing kits unlock from there.",
+    "emptyFinance": "Finance opens after your batch arrives — preview advice first. Live weekly Topic A starts once you mark selling.",
+    "heroDiscoveryEyebrow": "Discovery",
+    "heroDiscoveryTitle": "Find your first SKU",
+    "heroDiscoverySub": "Match products to your budget, experience, and capacity — then accept one to start the supplier path.",
+    "ctaStartDiscovery": "Start discovery",
+    "ctaContinueDiscovery": "Continue discovery",
+    "heroSampleEyebrow": "Supplier & sample",
+    "heroSampleTitle": "Sample first",
+    "heroSampleSub": "Mark a paid sample request in the OS, contact the supplier yourself, then quality-check before any batch.",
+    "ctaRequestSample": "Mark sample requested",
+    "ctaSampleDecision": "Review the sample",
+    "ctaSampleRetry": "Try another supplier",
+    "heroSetupEyebrow": "Parallel setup",
+    "heroSetupTitle": "Order and set up in parallel",
+    "heroSetupSub": "Your sample is approved. Mark the batch ordered after you place it externally, and build the store side by side — the store never blocks the batch.",
+    "heroSetupSubCosts": "Your sample is approved. First, enter your real unit costs (freight, clearance, courier) for an accurate expected margin and batch estimate — then mark the batch ordered. Store setup runs in parallel and never blocks the batch.",
+    "ctaEnterCosts": "Enter real unit costs",
+    "ctaOrderBatch": "Mark batch ordered",
+    "ctaStoreSetup": "Set up the store (parallel)",
+    "heroMarketingIntroWhisper": "Prep intro lesson",
+    "heroOrderedEyebrow": "Batch marked ordered",
+    "heroOrderedTitle": "Waiting on arrival",
+    "heroOrderedSub": "Track the shipment and prep clearance. Meanwhile, warm up your audience with pre-launch creatives.",
+    "ctaMarkArrived": "Mark batch arrived",
+    "ctaPreLaunch": "Pre-launch creatives",
+    "heroPausedEyebrow": "Paused",
+    "heroPausedTitle": "Journey paused",
+    "heroPausedSub": "Your journey is on hold. Resume from the top bar whenever you're ready to pick up where you left off.",
+    "heroBatchEyebrow": "Batch arrived",
+    "heroBatchTitle": "Batch is here — ready to sell",
+    "heroBatchSub": "Your inventory is checked in. Next: mark selling to start the weekly money loop, and launch your creatives.",
+    "heroStoreWhisper": "Store {pct}% ready (side status — never blocks batch)",
+    "heroSellingEyebrow": "Selling",
+    "heroSellingTitle": "You're selling",
+    "heroSellingSub": "Log each week to keep your money picture honest, and refresh your creatives about once a week.",
+    "ctaStartSelling": "Start selling",
+    "ctaLaunchMarketing": "Launch marketing",
+    "ctaLogWeek": "Log this week",
+    "ctaMonthlyRefresh": "Weekly refresh",
+    "toolsLabel": "Tools",
+    "toolSku": "SKU",
+    "toolSupplier": "Supplier",
+    "toolStore": "Store",
+    "toolMarketing": "Marketing",
+    "journeyTitle": "Your journey",
+    "journeyNow": "Now",
+    "journey": {
+      "discovery": "Discovery",
+      "accepted": "Product accepted",
+      "sample": "Sample approved",
+      "batch": "Batch marked ordered",
+      "arrived": "Batch arrived",
+      "selling": "Selling"
+    },
+    "snapTitle": "This week",
+    "snapWeeks": "{n} weeks logged",
+    "snapNone": "No week logged yet — numbers show zero until you add one.",
+    "openTopicA": "Open Topic A",
+    "snapSales": "Sales",
+    "snapOrders": "Orders",
+    "snapAdSpend": "Ad spend",
+    "snapCod": "COD outstanding",
+    "investNext": {
+      "reinvest": "Invest-next: reinvest — the economics support scaling",
+      "hold": "Invest-next: hold — not profitable enough yet",
+      "fix_economics": "Invest-next: fix economics before scaling"
+    }
   },
   "Discovery": {
     "title": "Product discovery",
@@ -133,6 +231,7 @@
     "landedCost": "Landed cost",
     "marginBefore": "Margin before ads",
     "marginAfter": "Margin after ads",
+    "estimateNote": "Planning estimate — real supplier, ads & COD may differ.",
     "blocked": "Blocked",
     "blockedOversized": "Oversized — can't ship economically for Lebanon.",
     "blockedMargin": "Margins below target (need ≥ 70% before ads and ≥ 35% after ads).",
@@ -143,9 +242,11 @@
     "confirmDemand": "Confirm demand",
     "demandUrl": "Reference URL (marketplace, ad, video)",
     "demandNote": "Note (what shows demand?)",
-    "demandScreenshot": "Screenshot note",
+    "demandScreenshot": "Screenshot note (text only — not an upload)",
     "demandSubmit": "Save demand signal",
     "demandEmpty": "Add at least one: URL, note, or screenshot.",
+    "demandSummaryTitle": "Demand summary",
+    "demandHonesty": "v1 curated summary from your signal — not live market research (MCP later).",
     "cancel": "Cancel",
     "tier1Title": "Tier-1 marketplace conflict",
     "tier1Body": "Already sold on {markets}. Customize with your supplier to differentiate, or drop it.",
@@ -161,17 +262,728 @@
     "acceptBlocked": "Blocked products can't be accepted.",
     "acceptedTitle": "Product accepted",
     "acceptedBody": "{name} is now your active SKU. Next: the supplier & sample path.",
-    "errorGeneric": "Something went wrong. Try again."
+    "errorGeneric": "Something went wrong. Try again.",
+    "emptyShowMoreTitle": "No products left on this page",
+    "emptyShowMoreBody": "Reveal the next matches in this session — same profile, same filters.",
+    "emptyContinueTitle": "More matches for your current profile",
+    "emptyContinueBody": "You've reviewed this batch. Continue discovery to see the next-ranked products that still fit your onboarding — not a brand-new market research pass.",
+    "continueDiscovery": "Continue discovery",
+    "emptyWhyTitle": "Why did you pass?",
+    "emptyWhyBody": "Help us suggest what to tweak in onboarding. We won't change your profile automatically.",
+    "whyReason_too_expensive": "Too expensive / over my unit budget",
+    "whyReason_wrong_categories": "Wrong categories",
+    "whyReason_too_much_work": "Too much time or work",
+    "whyReason_too_risky": "Too risky",
+    "whyReason_weak_demand": "Weak demand / I don't like these products",
+    "whyReason_other": "Other",
+    "whyOtherNote": "Optional note (saved for later)",
+    "whyOtherPlaceholder": "What would make a better match?",
+    "whySuggestionsTitle": "Suggested onboarding tweaks",
+    "whySuggestion_maxLandedCost": "Raise or revisit your max landed cost per unit",
+    "whySuggestion_budgetUsd": "Check your overall import budget",
+    "whySuggestion_categoryLikes": "Update your category likes",
+    "whySuggestion_hoursPerWeek": "Adjust hours per week",
+    "whySuggestion_experience": "Update your experience level",
+    "whySuggestion_riskTolerance": "Revisit your risk tolerance",
+    "whySuggestion_demandConfirm": "Remember: confirm real demand before accepting a product",
+    "whySuggestion_otherNote": "Your note is saved for a future matching pass",
+    "whySubmit": "Save feedback",
+    "whySaved": "Thanks — feedback saved. Edit onboarding when you're ready.",
+    "whyEmpty": "Pick at least one reason or add a note.",
+    "editOnboardingCta": "Edit onboarding",
+    "emptyCatalogTitle": "No more products for your current settings",
+    "emptyCatalogBody": "The curated catalog has no eligible unseen matches left for this onboarding profile. Edit onboarding (budget, max landed cost, categories, risk, or time) to widen the pool.",
+    "notes": {
+      "fit": {
+        "riskOverTolerance": "This product carries more risk than your stated tolerance. Review demand certainty, competition, and cash exposure before committing.",
+        "moderateOkay": "Fit is moderate rather than strong. Read the fit and margin notes and confirm you are comfortable before accepting."
+      },
+      "margin": {
+        "failBefore": "Margin before ads is {value} (needs ≥ {min}).",
+        "failAfter": "Margin after ads is {value} (needs ≥ {min}).",
+        "sellPrice": "Sell price must be greater than zero."
+      }
+    }
+  },
+  "Sku": {
+    "kicker": "Topic B — Product sheet",
+    "sellPrice": "Sell price",
+    "landedCost": "Landed cost",
+    "category": "Category",
+    "differentiation": "Differentiation",
+    "secBasics": "Basics",
+    "secShip": "Ship fitness",
+    "secStorage": "Storage",
+    "secHandling": "Handling",
+    "secImport": "Import / batch",
+    "secMoney": "Money snapshot",
+    "secHooks": "Marketing hooks",
+    "oversized": "Oversized",
+    "battery": "Contains battery",
+    "fragile": "Fragile",
+    "standardHandling": "Standard handling",
+    "moq": "MOQ",
+    "moqTbd": "TBD (from supplier)",
+    "batchStatus": "Batch status",
+    "marginBefore": "Margin before ads",
+    "marginAfter": "Margin after ads",
+    "planningLabel": "planning estimate",
+    "quotedLabel": "quotes",
+    "actualLabel": "actual",
+    "expectedMarginBefore": "Expected margin before ads",
+    "actualMarginAfter": "Current actual after ads",
+    "estimateDisclaimer": "Estimate only — not your final margin. These numbers use a planning cost from Discovery (product + shipping + clearance + courier). Your real supplier price, freight, ads, and COD outcomes can be lower. Confirm after sample + supplier quote, then track weekly once selling.",
+    "estimateShort": "Estimate only — not your final margin.",
+    "estimateLearnMore": "Learn more",
+    "founderNotes": "Founder notes",
+    "founderNotesHint": "Your private notes on this product. Only you can edit these.",
+    "founderNotesPlaceholder": "Angles, competitors, ideas, reminders…",
+    "saveNotes": "Save notes",
+    "saved": "Saved",
+    "footprint": {
+      "small": "Small parcel",
+      "medium": "Medium size",
+      "large": "Large / bulky"
+    },
+    "parcel": {
+      "standard-parcel": "Standard parcel",
+      "oversized-freight": "Oversized freight"
+    },
+    "ambiance": {
+      "ambient": "Ambient / room temp",
+      "cool_dry": "Cool & dry",
+      "climate_controlled": "Climate controlled"
+    },
+    "batch": {
+      "not_ordered": "Not ordered",
+      "ordered": "Ordered",
+      "arrived": "Arrived"
+    },
+    "notes": {
+      "ship": {
+        "smallParcel": "Fits standard air parcel — cheap per-unit shipping.",
+        "consolidate": "Consolidate the batch into one shipment to cut cost.",
+        "oversizedRisk": "Oversized: freight and clearance can wipe out margin.",
+        "freightQuote": "Get a freight quote before ordering any batch."
+      },
+      "storage": {
+        "compact": "Compact — easy to store at home to start.",
+        "stackable": "Stackable boxes keep a small footprint.",
+        "bulky": "Bulky — plan real storage space and rent cost.",
+        "turnover": "Sell through fast; bulky stock ties up cash and space."
+      },
+      "handling": {
+        "battery": "Contains a battery — check delivery-company (last-mile) and clearance rules.",
+        "fragile": "Fragile — pad packaging and expect some breakage.",
+        "qcOnArrival": "Quality-check every unit on arrival before selling.",
+        "codOps": "COD ops: buyer pays you in cash to the delivery person on arrival — use clear returns, real photos, and WhatsApp support."
+      },
+      "import": {
+        "sampleFirst": "Always order and approve a sample first.",
+        "startSmall": "Start with a small first batch to prove demand.",
+        "trackShipment": "Track the shipment and keep the supplier chat active.",
+        "prepClearance": "Prepare clearance paperwork with your partner early."
+      },
+      "hooks": {
+        "codTrust": "COD ops (not a marketing hook): buyer pays you via the delivery person — clear returns, real photos, WhatsApp support.",
+        "localAngle": "Lead with a local, Arabic-first angle in creatives."
+      }
+    }
+  },
+  "Supplier": {
+    "kicker": "Supplier & import",
+    "title": "Choose a supplier — sample first",
+    "intro": "A shortlist of 3 primaries, each with 2 backups. Always get and approve a sample before you commit to a batch. This OS marks steps — you still contact suppliers and place real orders yourself.",
+    "sampleFirstBanner": "Sample-first rule: mark a paid sample request here, email the supplier yourself (draft provided), quality-check it, then decide before any batch.",
+    "group": "Group {n}",
+    "primary": "Primary",
+    "backup": "Backup",
+    "verified": "Verified",
+    "years": "Years active",
+    "yearsValue": "{n} yrs",
+    "moq": "MOQ",
+    "unitPrice": "Unit price",
+    "estBatch": "Est. batch cost",
+    "chosenSupplier": "Sample supplier",
+    "workingSupplier": "Sample supplier",
+    "shortlistHiddenNote": "Other suppliers are hidden while this sample is in play. Reject or replace the sample to see the full shortlist again.",
+    "overLimitHint": "Batch exceeds ${limit}. Consider a lower-MOQ backup.",
+    "warningsAria": "Warnings",
+    "batchSupplierMismatch": "Sample is approved with {sample}. To mark a batch with {batch}, approve a sample from them first.",
+    "requestSampleForSelected": "Mark sample requested for this supplier",
+    "pathBNeedsSample": "Path B next step: mark a sample requested for this backup — you can only mark batch ordered after their sample is approved.",
+    "batchSampleMismatch": "This supplier needs an approved sample before you can mark a batch ordered.",
+    "payment": "Payment",
+    "estDeposit": "deposit",
+    "showEmail": "Show email draft (you send it)",
+    "hideEmail": "Hide email draft",
+    "emailDraftHint": "Copy and send this yourself — the OS does not email the supplier.",
+    "requestSample": "Mark sample requested",
+    "requestSampleHint": "Marks the sample as requested in your journey. You still contact the supplier and pay for the sample externally.",
+    "sampleTitle": "Sample",
+    "sampleStatus": {
+      "requested": "Requested",
+      "received": "Received",
+      "approved": "Approved",
+      "replace": "Replace",
+      "rejected": "Rejected"
+    },
+    "checklistTitle": "Quality checklist",
+    "checklist": {
+      "matchesPhotos": "Matches listing photos",
+      "materialQuality": "Material quality is good",
+      "functionsWork": "All functions work",
+      "packagingIntact": "Packaging intact & sellable",
+      "sizeWeight": "Size & weight as expected",
+      "safetySmell": "No safety issues / bad smell",
+      "arabicLabeling": "Room for Arabic labeling"
+    },
+    "photoNotes": "Photo / inspection notes…",
+    "markReceived": "Mark received & save",
+    "saveChecklist": "Save checklist",
+    "approveSample": "Approve sample",
+    "replaceSample": "Ask for replacement",
+    "rejectSample": "Reject",
+    "sampleApprovedNote": "Sample approved — mark a batch ordered and set up the store in parallel (after you place the real order externally). Store readiness never blocks the batch.",
+    "batchTitle": "Mark the first batch ordered",
+    "batchIntro": "Marking a batch ordered needs an approved sample — it does not require your store to be ready. You still place the real order with the supplier yourself.",
+    "chooseSupplier": "Supplier",
+    "quantity": "Quantity",
+    "stuckTitle": "Heads up: this batch is over ${limit}",
+    "stuckA": "Path A — negotiate the MOQ or unit price down with the supplier.",
+    "stuckB": "Path B — select a lower-MOQ backup below, then mark a sample requested for them before any batch.",
+    "stuckC": "Path C — proceed anyway with the sampled supplier, accepting the cash and risk exposure.",
+    "pathBTitle": "Lower-MOQ backups (Path B)",
+    "pathBUse": "Select this backup",
+    "pathBEstAtMoq": "Est. at MOQ ~${cost}",
+    "stuckAck": "I understand the cash lock-up and risk of ordering a large batch (Path C).",
+    "stuckAckRequired": "Acknowledge the cash & risk to proceed over the limit.",
+    "batchNeedsSample": "Approve a sample before marking a batch ordered.",
+    "orderBatch": "Mark batch ordered",
+    "orderBatchHint": "Marks the batch as ordered in your journey only. Place the real order with the supplier yourself — this app does not contact them.",
+    "batchUsesQuotes": "uses your saved cost quotes",
+    "batchUsesPlanning": "planning estimate (save cost quotes to refine)",
+    "batchNoStoreNote": "Store never blocks batch: you can mark batch ordered with the store incomplete.",
+    "arrivedTitle": "Batch arrived",
+    "arrivedIntro": "Confirm inventory is received and quality-checked to move to launch readiness.",
+    "inventoryAck": "I received and inspected the batch inventory.",
+    "markArrived": "Mark batch arrived & ready",
+    "batchArrivedDone": "Batch arrived and ready — launch marketing is unlocked.",
+    "etaTitle": "Expected batch arrival",
+    "etaIntro": "Set when you expect the batch so Marketing can build a week-by-week pre-launch plan.",
+    "etaCurrent": "Current ETA",
+    "etaUsingDefault": "default (1 month) until you save",
+    "etaPreset2w": "2 weeks",
+    "etaPreset1m": "1 month",
+    "etaPreset2m": "2 months",
+    "etaPresetCustom": "Custom",
+    "etaDate": "Expected date",
+    "etaLabel": "Label (optional)",
+    "etaLabelPlaceholder": "e.g. Mid-August sea freight",
+    "etaSave": "Save arrival ETA",
+    "etaSaved": "ETA saved — Marketing pre-launch will use this window.",
+    "etaPlanUpdated": "Pre-launch plan updated.",
+    "etaLockedArrived": "ETA can’t be changed after the batch has arrived.",
+    "etaMarketingHint": "Pre-launch kits organize creatives by week across this ETA. Launch still unlocks only after you mark the batch arrived.",
+    "clearance": "Clearance partner",
+    "errorGeneric": "Something went wrong. Try again.",
+    "marginBefore": "Margin before ads",
+    "costQuotesNextStep": "Recommended next step",
+    "batchNudgeQuotesFirst": "Save cost quotes first for accurate expected margin and batch estimate — marking batch is still allowed.",
+    "costQuotesTitle": "Real unit costs (before batch)",
+    "costQuotesIntro": "After your sample is approved, collect quotes for freight, clearance, and local COD delivery. Enter them here to see your expected margin before ads — separate from the Discovery planning estimate.",
+    "costQuotesLocked": "Unlocks after you approve a sample. Discovery planning numbers stay as estimates until then.",
+    "costQuotesGuideTitle": "Who to contact & what to ask",
+    "costQuotesGuideFreight": "Freight forwarder / China agent — per-unit sea or air cost to Beirut for your MOQ box (weight, CBM, incoterms).",
+    "costQuotesGuideClearance": "Clearance broker — per-unit customs, VAT, and handling to release the shipment in Lebanon.",
+    "costQuotesGuideCourier": "Local COD courier — per-unit last-mile delivery cost for cash-on-delivery orders.",
+    "costProductUnit": "Product unit cost (USD)",
+    "costProductHint": "Prefilled from your working supplier quote — edit if negotiated.",
+    "costSellPrice": "Sell price (USD)",
+    "costSellHint": "Prefilled from Discovery planning — your intended retail price.",
+    "costIntlShip": "Intl shipping / unit (USD)",
+    "costIntlHint": "Freight forwarder quote per unit at your batch size.",
+    "costClearance": "Clearance & taxes / unit (USD)",
+    "costClearanceHint": "Broker quote per unit through Lebanese customs.",
+    "costCourier": "Local courier / unit (USD)",
+    "costCourierHint": "COD courier quote per delivered order.",
+    "costCompareMetric": "Metric",
+    "costPlanningEstimate": "Planning estimate",
+    "costFounderQuoted": "Founder-quoted expected",
+    "costPlanningLabel": "estimate",
+    "costExpectedLabel": "expected",
+    "costWarnTitle": "Below 70% before ads",
+    "costWarnBody": "Your quoted costs suggest margin before ads under 70%. You can still mark the batch ordered — consider negotiating unit price, freight, or sell price before you commit.",
+    "costQuotesSave": "Save cost quotes",
+    "costQuotesSaved": "Cost quotes saved.",
+    "costQuotesInvalid": "Enter valid non-negative numbers for every field.",
+    "costQuotesNoBlock": "Saving quotes does not block marking batch ordered — it updates your expected margin only.",
+    "notes": {
+      "payment": {
+        "depositNote": "Estimate only — confirm final terms with the supplier."
+      },
+      "flag": {
+        "slowSample": "Slow to reply on samples.",
+        "newSupplier": "Newer supplier — verify carefully.",
+        "mixedReviews": "Mixed reviews — request references."
+      }
+    },
+    "clearanceVsDeliveryNote": "Clearance/import is for your inbound batch — not the same as store door delivery to the customer."
+  },
+  "Store": {
+    "kicker": "Store setup (side status)",
+    "title": "Shopify store readiness",
+    "intro": "Store setup is a parallel side status. Finish it when you can — it never blocks marking your batch ordered or starting to sell.",
+    "ready": "ready",
+    "readyProgressNote": "Progress only — this % is not a batch or selling gate.",
+    "sideOnlyNote": "Side status only — not a journey gate. Mark your batch ordered anytime; this checklist does not unlock or block the batch.",
+    "buildSection": "Build the store",
+    "goLiveSection": "Go live checks",
+    "howToToggle": "How to",
+    "howto": {
+      "shopifyCreated": {
+        "title": "Create your Shopify store",
+        "body": "In a browser:\n\n• Go to shopify.com and start a store (trial is fine for setup).\n• In Admin → Products → Add product: enter a title, USD price, and at least one photo (you can refine EN/AR copy in later steps).\n• Pick a simple theme under Online Store → Themes — avoid heavy custom apps for v1.\n• Copy your store URL into the Store URL field under Build in this OS. A *.myshopify.com address is enough for v1 — custom domain can wait.\n• If menus look different, search Shopify Help for “create a store”, “add a product”, or “themes”.\n\nDone when: You can open Admin, you have at least one product draft or listing, and you have saved your store URL here."
+      },
+      "currencyUsd": {
+        "title": "Set store currency to USD",
+        "body": "In Shopify Admin:\n\n• Go to Settings → General → Store defaults.\n• Choose Change store currency → USD → Save.\n• Markets (customer presentment currencies) is separate — this step is your store’s default currency, not Markets.\n• After real orders exist, store currency may be locked; you may need Shopify Support to change it.\n• Still price products in USD for this OS — it is the stable reference for Lebanon founders.\n• If labels differ, search Help for “change your store currency”.\n\nDone when: Store defaults show USD and you price products in USD."
+      },
+      "contentEnAr": {
+        "title": "Add EN + AR product content",
+        "body": "In Shopify Admin → Products:\n\n• Open your product (or create it).\n• Starter EN/AR text lives under the button “Show EN/AR content + policy drafts” below this checklist (not always visible — click to expand).\n• Paste a clear English title + description from the EN draft (edit to match the real item).\n• Add Arabic the same way — use the AR draft, or a translation app, then proofread.\n• Add at least one real product photo.\n• Themes differ for bilingual layout; some use a language app or separate metafields. Search Help for “multiple languages” if needed.\n\nDone when: Shoppers can read the offer in English and Arabic on the product page."
+      },
+      "productPublished": {
+        "title": "Publish the product",
+        "body": "In Shopify Admin → Products → your product:\n\n• Set Status to Active (not Draft).\n• Under Publishing / Sales channels, include Online Store.\n• Save.\n• Open the product on the storefront to confirm it appears.\n\nDone when: The product is Active and visible on the Online Store channel."
+      },
+      "codPrimary": {
+        "title": "Enable cash on delivery (COD)",
+        "body": "In Shopify Admin:\n\n• Go to Settings → Payments.\n• Under Manual payment methods, add Cash on Delivery (COD). If labels differ, search Help for “manual payment methods” or “cash on delivery”.\n• Make COD available at checkout for Lebanon buyers — this is your primary payment path in v1. No third-party COD app required.\n• COD means the buyer pays you (cash to the delivery person) when the order arrives — not a payment to your China supplier, and not a marketing claim.\n• New COD orders often stay Payment pending until you mark them paid after the delivery company confirms collection.\n\nDone when: COD is enabled and appears as a checkout payment option."
+      },
+      "optionalPayments": {
+        "title": "Optional local payments (or skip)",
+        "body": "Optional — skip if COD-only. This checklist is honor-system (no Shopify API).\n\n• In Settings → Payments, review any extra methods Shopify offers for your region (card, wallet, etc.).\n• Only enable a method you can actually settle and support.\n• If nothing usable appears, or you choose COD-only: do not enable a fake method — mark this item done when you decide to skip.\n• Do not install random payment apps just to tick a box.\n\nDone when: You enabled one real optional method you can settle, or you marked this done because you are skipping (COD-only)."
+      },
+      "courierSelected": {
+        "title": "Pick a last-mile delivery company",
+        "body": "Delivery company here means the last-mile company that delivers to the customer’s door in Lebanon — not China freight and not customs clearance.\n\n• The Delivery company list under Build may be placeholders in v1 (including “I’ll confirm later”). Pick one for now, or your real door-delivery company when you have one.\n• Save the choice in the Delivery company field under Build so Marketing/Finance know who delivers.\n• Shipping rates in Shopify (go-live steps) are checkout prices — they are separate from which delivery company you hire.\n\nDone when: A delivery company is selected and saved in the Delivery company field under Build."
+      },
+      "shortPolicies": {
+        "title": "Add short policies",
+        "body": "In Shopify Admin → Online Store → Pages (or Settings → Policies):\n\n• Starter policy text lives under the button “Show EN/AR content + policy drafts” below this checklist (click to expand — not always visible).\n• Add short Shipping, Returns, and Payment/COD pages — use the policies draft as a start.\n• State clearly: pay the delivery person in cash on delivery; returns window; damaged/wrong item contact via WhatsApp.\n• Link policies in the footer of your theme.\n• Keep them short; buyers skim.\n\nDone when: Shipping + returns (+ COD terms) are published and linked from the storefront."
+      },
+      "whatsappConnected": {
+        "title": "Show WhatsApp to buyers",
+        "body": "Shopify has no native “connect WhatsApp” switch for this checklist.\n\n• Put your WhatsApp number on the theme header, footer, or product page (button or plain text with wa.me link).\n• Save the same number in the WhatsApp field under Build — Marketing creatives point buyers here.\n• Test the link on your phone.\n\nDone when: Buyers can tap/message WhatsApp from the storefront, and the number is saved in this OS."
+      },
+      "sellToLebanon": {
+        "title": "Allow sales to Lebanon",
+        "body": "In Shopify Admin:\n\n• Go to Settings → Markets.\n• Include Lebanon as a country/market you sell and ship to (add or edit a market that covers Lebanon).\n• Remove blocks that exclude Lebanon if any exist.\n• If labels differ, search Help for “markets” or “sell to a country”.\n\nDone when: Checkout accepts a Lebanon shipping address without a “we don’t ship here” error."
+      },
+      "shippingRates": {
+        "title": "Set shipping rates",
+        "body": "Shipping rates = what the buyer pays (or sees as free) at checkout for delivery. They are not the same as choosing your delivery company.\n\n• Go to Settings → Shipping and delivery.\n• Add a rate (or free shipping) that covers Lebanon addresses for your product’s weight/size.\n• Set product weight on the product if Shopify asks or rates look wrong.\n• Keep rates simple for v1 — one nationwide band is fine.\n• If menus differ, search Help for “shipping rates”.\n\nDone when: Checkout shows a valid shipping option for a Lebanon address."
+      },
+      "storePublic": {
+        "title": "Make the store public",
+        "body": "In Shopify Admin:\n\n• Go to Online Store → Preferences.\n• Turn off password protection / “Restrict access to visitors with the password”.\n• Shopify often requires selecting a pricing plan before password can be removed. Choosing a plan during trial typically does not charge until the trial ends. If the control is disabled, pick a plan first, then remove the password.\n• Save.\n• Verify in an incognito (private) window: open the storefront URL without logging into Admin — it must load without asking for a store password.\n• If labels differ, search Help for “password protection” or “remove password”.\n\nDone when: Incognito visitors can browse without a password gate."
+      },
+      "testCheckout": {
+        "title": "Run a COD test checkout",
+        "body": "From an incognito window on the public storefront:\n\n• Add the product to cart and checkout with a Lebanon address.\n• Choose Cash on Delivery / COD — do not require a card.\n• Place the test order (use a test name/phone you recognize).\n• In Admin → Orders, confirm the order appears. COD orders often show as Payment pending until you mark them paid after real delivery company / delivery person collection.\n• Cancel or fulfill the test order so it does not confuse real ops.\n\nDone when: You see a COD test order in Admin → Orders."
+      }
+    },
+    "checklist": {
+      "shopifyCreated": "Create the Shopify store",
+      "currencyUsd": "Set currency to USD",
+      "contentEnAr": "Add EN + AR product content",
+      "productPublished": "Publish the product",
+      "codPrimary": "Enable COD as primary payment",
+      "optionalPayments": "Optional local payment (or skip)",
+      "courierSelected": "Pick a last-mile delivery company",
+      "shortPolicies": "Add short policies",
+      "whatsappConnected": "Show WhatsApp on the store",
+      "sellToLebanon": "Sell to Lebanon",
+      "shippingRates": "Set shipping rates",
+      "storePublic": "Make the store public",
+      "testCheckout": "Run a test checkout"
+    },
+    "checklistHint": {
+      "shopifyCreated": "Create the store, add a product, pick a clean theme, save the URL here.",
+      "currencyUsd": "Settings → General → store currency USD; price products in USD.",
+      "contentEnAr": "Open “Show EN/AR content + policy drafts” below for starter copy.",
+      "productPublished": "Make the product live (not draft) in Shopify Admin.",
+      "codPrimary": "Buyer pays you in cash to the delivery person on arrival — not a supplier payment.",
+      "optionalPayments": "Optional — skip if COD-only (mark done when you skip).",
+      "courierSelected": "v1 list may be placeholders — pick your real door-delivery company when you have one; save it here.",
+      "shortPolicies": "Starter text under “Show EN/AR content + policy drafts” below — keep policies short.",
+      "whatsappConnected": "Add your number on the theme/page and save it in this OS — no native Shopify connect.",
+      "sellToLebanon": "Settings → Markets: include Lebanon as a country you sell & ship to.",
+      "shippingRates": "Set rates for delivery to Lebanon addresses.",
+      "storePublic": "Turn off password (plan may be required first); verify in incognito.",
+      "testCheckout": "Place a test order through the COD checkout path."
+    },
+    "storeUrl": "Store URL",
+    "whatsapp": "WhatsApp number",
+    "courier": "Delivery company",
+    "courierPlaceholder": "Select a delivery company…",
+    "saveFields": "Save store details",
+    "saved": "Saved",
+    "showDrafts": "Show EN/AR content + policy drafts",
+    "hideDrafts": "Hide drafts",
+    "draftEn": "Product content (EN)",
+    "draftAr": "Product content (AR)",
+    "draftPolicies": "Policies draft",
+    "storeReadyDone": "Store marked ready ✓",
+    "markReady": "Mark store ready",
+    "markReadyHint": "Complete all checklist items to mark the store ready.",
+    "goLiveOrientation": "Buyer path: product page → checkout (COD) → delivery company to the door.",
+    "honorSystemNote": "Honor system: check items when you've done them in Shopify Admin — this OS does not sync with Shopify.",
+    "gateFinishBuild": "Finish Build the store first.",
+    "gateFinishGoLiveOthers": "Finish the other Go live checks first.",
+    "deliveryCompanies": {
+      "confirm_later": "I'll confirm later",
+      "partner_a": "Local door delivery — partner A",
+      "partner_b": "Local door delivery — partner B",
+      "partner_c": "Local door delivery — partner C",
+      "partner_d": "Local door delivery — partner D"
+    }
+  },
+  "Marketing": {
+    "kicker": "Marketing (stage-aware)",
+    "title": "Creative kits for your stage",
+    "intro": "Kits unlock as you progress. Each has EN + AR creatives and shot lists sized to your weekly capacity.",
+    "capacity": "{n} creatives / plan",
+    "notMoneyAdvice": "Marketing kits are creative plans — not money advice. See the Finance panel for money guidance.",
+    "whatsappRequired": "Add a WhatsApp number in Store setup — every creative drives buyers to WhatsApp.",
+    "stage": {
+      "intro_pdf": "Intro",
+      "pre_launch": "Pre-launch",
+      "launch": "Launch",
+      "monthly_refresh": "Weekly refresh"
+    },
+    "paidNone": "Organic only — no paid ads yet.",
+    "paidCapped": "Organic + max ${max}/day paid.",
+    "paidFull": "Paid budget enabled.",
+    "stageLocked": "This stage isn't unlocked yet.",
+    "errorGeneric": "Something went wrong. Try again.",
+    "generate": "Generate kit",
+    "generateLesson": "Generate lesson",
+    "regenerate": "Regenerate kit",
+    "refresh": "Generate week",
+    "regenerateRefresh": "Regenerate week",
+    "noKits": "No kits yet — generate one for your current stage.",
+    "noKitForStage": "No {stage} kit yet — generate it from the stage above.",
+    "creativesCount": "{n} creatives",
+    "lessonTitle": "Marketing lesson",
+    "lessonWhatThisIs": "This is the marketing lesson for {name} — how marketing will look on your journey. It is not a creative kit yet; creatives unlock in later stages.",
+    "lessonClickHint": "Click each title to read the explanation.",
+    "lessonFor": "How marketing will look when you sell {name}",
+    "saved": "Saved",
+    "done": "Done",
+    "edit": "Edit",
+    "saveCreatives": "Save creatives",
+    "series": "Series",
+    "hook": "Hook",
+    "week": "Week",
+    "shotList": "Shot list",
+    "etaTitle": "Batch arrival ETA",
+    "etaSummary": "Expected arrival: {summary} (~{weeks} weeks)",
+    "etaDefaultNote": "Using the default (1 month). Set your ETA on Supplier for a better week-by-week pre-launch plan.",
+    "etaSetNote": "Pre-launch creatives are organized Week 1…{weeks} across this window.",
+    "etaGoSupplier": "Set ETA on Supplier",
+    "launchPlanNote": "2-week launch plan — Week 1 open/stock-here, Week 2 convert/proof.",
+    "weeklyPlanNote": "One week of posts — regenerate when you're ready for the next week.",
+    "scheduleOptionalNote": "Suggested day and time are optional — post whenever works for you.",
+    "scheduleWhen": "When",
+    "scheduleWhy": "Why",
+    "scheduleIgnore": "Ignore suggestion",
+    "scheduleIgnored": "No schedule — post whenever",
+    "scheduleRestore": "Restore suggestion",
+    "scheduleSaving": "Saving…",
+    "day": {
+      "mon": "Monday",
+      "tue": "Tuesday",
+      "wed": "Wednesday",
+      "thu": "Thursday",
+      "fri": "Friday",
+      "sat": "Saturday",
+      "sun": "Sunday"
+    },
+    "timeBand": {
+      "morning": "Morning",
+      "afternoon": "Afternoon",
+      "evening": "Evening"
+    },
+    "format": {
+      "reel": "Reel",
+      "story": "Story",
+      "carousel": "Carousel",
+      "ugc": "UGC",
+      "post": "Post",
+      "testimonial": "Testimonial"
+    }
+  },
+  "Margins": {
+    "legendTitle": "How to read these three margin layers:",
+    "planningTag": "Planning / estimate",
+    "planningDesc": "Discovery catalog estimate (product + shipping + clearance + courier).",
+    "expectedTag": "Expected (quotes) before ads",
+    "expectedDesc": "From your saved supplier cost quotes after the sample.",
+    "actualTag": "Actual before / after ads",
+    "actualDesc": "Your real weekly Topic A numbers once you're selling.",
+    "legendCompact": "Planning = Discovery estimate · Expected = your quotes · Actual = weekly Topic A."
+  },
+  "Finance": {
+    "kicker": "Topic A + Finance",
+    "title": "Weekly money coaching",
+    "intro": "Log your numbers each week. We turn them into a plain-language health read and, after 4 weeks, an invest-next call.",
+    "live": "Live advice",
+    "preview": "Preview",
+    "previewNote": "Preview only — the numbers below are illustrative. Real advice starts once you mark selling.",
+    "previewSampleTitle": "Example week (sample data)",
+    "previewSampleLabel": "Sample week",
+    "startSelling": "Mark selling — go live",
+    "startSellingHint": "This turns on real weekly Topic A advice.",
+    "startSellingLocked": "Available once your batch has arrived and is ready.",
+    "investLocked": "Invest-next unlocks after {need} weeks of Topic A ({have} logged).",
+    "addWeekTitle": "Add a week",
+    "fWeek": "Week starting",
+    "fSales": "Sales (USD)",
+    "fOrders": "Orders",
+    "fMeta": "Meta spend",
+    "fTiktok": "TikTok spend",
+    "fCodCollected": "COD collected",
+    "fCodOutstanding": "COD outstanding",
+    "fCourier": "Last-mile courier fees (COD delivery)",
+    "fSold": "Units sold",
+    "fLeft": "Units left",
+    "errWeek": "Pick the week's start date.",
+    "errNotSelling": "Mark selling before logging weeks.",
+    "errorGeneric": "Something went wrong. Try again.",
+    "addWeek": "Save week",
+    "noEntries": "No weeks logged yet.",
+    "sales": "Sales",
+    "adSpend": "Ad spend",
+    "courier": "Courier",
+    "net": "Net",
+    "verdict": {
+      "healthy": "Healthy",
+      "watch": "Watch",
+      "risk": "At risk"
+    },
+    "investTitle": "Invest-next",
+    "confidence": "{pct}% confidence",
+    "invest": {
+      "reinvest": "Reinvest — order the next batch / scale ads",
+      "hold": "Hold — don't reinvest yet",
+      "fix_economics": "Fix unit economics before reinvesting"
+    },
+    "investWeeks": "{n} weeks",
+    "investTotalNet": "total net ${v}",
+    "investAvgNet": "avg/week ${v}",
+    "actualAfterTitle": "Current actual margin after ads",
+    "windowLabel": "{weeks, plural, one {Last # week · {source}} other {Last # weeks combined, weighted by sales · {source}}}",
+    "calcTitle": "How we calculated this",
+    "bdTotalSales": "Total sales",
+    "bdTotalSalesWeeks": "Sum of weeks in this window",
+    "bdImportCogs": "Import COGS",
+    "bdImportCogsHint": "{perUnit}/unit × {units} units",
+    "bdCourier": "Actual courier fees",
+    "bdProfitBefore": "Profit before ads",
+    "bdMeta": "Meta spend",
+    "bdTiktok": "TikTok spend",
+    "bdProfitAfter": "Profit after ads",
+    "bdFormula": "After-ads margin = profit after ads ÷ total sales",
+    "bdUnitsSold": "Total units sold",
+    "bdCostPerUnit": "Import cost per unit",
+    "bdCostSource": "Cost source",
+    "bdDisclaimer": "Based on the costs you logged. Excludes unrecorded returns, platform fees, overhead, and other expenses.",
+    "actualNoData": "Log your first week to calculate actual margins.",
+    "actualBeforeLabel": "Actual before ads",
+    "expectedBeforeLabel": "Expected before ads (quotes)",
+    "planningAfterLabel": "Planning after ads",
+    "sourceQuotes": "Founder quotes",
+    "sourceEstimate": "Discovery estimate",
+    "warnBefore": "Actual margin before ads is under {min} — check pricing or import costs. Nothing is blocked.",
+    "warnAfter": "Actual margin after ads is under {min} — trim ad spend or raise price. Nothing is blocked.",
+    "emptyActual": "Log your first week to calculate actual margins.",
+    "marginBeforeShort": "Before ads",
+    "marginAfterShort": "After ads",
+    "adPerUnit": "Ad / unit",
+    "costSource": "Cost source",
+    "notes": {
+      "health": {
+        "negativeNet": "You're losing money this week — cut ad spend or fix pricing.",
+        "lowRoas": "Return on ad spend is thin (sales < 2× ads).",
+        "highOutstanding": "Too much COD is uncollected — chase outstanding cash.",
+        "healthy": "Profitable week with healthy COD collection."
+      },
+      "invest": {
+        "profitable": "The last 4 weeks are net profitable.",
+        "marginsPass": "Your actual after-ads margin clears the 35% gate.",
+        "marginsWeak": "Actual after-ads margin is below 35% — fix economics before scaling.",
+        "notProfitable": "Not net profitable yet — hold and fix before scaling."
+      }
+    }
+  },
+  "Orchestrator": {
+    "nextTitle": "Next step",
+    "parallelBadge": "Parallel",
+    "parallelHint": "Work these at the same time. Store setup is side status — it never blocks marking a batch ordered.",
+    "allDone": "You're all set for now.",
+    "coachingTitle": "Coaching",
+    "noCoaching": "No tips right now.",
+    "cta": {
+      "discovery": {
+        "title": "Find your product",
+        "desc": "Match products to your profile and accept one."
+      },
+      "requestSample": {
+        "title": "Mark sample requested",
+        "desc": "Prepare the request in the OS, then email the supplier yourself (draft provided)."
+      },
+      "sampleDecision": {
+        "title": "Decide on your sample",
+        "desc": "Quality-check the sample, then approve or replace it."
+      },
+      "sampleRetry": {
+        "title": "Try another sample",
+        "desc": "The last sample was rejected — mark a new request from a backup, then contact them yourself."
+      },
+      "orderBatch": {
+        "title": "Mark batch ordered",
+        "desc": "Sample approved — mark the first batch ordered after you place it externally (store not required)."
+      },
+      "costQuotes": {
+        "title": "Enter real cost quotes",
+        "desc": "Collect freight, clearance & courier quotes — see expected margin before ads."
+      },
+      "storeSetup": {
+        "title": "Set up your store",
+        "desc": "Shopify checklist as a side track — never blocks batch or selling."
+      },
+      "marketingIntro": {
+        "title": "Prep intro lesson",
+        "desc": "Learn how marketing will work for your product — mechanics first, creatives later."
+      },
+      "markArrived": {
+        "title": "Mark batch arrived",
+        "desc": "Confirm inventory received & checked to unlock launch."
+      },
+      "preLaunch": {
+        "title": "Pre-launch marketing",
+        "desc": "Build hype: organic + max $5/day paid."
+      },
+      "launchKit": {
+        "title": "Generate launch kit",
+        "desc": "Turn on full paid creatives for launch."
+      },
+      "startSelling": {
+        "title": "Mark selling",
+        "desc": "Go live to unlock real weekly Topic A advice."
+      },
+      "logWeek": {
+        "title": "Log this week",
+        "desc": "Enter your numbers for a fresh health read."
+      },
+      "refreshKit": {
+        "title": "Weekly refresh",
+        "desc": "Generate a fresh week of creatives to fight fatigue."
+      },
+      "resume": {
+        "title": "Resume your journey",
+        "desc": "Pick up right where you paused."
+      },
+      "unblock": {
+        "title": "Clear the block",
+        "desc": "Resolve the blocker to continue."
+      }
+    },
+    "coach": {
+      "sampleFirst": {
+        "title": "Sample before batch",
+        "body": "Never commit to a batch before you approve a paid sample."
+      },
+      "codRisk": {
+        "title": "Mind COD cash",
+        "body": "Cash on delivery has refusal risk — chase outstanding collections."
+      },
+      "protectMargins": {
+        "title": "Protect your margins",
+        "body": "Keep 70% before ads and 35% after; watch ad spend closely."
+      },
+      "costQuotesPending": {
+        "title": "Confirm real unit costs",
+        "body": "Collect freight, clearance, and courier quotes, then save them to see your expected margin before ads."
+      },
+      "startSmall": {
+        "title": "Start small",
+        "body": "A small first batch proves demand without locking up cash."
+      },
+      "over10k": {
+        "title": "Large batch ahead",
+        "body": "A batch over $10k ties up cash — consider a lower-MOQ backup."
+      },
+      "likesSoft": {
+        "title": "Likes are a soft nudge",
+        "body": "Your industry interests help ranking but never override fit or margins."
+      }
+    }
   },
   "States": {
     "discovery": "Discovery",
     "supplier_sample": "Supplier sample",
     "sample_approved": "Sample approved",
     "store_setup": "Store setup",
-    "batch_ordered": "Batch ordered",
+    "batch_ordered": "Batch marked ordered",
     "batch_arrived_ready": "Batch arrived",
     "selling": "Selling",
     "paused": "Paused",
     "blocked": "Blocked"
+  },
+  "Preview": {
+    "bannerTitle": "Preview data — local QA only",
+    "bannerBody": "This workspace is seeded for testing. Not for real use.",
+    "bannerCta": "Preview controls",
+    "bannerReset": "Reset demo…",
+    "pageTitle": "Preview (local QA)",
+    "pageLead": "Seed the demo founder to any stage and jump straight into the dashboard.",
+    "jumpTitle": "Jump to a stage",
+    "jumpLead": "Each stage is cumulative and re-seeds the demo workspace from scratch — same demo SKU, prices and numbers every time.",
+    "stageWipeHint": "Clicking any stage wipes the current demo and rebuilds a stable fixture at that stage.",
+    "resetTitle": "Reset the demo",
+    "resetLead": "QA only — this wipes the current demo data and rebuilds a fresh, deterministic fixture. The same SKU, supplier prices and numbers come back on every reset.",
+    "resetStageLabel": "Rebuild at stage",
+    "resetButton": "Reset demo (wipe + rebuild)",
+    "seeding": "Seeding demo data…",
+    "seedError": "Seeding failed. Check the server logs.",
+    "credsTitle": "Demo login",
+    "credsEmail": "Email",
+    "credsPassword": "Password",
+    "toDashboard": "Go to dashboard",
+    "stage": {
+      "discovery": {
+        "title": "A · Discovery ready",
+        "body": "Onboarding done, 5 products revealed."
+      },
+      "accepted": {
+        "title": "B · Product accepted",
+        "body": "Topic B SKU card visible."
+      },
+      "sample_approved": {
+        "title": "C · Sample approved",
+        "body": "Store + marketing intro unlocked."
+      },
+      "batch_arrived_ready": {
+        "title": "D · Batch arrived",
+        "body": "Store ready + launch marketing."
+      },
+      "selling": {
+        "title": "E · Selling",
+        "body": "Saved founder cost quotes, 4 Topic A weeks, automatic actual margins + invest-next."
+      }
+    }
   }
 }

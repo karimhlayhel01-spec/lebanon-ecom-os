@@ -32,6 +32,7 @@ export const FOUNDER_EDITABLE_FIELDS = {
     "whatsappNumber",
     "courierChoice",
   ],
+  marketingKit: ["items"],
 } as const satisfies Record<string, readonly string[]>;
 
 export type MemoryEntity = keyof typeof FOUNDER_EDITABLE_FIELDS;

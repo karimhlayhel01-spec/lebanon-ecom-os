@@ -7,12 +7,18 @@ import { db, ensureMigrated, schema } from "@/db";
 import { requireUser } from "@/lib/auth";
 import { getWorkspaceForUser } from "@/lib/memory/repos";
 import {
+  DISCOVERY_PASS_REASONS,
+  type DiscoveryPassReason,
+} from "@/lib/discovery/ladder";
+import {
   acceptProduct,
   confirmDemand,
+  continueDiscoverySession,
   rejectCandidate,
   resolveTier1,
   showMore,
   startDiscoverySession,
+  submitDiscoveryPassFeedback,
   type AcceptResult,
 } from "@/lib/discovery/service";
 import type { AppLocale } from "@/i18n/routing";
@@ -46,7 +52,53 @@ export async function showMoreAction() {
   revalidatePath("/", "layout");
 }
 
-export type DemandActionState = { ok?: boolean; error?: string };
+export async function continueDiscoveryAction() {
+  ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false as const, error: "not_found" };
+
+  const onboarding = await db
+    .select()
+    .from(schema.onboardingProfiles)
+    .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
+    .get();
+  if (!onboarding) return { ok: false as const, error: "not_found" };
+
+  const result = await continueDiscoverySession(workspace.id, onboarding);
+  revalidatePath("/", "layout");
+  return result;
+}
+
+export type PassFeedbackState = {
+  ok?: boolean;
+  error?: string;
+};
+
+export async function submitDiscoveryPassFeedbackAction(
+  _prev: PassFeedbackState,
+  formData: FormData,
+): Promise<PassFeedbackState> {
+  ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { error: "not_found" };
+
+  const reasons = DISCOVERY_PASS_REASONS.filter((r) => formData.get(`reason_${r}`) === "on");
+  const otherNote = String(formData.get("otherNote") ?? "").trim();
+
+  const result = await submitDiscoveryPassFeedback(workspace.id, {
+    reasons: reasons as DiscoveryPassReason[],
+    otherNote: otherNote || undefined,
+  });
+  revalidatePath("/", "layout");
+  return result.ok ? { ok: true } : { error: result.error };
+}
+
+export type DemandActionState = {
+  ok?: boolean;
+  error?: string;
+  /** Saved DemandProvider summary — shown immediately after confirm. */
+  summary?: string;
+};
 
 export async function confirmDemandAction(
   _prev: DemandActionState,
@@ -74,7 +126,7 @@ export async function confirmDemandAction(
   );
 
   revalidatePath("/", "layout");
-  return { ok: result.ok, error: result.error };
+  return { ok: result.ok, error: result.error, summary: result.summary };
 }
 
 export async function resolveTier1Action(
