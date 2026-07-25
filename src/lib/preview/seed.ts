@@ -12,8 +12,12 @@
  * supplier shortlist RNG is seeded from the SKU id (generateSuppliers →
  * hashString(skuId)), so pinning the SKU id makes unit prices, MOQs and supplier
  * names repeat across re-seeds. Fixed cost quotes + fixed Topic A weeks then keep
- * every downstream margin identical. No production behaviour changes: this only
- * runs under PREVIEW_MODE.
+ * every downstream margin identical.
+ *
+ * Identity exception: first/last name, workspace name, and language are snapshotted
+ * before wipe and restored after createFoundation so Settings renames survive
+ * stage jumps. First-ever seed still uses Preview / Founder / Preview's Store.
+ * No production behaviour changes: this only runs under PREVIEW_MODE.
  */
 
 import bcrypt from "bcryptjs";
@@ -24,10 +28,15 @@ import { MIN_BUDGET_USD } from "@/lib/constants";
 import {
   PREVIEW_EMAIL,
   PREVIEW_PASSWORD,
-  PREVIEW_USER_NAME,
   type PreviewStage,
   PREVIEW_STAGES,
 } from "@/lib/preview/config";
+import {
+  resolvePreviewIdentity,
+  type PreviewIdentity,
+} from "@/lib/preview/identity";
+import { fullDisplayName } from "@/lib/workspace-name";
+import { deleteUserAndWorkspace } from "@/lib/account/delete-user";
 import {
   startDiscoverySession,
   confirmDemand,
@@ -96,6 +105,41 @@ const PREVIEW_COST_QUOTE = {
 // Reset: remove any existing preview workspace + user (FK-safe order)
 // ---------------------------------------------------------------------------
 
+/**
+ * Snapshot founder/store identity BEFORE wipe. Stage jumps reset journey data
+ * but keep first/last name, workspace name, and language across re-seeds.
+ */
+async function readPreviewIdentity(): Promise<PreviewIdentity | null> {
+  ensureMigrated();
+  const user = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.email, PREVIEW_EMAIL))
+    .get();
+  if (!user) return null;
+
+  const workspace = await db
+    .select()
+    .from(schema.workspaces)
+    .where(eq(schema.workspaces.founderUserId, user.id))
+    .get();
+  if (!workspace) return null;
+
+  const onboarding = await db
+    .select()
+    .from(schema.onboardingProfiles)
+    .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
+    .get();
+
+  return {
+    firstName: user.firstName,
+    lastName: user.lastName,
+    workspaceName: workspace.name,
+    language: workspace.language,
+    uiLanguage: onboarding?.uiLanguage ?? workspace.language,
+  };
+}
+
 async function resetPreviewData(): Promise<void> {
   ensureMigrated();
   const user = await db
@@ -104,43 +148,16 @@ async function resetPreviewData(): Promise<void> {
     .where(eq(schema.users.email, PREVIEW_EMAIL))
     .get();
   if (!user) return;
-
-  const workspaces = await db
-    .select()
-    .from(schema.workspaces)
-    .where(eq(schema.workspaces.founderUserId, user.id))
-    .all();
-
-  for (const ws of workspaces) {
-    const id = ws.id;
-    // Children first, then parents, to satisfy foreign keys.
-    await db.delete(schema.sampleRecords).where(eq(schema.sampleRecords.workspaceId, id));
-    await db.delete(schema.supplierOptions).where(eq(schema.supplierOptions.workspaceId, id));
-    await db.delete(schema.marketingKits).where(eq(schema.marketingKits.workspaceId, id));
-    await db.delete(schema.demandSignals).where(eq(schema.demandSignals.workspaceId, id));
-    await db.delete(schema.skuCards).where(eq(schema.skuCards.workspaceId, id));
-    await db.delete(schema.productCandidates).where(eq(schema.productCandidates.workspaceId, id));
-    await db.delete(schema.discoverySessions).where(eq(schema.discoverySessions.workspaceId, id));
-    await db.delete(schema.topicAEntries).where(eq(schema.topicAEntries.workspaceId, id));
-    await db.delete(schema.financeVerdicts).where(eq(schema.financeVerdicts.workspaceId, id));
-    await db.delete(schema.approvalRequests).where(eq(schema.approvalRequests.workspaceId, id));
-    await db.delete(schema.orchestratorEvents).where(eq(schema.orchestratorEvents.workspaceId, id));
-    await db.delete(schema.storeReadiness).where(eq(schema.storeReadiness.workspaceId, id));
-    await db.delete(schema.onboardingProfiles).where(eq(schema.onboardingProfiles.workspaceId, id));
-    await db.delete(schema.journeyStates).where(eq(schema.journeyStates.workspaceId, id));
-    await db.delete(schema.sideStatuses).where(eq(schema.sideStatuses.workspaceId, id));
-    await db.delete(schema.workspaces).where(eq(schema.workspaces.id, id));
-  }
-
-  await db.delete(schema.sessions).where(eq(schema.sessions.userId, user.id));
-  await db.delete(schema.users).where(eq(schema.users.id, user.id));
+  await deleteUserAndWorkspace(user.id);
 }
 
 // ---------------------------------------------------------------------------
 // Foundation: user + workspace + journey + side + completed onboarding
 // ---------------------------------------------------------------------------
 
-async function createFoundation(): Promise<{ userId: string; workspaceId: string }> {
+async function createFoundation(
+  identity: PreviewIdentity,
+): Promise<{ userId: string; workspaceId: string }> {
   ensureMigrated();
   const now = nowIso();
   const userId = PREVIEW_USER_ID;
@@ -151,15 +168,17 @@ async function createFoundation(): Promise<{ userId: string; workspaceId: string
     id: userId,
     email: PREVIEW_EMAIL,
     passwordHash,
-    name: PREVIEW_USER_NAME,
+    firstName: identity.firstName,
+    lastName: identity.lastName,
+    name: fullDisplayName(identity.firstName, identity.lastName),
     createdAt: now,
   });
 
   await db.insert(schema.workspaces).values({
     id: workspaceId,
     founderUserId: userId,
-    name: "Preview Store",
-    language: "en",
+    name: identity.workspaceName,
+    language: identity.language,
     activeSkuId: null,
     shopifyStatus: "not_started",
     createdAt: now,
@@ -202,7 +221,7 @@ async function createFoundation(): Promise<{ userId: string; workspaceId: string
     monthlyFollowOnBudget: 600,
     hoursPerWeek: 12,
     experience: "some",
-    uiLanguage: "en",
+    uiLanguage: identity.uiLanguage,
     storageDescription: "A dry spare room at home, roughly 2 shelves free.",
     storageLimits: "No space for oversized boxes; small parcels only.",
     riskTolerance: "medium",
@@ -484,8 +503,10 @@ export async function seedPreview(stage: PreviewStage): Promise<SeedResult> {
   ensureMigrated();
   const notes: string[] = [];
 
+  // Identity + store name persist across re-seeds; journey/SKU data does not.
+  const identity = resolvePreviewIdentity(await readPreviewIdentity());
   await resetPreviewData();
-  const { userId, workspaceId } = await createFoundation();
+  const { userId, workspaceId } = await createFoundation(identity);
   notes.push(`Created demo founder ${PREVIEW_EMAIL} with completed onboarding.`);
 
   const target = stageIndex(stage);

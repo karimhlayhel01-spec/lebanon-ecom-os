@@ -24,10 +24,28 @@ export function AuthForm({ mode }: { mode: Mode }) {
   return (
     <form action={formAction} className="flex w-full flex-col gap-4">
       {mode === "signup" && (
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium text-ink">{t("name")}</span>
-          <input name="name" required autoComplete="name" className={inputClass} />
-        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-ink">{t("firstName")}</span>
+            <input
+              name="firstName"
+              required
+              maxLength={60}
+              autoComplete="given-name"
+              className={inputClass}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-ink">{t("lastName")}</span>
+            <input
+              name="lastName"
+              required
+              maxLength={60}
+              autoComplete="family-name"
+              className={inputClass}
+            />
+          </label>
+        </div>
       )}
       <label className="flex flex-col gap-1.5 text-sm">
         <span className="font-medium text-ink">{t("email")}</span>

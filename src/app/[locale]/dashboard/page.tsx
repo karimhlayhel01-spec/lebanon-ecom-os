@@ -10,9 +10,11 @@ import { AppHeader } from "@/components/dashboard/AppHeader";
 import { CompactSku } from "@/components/dashboard/CompactSku";
 import { StageHero, type HeroCta } from "@/components/dashboard/StageHero";
 import { JourneyStrip, type JourneyStep } from "@/components/dashboard/JourneyStrip";
+import { StatusCard } from "@/components/dashboard/StatusCard";
 import { WeekSnapshot } from "@/components/dashboard/WeekSnapshot";
 import { DiscoveryBoard } from "@/components/discovery/DiscoveryBoard";
 import { OrchestratorPanel } from "@/components/orchestrator/OrchestratorPanel";
+import { getDashboardStatus } from "@/lib/dashboard/status";
 import { isPreviewMode } from "@/lib/preview/config"; // PREVIEW (removable)
 import { PreviewBanner } from "@/components/preview/PreviewBanner"; // PREVIEW (removable)
 import type { AppLocale } from "@/i18n/routing";
@@ -85,6 +87,21 @@ export default async function DashboardPage({ params }: Props) {
   const heroState = isPaused
     ? (journey?.pausedFromState ?? "discovery")
     : primaryState;
+
+  // Status is post-discovery only (also hidden when paused-from-discovery).
+  const showStatus = heroState !== "discovery" && side.productAccepted;
+  const statusView = showStatus
+    ? await getDashboardStatus({
+        workspaceId: workspace.id,
+        locale: locale as AppLocale,
+        primaryState: heroState,
+        productAccepted: side.productAccepted,
+        sampleStatus: side.sampleStatus,
+        batchOrdered: side.batchOrdered,
+        batchArrivedReady: side.batchArrivedReady,
+        sideMarketingStage: side.marketingStage,
+      })
+    : null;
 
   const storeWhisper =
     side.storeReadyPercent < 100
@@ -312,6 +329,7 @@ export default async function DashboardPage({ params }: Props) {
           </section>
 
           <aside className="animate-rise-delay space-y-5">
+            {statusView && <StatusCard view={statusView} />}
             <JourneyStrip current={stageStep(heroState)} />
             {orchestration && !isPaused && (
               <OrchestratorPanel view={orchestration} coachingOnly />

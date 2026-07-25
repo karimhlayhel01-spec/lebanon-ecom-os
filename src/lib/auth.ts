@@ -51,6 +51,14 @@ export async function destroySession() {
   cookieStore.delete(SESSION_COOKIE);
 }
 
+/** Invalidate every session for the user and clear the current cookie. */
+export async function destroyAllSessions(userId: string) {
+  ensureMigrated();
+  await db.delete(schema.sessions).where(eq(schema.sessions.userId, userId));
+  const cookieStore = await cookies();
+  cookieStore.delete(SESSION_COOKIE);
+}
+
 export async function getSessionUser(): Promise<SessionUser | null> {
   ensureMigrated();
   const cookieStore = await cookies();

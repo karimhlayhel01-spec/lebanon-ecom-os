@@ -19,30 +19,33 @@ const fieldClass =
   "rounded-md border border-stone bg-surface px-3 py-2.5 text-ink outline-none transition focus:border-cedar focus:ring-2 focus:ring-cedar/20";
 
 export type OnboardingInitialValues = {
-  budgetUsd: number;
-  monthlyFollowOnBudget: number;
-  hoursPerWeek: number;
-  experience: string;
-  uiLanguage: string;
-  storageDescription: string;
-  storageLimits: string;
-  riskTolerance: string;
-  categoryLikes: string[];
-  shopifyStatus: string;
-  codComfort: string;
-  deliveryBandDays: string;
-  maxLandedCost: number;
-  lebanonSellabilityAck: boolean;
-  sampleClearanceReady: boolean;
+  firstName: string;
+  lastName: string;
+  budgetUsd?: number;
+  monthlyFollowOnBudget?: number;
+  hoursPerWeek?: number;
+  experience?: string;
+  uiLanguage?: string;
+  storageDescription?: string;
+  storageLimits?: string;
+  riskTolerance?: string;
+  categoryLikes?: string[];
+  shopifyStatus?: string;
+  codComfort?: string;
+  deliveryBandDays?: string;
+  maxLandedCost?: number;
+  lebanonSellabilityAck?: boolean;
+  sampleClearanceReady?: boolean;
 };
 
 export function OnboardingWizard({
   initialValues,
+  isEditing = false,
 }: {
   initialValues?: OnboardingInitialValues;
+  isEditing?: boolean;
 }) {
   const t = useTranslations("Onboarding");
-  const isEditing = Boolean(initialValues);
   const [step, setStep] = useState(0);
   const [selectedIndustries, setSelectedIndustries] = useState<
     Set<IndustryOptionId>
@@ -99,6 +102,30 @@ export function OnboardingWizard({
       </ol>
 
       <div className={step === 0 ? "flex flex-col gap-4" : "hidden"}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium">{t("firstName")}</span>
+            <input
+              name="firstName"
+              required
+              maxLength={60}
+              autoComplete="given-name"
+              defaultValue={initialValues?.firstName ?? ""}
+              className={fieldClass}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium">{t("lastName")}</span>
+            <input
+              name="lastName"
+              required
+              maxLength={60}
+              autoComplete="family-name"
+              defaultValue={initialValues?.lastName ?? ""}
+              className={fieldClass}
+            />
+          </label>
+        </div>
         <label className="flex flex-col gap-1.5 text-sm">
           <span className="font-medium">{t("budgetUsd")}</span>
           <input

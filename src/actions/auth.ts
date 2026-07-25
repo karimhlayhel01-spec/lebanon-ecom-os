@@ -8,9 +8,17 @@ import { createSession, destroySession } from "@/lib/auth";
 import { newId, nowIso } from "@/lib/ids";
 import { redirect } from "@/i18n/navigation";
 import { getLocale } from "next-intl/server";
+import {
+  defaultWorkspaceName,
+  fullDisplayName,
+  type WorkspaceNameLocale,
+} from "@/lib/workspace-name";
+
+const namePart = z.string().trim().min(1).max(60);
 
 const signupSchema = z.object({
-  name: z.string().min(1).max(120),
+  firstName: namePart,
+  lastName: namePart,
   email: z.string().email().max(200),
   password: z.string().min(8).max(200),
 });
@@ -30,7 +38,8 @@ export async function signupAction(
 ): Promise<AuthActionState> {
   ensureMigrated();
   const parsed = signupSchema.safeParse({
-    name: formData.get("name"),
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
     email: formData.get("email"),
     password: formData.get("password"),
   });
@@ -49,6 +58,9 @@ export async function signupAction(
   }
 
   const locale = await getLocale();
+  const nameLocale: WorkspaceNameLocale = locale === "ar" ? "ar" : "en";
+  const firstName = parsed.data.firstName;
+  const lastName = parsed.data.lastName;
   const createdAt = nowIso();
   const userId = newId();
   const workspaceId = newId();
@@ -58,15 +70,17 @@ export async function signupAction(
     id: userId,
     email,
     passwordHash,
-    name: parsed.data.name.trim(),
+    firstName,
+    lastName,
+    name: fullDisplayName(firstName, lastName),
     createdAt,
   });
 
   await db.insert(schema.workspaces).values({
     id: workspaceId,
     founderUserId: userId,
-    name: "My Store",
-    language: locale === "ar" ? "ar" : "en",
+    name: defaultWorkspaceName({ firstName, locale: nameLocale }),
+    language: nameLocale,
     activeSkuId: null,
     shopifyStatus: "not_started",
     createdAt,

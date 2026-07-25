@@ -3,6 +3,9 @@ import { Link } from "@/i18n/navigation";
 import { logoutAction } from "@/actions/auth";
 import { LanguageSwitch } from "@/components/dashboard/LanguageSwitch";
 import { PauseResumeControls } from "@/components/dashboard/PauseResumeControls";
+import { SettingsMenu } from "@/components/dashboard/SettingsMenu";
+import { getSessionUser } from "@/lib/auth";
+import { getWorkspaceForUser } from "@/lib/workspace";
 
 /**
  * Shared top bar for the dashboard hub and the deep pages. Keeps the header
@@ -19,17 +22,30 @@ export async function AppHeader({
   const t = await getTranslations("Dashboard");
   const brand = await getTranslations("Brand");
   const auth = await getTranslations("Auth");
+  const user = await getSessionUser();
+  const workspace = user ? await getWorkspaceForUser(user.id) : null;
 
   return (
     <header className="border-b border-stone bg-surface">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-3.5">
         <div className="flex items-center gap-4">
-          <Link
-            href="/"
-            className="font-display text-lg font-semibold tracking-tight text-ink"
-          >
-            {brand("name")}
-          </Link>
+          <div className="flex min-w-0 flex-col">
+            <Link
+              href="/"
+              className="font-display text-lg font-semibold tracking-tight text-ink"
+            >
+              {brand("name")}
+            </Link>
+            {workspace?.name ? (
+              <span
+                className="truncate text-xs text-stone-dark"
+                dir="auto"
+                title={workspace.name}
+              >
+                {workspace.name}
+              </span>
+            ) : null}
+          </div>
           {showBack && (
             <Link
               href="/dashboard"
@@ -56,6 +72,9 @@ export async function AppHeader({
               {auth("logout")}
             </button>
           </form>
+          {user && workspace ? (
+            <SettingsMenu email={user.email} workspaceName={workspace.name} />
+          ) : null}
         </div>
       </div>
     </header>

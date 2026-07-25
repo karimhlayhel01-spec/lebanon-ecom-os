@@ -9,10 +9,20 @@ import { newId, nowIso } from "@/lib/ids";
 import { INDUSTRY_OPTIONS, MIN_BUDGET_USD } from "@/lib/constants";
 import { redirect } from "@/i18n/navigation";
 import { getLocale } from "next-intl/server";
+import {
+  defaultWorkspaceName,
+  fullDisplayName,
+  isAutoDefaultWorkspaceName,
+  resolveWorkspaceNameLocale,
+  type WorkspaceNameLocale,
+} from "@/lib/workspace-name";
 
 const industryIdSchema = z.enum(INDUSTRY_OPTIONS);
+const namePart = z.string().trim().min(1).max(60);
 
 const onboardingSchema = z.object({
+  firstName: namePart,
+  lastName: namePart,
   budgetUsd: z.coerce.number().min(MIN_BUDGET_USD),
   monthlyFollowOnBudget: z.coerce.number().min(0),
   hoursPerWeek: z.coerce.number().int().min(1).max(168),
@@ -51,7 +61,18 @@ export async function completeOnboardingAction(
     return { error: "errorGeneric" };
   }
 
+  const dbUser = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.id, user.id))
+    .get();
+  if (!dbUser) {
+    return { error: "errorGeneric" };
+  }
+
   const raw = {
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
     budgetUsd: formData.get("budgetUsd"),
     monthlyFollowOnBudget: formData.get("monthlyFollowOnBudget"),
     hoursPerWeek: formData.get("hoursPerWeek"),
@@ -145,12 +166,40 @@ export async function completeOnboardingAction(
     });
   }
 
+  const firstName = parsed.data.firstName;
+  const lastName = parsed.data.lastName;
+  await db
+    .update(schema.users)
+    .set({
+      firstName,
+      lastName,
+      name: fullDisplayName(firstName, lastName),
+    })
+    .where(eq(schema.users.id, user.id));
+
+  const locale = await getLocale();
+  const nameLocale: WorkspaceNameLocale = resolveWorkspaceNameLocale(
+    parsed.data.uiLanguage,
+    locale === "ar" ? "ar" : "en",
+  );
+  const workspacePatch: {
+    language: typeof parsed.data.uiLanguage;
+    shopifyStatus: typeof parsed.data.shopifyStatus;
+    name?: string;
+  } = {
+    language: parsed.data.uiLanguage,
+    shopifyStatus: parsed.data.shopifyStatus,
+  };
+  if (isAutoDefaultWorkspaceName(workspace.name, dbUser.firstName)) {
+    workspacePatch.name = defaultWorkspaceName({
+      firstName,
+      locale: nameLocale,
+    });
+  }
+
   await db
     .update(schema.workspaces)
-    .set({
-      language: parsed.data.uiLanguage,
-      shopifyStatus: parsed.data.shopifyStatus,
-    })
+    .set(workspacePatch)
     .where(eq(schema.workspaces.id, workspace.id));
 
   // Only set the starting journey state on first completion; editing later
@@ -177,7 +226,6 @@ export async function completeOnboardingAction(
     })
     .where(eq(schema.sideStatuses.workspaceId, workspace.id));
 
-  const locale = await getLocale();
   redirect({ href: "/dashboard", locale });
   return {};
 }

@@ -27,6 +27,8 @@ export function ensureMigrated() {
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       name TEXT NOT NULL,
+      first_name TEXT NOT NULL DEFAULT '',
+      last_name TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS workspaces (
@@ -274,8 +276,63 @@ export function ensureMigrated() {
     "INTEGER NOT NULL DEFAULT 0",
   );
   ensureColumn("side_statuses", "batch_arrival_eta", "TEXT");
+  ensureColumn("users", "first_name", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("users", "last_name", "TEXT NOT NULL DEFAULT ''");
+  backfillUserNameParts();
+  backfillLegacyWorkspaceNames();
 
   migrated = true;
+}
+
+/**
+ * Split legacy `users.name` into first_name / last_name for rows that never
+ * received the new columns (empty first_name).
+ */
+function backfillUserNameParts() {
+  const rows = sqlite
+    .prepare(`SELECT id, name, first_name FROM users`)
+    .all() as { id: string; name: string; first_name: string }[];
+  const update = sqlite.prepare(
+    `UPDATE users SET first_name = ?, last_name = ? WHERE id = ?`,
+  );
+  for (const row of rows) {
+    if (row.first_name) continue;
+    const trimmed = (row.name ?? "").trim();
+    const space = trimmed.indexOf(" ");
+    const firstName = space === -1 ? trimmed : trimmed.slice(0, space);
+    const lastName = space === -1 ? "" : trimmed.slice(space + 1).trim();
+    update.run(firstName, lastName, row.id);
+  }
+}
+
+/**
+ * Replace hard-coded legacy store titles with the first-name default pattern.
+ * Skips any workspace that was already customized.
+ */
+function backfillLegacyWorkspaceNames() {
+  const rows = sqlite
+    .prepare(
+      `SELECT w.id AS id, w.name AS name, w.language AS language,
+              u.first_name AS first_name
+       FROM workspaces w
+       JOIN users u ON u.id = w.founder_user_id
+       WHERE w.name IN ('My Store', 'Preview Store')`,
+    )
+    .all() as {
+    id: string;
+    name: string;
+    language: string;
+    first_name: string;
+  }[];
+  const update = sqlite.prepare(`UPDATE workspaces SET name = ? WHERE id = ?`);
+  for (const row of rows) {
+    const first = (row.first_name ?? "").trim();
+    if (!first) continue;
+    const locale = row.language === "ar" ? "ar" : "en";
+    const next =
+      locale === "ar" ? `متجر ${first}` : `${first}'s Store`;
+    update.run(next, row.id);
+  }
 }
 
 /** Idempotently add a column to an existing table if it is missing. */

@@ -7,6 +7,7 @@ import {
   DISCOVERY_SHOW_MORE_MAX,
   MAX_LANDED_SOFT_OVERAGE,
 } from "@/lib/constants";
+import { computeShowMoreRemaining } from "@/lib/discovery/show-more";
 import { computeFit, type FitProfile } from "@/lib/skills/fit";
 import { computeMargin } from "@/lib/skills/margin";
 import {
@@ -230,8 +231,8 @@ async function maybeCountExhaustion(workspaceId: string): Promise<void> {
   const total = await poolSize(session.id);
   const cap = Math.min(DISCOVERY_SESSION_CAP, total);
   const canShowMore =
-    session.showMoreUsed < DISCOVERY_SHOW_MORE_MAX &&
-    session.productsShown < cap;
+    session.productsShown < cap &&
+    session.showMoreUsed < DISCOVERY_SHOW_MORE_MAX;
 
   const shownRows = await db
     .select({
@@ -393,7 +394,7 @@ export async function submitDiscoveryPassFeedback(
   return { ok: true };
 }
 
-/** Reveal the next batch (5) up to 5 clicks / 25 per session. */
+/** Reveal the next batch (5). Cap is productsShown; click max is a secondary guard. */
 export async function showMore(workspaceId: string) {
   ensureMigrated();
   const session = await getActiveSession(workspaceId);
@@ -402,8 +403,8 @@ export async function showMore(workspaceId: string) {
   const total = await poolSize(session.id);
   const cap = Math.min(DISCOVERY_SESSION_CAP, total);
   if (
-    session.showMoreUsed >= DISCOVERY_SHOW_MORE_MAX ||
-    session.productsShown >= cap
+    session.productsShown >= cap ||
+    session.showMoreUsed >= DISCOVERY_SHOW_MORE_MAX
   ) {
     await maybeCountExhaustion(workspaceId);
     return;
@@ -768,8 +769,8 @@ export async function getDiscoveryView(
   const visible = rows.filter((r) => r.rank < freshSession.productsShown);
   const cap = Math.min(DISCOVERY_SESSION_CAP, await poolSize(freshSession.id));
   const canShowMore =
-    freshSession.showMoreUsed < DISCOVERY_SHOW_MORE_MAX &&
-    freshSession.productsShown < cap;
+    freshSession.productsShown < cap &&
+    freshSession.showMoreUsed < DISCOVERY_SHOW_MORE_MAX;
 
   const onboarding = await db
     .select()
@@ -857,9 +858,9 @@ export async function getDiscoveryView(
   return {
     sessionId: freshSession.id,
     productsShown: freshSession.productsShown,
-    showMoreRemaining: Math.max(
-      0,
-      DISCOVERY_SHOW_MORE_MAX - freshSession.showMoreUsed,
+    showMoreRemaining: computeShowMoreRemaining(
+      freshSession.productsShown,
+      cap,
     ),
     canShowMore,
     sessionCap: cap,

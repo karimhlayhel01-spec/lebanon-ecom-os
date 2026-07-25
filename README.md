@@ -74,7 +74,7 @@ Open [http://localhost:3005](http://localhost:3005) — you will be redirected t
 - Curated catalog **v1** in `src/lib/discovery/catalog.ts` with an injectable `DemandProvider` seam (MCP swaps in later, no rewrite)
 - Deterministic **Fit skill** (`src/lib/skills/fit.ts`): order **budget → experience → risk → time → storage → workload**, likes soft; yields **Strong / Okay** (Okay requires a risk-read acknowledgement)
 - Uses the **Shared Margin skill** (70% / 35%); blocked products show an explanation and the shortlist is never an all-blocked dead end
-- Session reveal: **5** ability-matched products, **show more** up to 5× → **max 25 per session**
+- Session reveal: **5** ability-matched products, **show more** up to 4× → **max 25 per session**
 - **Demand confirm** before accept: founder signal (URL / note / screenshot) + AI structured summary; differentiation shown per product
 - **Tier-1** conflict (Ishtari / EGLOW / Platza) → customize with supplier or drop
 - **Accept** routes through Human Approvals (`accept_product`), advances `discovery → supplier_sample`, and writes Topic B basics + active SKU

@@ -5,8 +5,14 @@ export const MARGIN_AFTER_ADS_MIN = 0.35;
 export const MARKETING_COST_PCT_OF_PRICE = 0.2;
 /** Monthly follow-on budget is spread across this many days for the estimate. */
 export const MARKETING_BUDGET_DAYS = 30;
+/** Products revealed on session start (and per Show more click). */
 export const DISCOVERY_INITIAL_COUNT = 5;
-export const DISCOVERY_SHOW_MORE_MAX = 5;
+/**
+ * Secondary guard on Show more clicks. Full pool: 5 initial + 4 clicks = 25.
+ * The real limiter is `productsShown < sessionCap`; this caps click count.
+ */
+export const DISCOVERY_SHOW_MORE_MAX = 4;
+/** Max products revealed per discovery session when the pool is large enough. */
 export const DISCOVERY_SESSION_CAP = 25;
 /** After this many fully exhausted session pools, show the "why did you pass?" form. */
 export const DISCOVERY_EXHAUSTED_ROUNDS_BEFORE_WHY = 3;

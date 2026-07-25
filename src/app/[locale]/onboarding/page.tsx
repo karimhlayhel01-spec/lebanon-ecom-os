@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { redirect } from "@/i18n/navigation";
 import { getSessionUser } from "@/lib/auth";
@@ -7,6 +8,7 @@ import {
   type OnboardingInitialValues,
 } from "@/components/onboarding/OnboardingWizard";
 import { Link } from "@/i18n/navigation";
+import { db, ensureMigrated, schema } from "@/db";
 
 type Props = {
   params: Promise<{ locale: string }>;
@@ -29,7 +31,18 @@ export default async function OnboardingPage({ params, searchParams }: Props) {
     redirect({ href: "/dashboard", locale });
   }
 
-  let initialValues: OnboardingInitialValues | undefined;
+  ensureMigrated();
+  const dbUser = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.id, user!.id))
+    .get();
+
+  let initialValues: OnboardingInitialValues = {
+    firstName: dbUser?.firstName ?? "",
+    lastName: dbUser?.lastName ?? "",
+  };
+
   if (isEditing && ctx?.onboarding) {
     const p = ctx.onboarding;
     let categoryLikes: string[] = [];
@@ -40,6 +53,7 @@ export default async function OnboardingPage({ params, searchParams }: Props) {
       categoryLikes = [];
     }
     initialValues = {
+      ...initialValues,
       budgetUsd: p.budgetUsd,
       monthlyFollowOnBudget: p.monthlyFollowOnBudget,
       hoursPerWeek: p.hoursPerWeek,
@@ -81,7 +95,10 @@ export default async function OnboardingPage({ params, searchParams }: Props) {
           {isEditing ? t("editSubtitle") : t("subtitle")}
         </p>
         <div className="animate-rise-delay surface-card mt-8 p-6 md:p-8">
-          <OnboardingWizard initialValues={initialValues} />
+          <OnboardingWizard
+            initialValues={initialValues}
+            isEditing={isEditing}
+          />
         </div>
       </main>
     </div>

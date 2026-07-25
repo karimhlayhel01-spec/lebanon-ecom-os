@@ -17,7 +17,9 @@ export function isPreviewMode(): boolean {
 /** Known demo credentials — documented in the README preview section. */
 export const PREVIEW_EMAIL = "preview@local.dev";
 export const PREVIEW_PASSWORD = "preview1234";
-export const PREVIEW_USER_NAME = "Preview Founder";
+export const PREVIEW_FIRST_NAME = "Preview";
+export const PREVIEW_LAST_NAME = "Founder";
+export const PREVIEW_USER_NAME = `${PREVIEW_FIRST_NAME} ${PREVIEW_LAST_NAME}`;
 
 /** Ordered QA stages (A→E). Each stage is cumulative of the ones before it. */
 export const PREVIEW_STAGES = [
