@@ -1,341 +1,544 @@
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { redirect } from "@/i18n/navigation";
 import { Link } from "@/i18n/navigation";
 import { requireOnboardedContext } from "@/lib/workspace";
 import { getDiscoveryView } from "@/lib/discovery/service";
-import { getSkuView } from "@/lib/sku/service";
 import { getFinancePanel } from "@/lib/finance/service";
-import { getOrchestration } from "@/lib/orchestrator/service";
+import {
+  computeRunwayForSkuFromEntries,
+  resolveUnitsLeftGlance,
+  shouldShowUnitsLeftOnHub,
+} from "@/lib/finance/sku-runway";
+import { getShopOrchestration } from "@/lib/orchestrator/service";
+import { normalizeReorderStatus } from "@/lib/supplier/reorder";
+import {
+  resolveWarmedSparesBySku,
+  resolveWorkingSupplierNamesBySku,
+} from "@/lib/supplier/working-path";
+import { db, schema } from "@/db";
+import { asc, eq } from "drizzle-orm";
 import { startDiscoveryAction } from "@/actions/discovery";
 import { AppHeader } from "@/components/dashboard/AppHeader";
-import { CompactSku } from "@/components/dashboard/CompactSku";
-import { StageHero, type HeroCta } from "@/components/dashboard/StageHero";
-import { JourneyStrip, type JourneyStep } from "@/components/dashboard/JourneyStrip";
-import { StatusCard } from "@/components/dashboard/StatusCard";
-import { WeekSnapshot } from "@/components/dashboard/WeekSnapshot";
 import { DiscoveryBoard } from "@/components/discovery/DiscoveryBoard";
 import { OrchestratorPanel } from "@/components/orchestrator/OrchestratorPanel";
+import { ShopHub, type ShopSkuChip } from "@/components/shop/ShopHub";
+import {
+  MarketingStatusBlock,
+  SupplierStatusBlock,
+} from "@/components/dashboard/StatusCard";
+import { JourneyStrip } from "@/components/dashboard/JourneyStrip";
+import {
+  listArchivedSkus,
+  listLiveSkus,
+  getSkuJourney,
+} from "@/lib/sku/journey";
+import { evaluateAddSku } from "@/lib/sku/add-sku";
+import {
+  resolvePostLoginLanding,
+  shouldShowAddSkuDiscovery,
+  shouldShowShopHub,
+} from "@/lib/sku/add-sku-gate";
+import {
+  effectiveJourneyState,
+  isSkuFinanceSectionUnlocked,
+  isSkuMarketingSectionUnlocked,
+} from "@/lib/sku/page-sections";
+import {
+  resolveHubOrientationSkuId,
+  resolveHubToolSkuId,
+} from "@/lib/sku/tools";
 import { getDashboardStatus } from "@/lib/dashboard/status";
-import { isPreviewMode } from "@/lib/preview/config"; // PREVIEW (removable)
-import { PreviewBanner } from "@/components/preview/PreviewBanner"; // PREVIEW (removable)
+import { primaryStateToJourneyStep } from "@/lib/dashboard/journey-step";
+import {
+  resolveHubVocabHighlightPhase,
+} from "@/lib/vocabulary/glossary";
+import { isPreviewMode } from "@/lib/preview/config";
+import { PreviewBanner } from "@/components/preview/PreviewBanner";
 import type { AppLocale } from "@/i18n/routing";
 
 type Props = {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-function stageStep(state: string): JourneyStep {
-  switch (state) {
-    case "discovery":
-      return "discovery";
-    case "supplier_sample":
-      return "accepted";
-    case "sample_approved":
-    case "store_setup":
-      return "sample";
-    case "batch_ordered":
-      return "batch";
-    case "batch_arrived_ready":
-      return "arrived";
-    case "selling":
-      return "selling";
-    default:
-      return "discovery";
+function attentionForSku(
+  skuId: string,
+  journey: {
+    primaryState: string;
+    sampleStatus: string;
+    batchOrdered: boolean;
+    batchArrivedReady: boolean;
+    costQuotesSaved: boolean;
+    reorderStatus?: string;
+    reorderNudge?: boolean;
+  } | null,
+  t: Awaited<ReturnType<typeof getTranslations<"Shop">>>,
+): Array<{ label: string; href: string }> {
+  if (!journey) return [];
+  const chips: Array<{ label: string; href: string }> = [];
+  const state = journey.primaryState;
+  if (state === "supplier_sample") {
+    chips.push({
+      label: t("chip.sample"),
+      href: `/sku/${skuId}?attn=sample#supplier`,
+    });
   }
+  if (
+    (state === "sample_approved" || state === "store_setup") &&
+    !journey.costQuotesSaved
+  ) {
+    chips.push({
+      label: t("chip.costs"),
+      href: `/sku/${skuId}?attn=costs#supplier`,
+    });
+  }
+  if (
+    (state === "sample_approved" || state === "store_setup") &&
+    !journey.batchOrdered
+  ) {
+    chips.push({
+      label: t("chip.batch"),
+      href: `/sku/${skuId}?attn=batch#supplier`,
+    });
+  }
+  if (state === "sample_approved" || state === "store_setup") {
+    chips.push({
+      label: t("chip.store"),
+      href: "/store",
+    });
+  }
+  if (state === "batch_ordered" && !journey.batchArrivedReady) {
+    chips.push({
+      label: t("chip.arrived"),
+      href: `/sku/${skuId}?attn=arrived#supplier`,
+    });
+  }
+  if (state === "batch_arrived_ready") {
+    chips.push({
+      label: t("chip.selling"),
+      href: `/sku/${skuId}?attn=selling#finance`,
+    });
+  }
+  if (state === "selling") {
+    chips.push({
+      label: t("chip.topicA"),
+      href: `/sku/${skuId}?attn=topicA#finance`,
+    });
+    if (journey.reorderStatus === "ordered") {
+      chips.push({
+        label: t("chip.reorderInTransit"),
+        href: `/sku/${skuId}?attn=reorder#supplier`,
+      });
+    } else if (journey.reorderNudge) {
+      chips.push({
+        label: t("chip.restock"),
+        href: `/sku/${skuId}?attn=reorder#supplier`,
+      });
+    }
+  }
+  return chips;
 }
 
-export default async function DashboardPage({ params }: Props) {
+/** Hub Next line: first journey attention chip that deep-links into a SKU section. */
+function pickHubNextDeepLink(
+  attention: Array<{ label: string; href: string }>,
+): { label: string; href: string } | null {
+  for (const chip of attention) {
+    // `/sku/[id]?attn=…#…` — skips bare `/store` and other non-focus paths.
+    if (
+      chip.href.startsWith("/sku/") &&
+      chip.href.includes("attn=") &&
+      chip.href.includes("#")
+    ) {
+      return chip;
+    }
+  }
+  return null;
+}
+
+export default async function DashboardPage({ params, searchParams }: Props) {
   const { locale } = await params;
+  const sp = await searchParams;
   setRequestLocale(locale);
 
-  const ctx = await requireOnboardedContext(locale);
+  const forceHub = sp.hub === "1" || sp.hub === "true";
+  const addSkuFlag = sp.addSku === "1" || sp.addSku === "true";
 
+  const ctx = await requireOnboardedContext(locale);
   const t = await getTranslations("Dashboard");
+  const shopT = await getTranslations("Shop");
   const disc = await getTranslations("Discovery");
 
   const workspace = ctx.workspace;
-  const journey = ctx.journey;
-  const side = ctx.side!;
-  const primaryState = journey?.primaryState ?? "discovery";
-  const isPaused = primaryState === "paused";
+  const live = await listLiveSkus(workspace.id);
+  const landing = resolvePostLoginLanding(live.map((s) => ({ id: s.id })));
 
-  const inDiscovery = primaryState === "discovery" && !isPaused;
+  const showHub = shouldShowShopHub({
+    liveSkuCount: live.length,
+    forceHub,
+  });
+
+  // Default landing: exactly 1 live SKU → SKU page (unless explicit Shop hub).
+  if (!showHub && landing.kind === "sku") {
+    redirect({ href: `/sku/${landing.skuId}`, locale });
+  }
+
+  const shopPaused = !!workspace.shopPaused;
+  const side = ctx.side!;
+  const journey = ctx.journey;
+  const primaryState = shopPaused
+    ? "paused"
+    : (journey?.primaryState ?? "discovery");
+  const isPaused = primaryState === "paused" || shopPaused;
+
+  const inDiscovery = live.length === 0 && !isPaused;
   const discovery = inDiscovery
     ? await getDiscoveryView(workspace.id, locale as AppLocale)
     : null;
 
-  const skuView =
-    !inDiscovery && side.productAccepted
-      ? await getSkuView(workspace.id)
-      : null;
-
-  const sampleApproved =
-    side.sampleStatus === "approved" ||
-    [
-      "sample_approved",
-      "store_setup",
-      "batch_ordered",
-      "batch_arrived_ready",
-      "selling",
-    ].includes(primaryState);
-  const isSelling = primaryState === "selling";
-  const showFinance = side.batchArrivedReady || isSelling;
-  const financeView = showFinance ? await getFinancePanel(workspace.id) : null;
-
-  const orchestration = await getOrchestration(workspace.id);
-
-  // Stage from which we drive the hero (paused reflects the paused-from state).
-  const heroState = isPaused
-    ? (journey?.pausedFromState ?? "discovery")
-    : primaryState;
-
-  // Status is post-discovery only (also hidden when paused-from-discovery).
-  const showStatus = heroState !== "discovery" && side.productAccepted;
-  const statusView = showStatus
-    ? await getDashboardStatus({
-        workspaceId: workspace.id,
-        locale: locale as AppLocale,
-        primaryState: heroState,
-        productAccepted: side.productAccepted,
-        sampleStatus: side.sampleStatus,
-        batchOrdered: side.batchOrdered,
-        batchArrivedReady: side.batchArrivedReady,
-        sideMarketingStage: side.marketingStage,
-      })
+  const showAddDiscovery = shouldShowAddSkuDiscovery({
+    liveSkuCount: live.length,
+    addSkuFlag,
+  });
+  const addSkuDiscovery = showAddDiscovery
+    ? await getDiscoveryView(workspace.id, locale as AppLocale)
     : null;
 
-  const storeWhisper =
-    side.storeReadyPercent < 100
-      ? { label: t("heroStoreWhisper", { pct: side.storeReadyPercent }), href: "/store" }
-      : null;
+  const financeView =
+    live.length > 0 ? await getFinancePanel(workspace.id) : null;
+  const orchestration = await getShopOrchestration(workspace.id);
+  const addSkuEval = live.length > 0 ? await evaluateAddSku(workspace.id) : null;
+  const archived =
+    live.length >= 1 ? await listArchivedSkus(workspace.id) : [];
 
-  const hero: {
-    eyebrow: string;
-    title: string;
-    subline: string;
-    ctas: HeroCta[];
-    whisper: { label: string; href: string } | null;
-  } = (() => {
-    if (isPaused) {
-      return {
-        eyebrow: t("heroPausedEyebrow"),
-        title: t("heroPausedTitle"),
-        subline: t("heroPausedSub"),
-        ctas: [],
-        whisper: null,
-      };
-    }
-    switch (primaryState) {
-      case "discovery":
-        return {
-          eyebrow: t("heroDiscoveryEyebrow"),
-          title: t("heroDiscoveryTitle"),
-          subline: t("heroDiscoverySub"),
-          ctas: [
-            {
-              href: "#discovery",
-              label: discovery ? t("ctaContinueDiscovery") : t("ctaStartDiscovery"),
-              tone: "primary",
-            },
-          ],
-          whisper: null,
-        };
-      case "supplier_sample": {
-        const label =
-          side.sampleStatus === "in_flight" || side.sampleStatus === "requested"
-            ? t("ctaSampleDecision")
-            : side.sampleStatus === "rejected"
-              ? t("ctaSampleRetry")
-              : t("ctaRequestSample");
-        return {
-          eyebrow: t("heroSampleEyebrow"),
-          title: t("heroSampleTitle"),
-          subline: t("heroSampleSub"),
-          ctas: [{ href: "/supplier", label, tone: "primary" }],
-          whisper: null,
-        };
-      }
-      case "sample_approved":
-      case "store_setup": {
-        // Cost quotes are the obvious next step until saved: promote them to the
-        // primary CTA (deep-link to Supplier #cost-quotes) and keep batch as a
-        // parallel action — never removed (marking batch stays allowed).
-        const quotesSaved = side.costQuotesSaved;
-        const storeCta: HeroCta = {
-          href: "/store",
-          label: t("ctaStoreSetup"),
-          tone: "parallel",
-        };
-        const batchCta: HeroCta = {
-          href: "/supplier",
-          label: t("ctaOrderBatch"),
-          tone: quotesSaved ? "primary" : "parallel",
-        };
-        return {
-          eyebrow: t("heroSetupEyebrow"),
-          title: t("heroSetupTitle"),
-          subline: quotesSaved ? t("heroSetupSub") : t("heroSetupSubCosts"),
-          ctas: quotesSaved
-            ? [batchCta, storeCta]
-            : [
-                {
-                  href: "/supplier#cost-quotes",
-                  label: t("ctaEnterCosts"),
-                  tone: "primary",
-                },
-                batchCta,
-                storeCta,
-              ],
-          whisper: {
-            label: t("heroMarketingIntroWhisper"),
-            href: "/marketing?stage=intro_pdf",
-          },
-        };
-      }
-      case "batch_ordered":
-        return {
-          eyebrow: t("heroOrderedEyebrow"),
-          title: t("heroOrderedTitle"),
-          subline: t("heroOrderedSub"),
-          ctas: [
-            { href: "/supplier", label: t("ctaMarkArrived"), tone: "primary" },
-            {
-              href: "/marketing?stage=pre_launch",
-              label: t("ctaPreLaunch"),
-              tone: "parallel",
-            },
-          ],
-          whisper: storeWhisper,
-        };
-      case "selling":
-        return {
-          eyebrow: t("heroSellingEyebrow"),
-          title: t("heroSellingTitle"),
-          subline: t("heroSellingSub"),
-          ctas: [
-            { href: "/finance", label: t("ctaLogWeek"), tone: "primary" },
-            {
-              href: "/marketing?stage=monthly_refresh",
-              label: t("ctaMonthlyRefresh"),
-              tone: "parallel",
-            },
-          ],
-          whisper: null,
-        };
-      case "batch_arrived_ready":
-      default:
-        return {
-          eyebrow: t("heroBatchEyebrow"),
-          title: t("heroBatchTitle"),
-          subline: t("heroBatchSub"),
-          ctas: [
-            { href: "/finance", label: t("ctaStartSelling"), tone: "primary" },
-            {
-              href: "/marketing?stage=launch",
-              label: t("ctaLaunchMarketing"),
-              tone: "parallel",
-            },
-          ],
-          whisper: storeWhisper,
-        };
-    }
-  })();
-
-  const tools: Array<{ href: "/sku" | "/supplier" | "/store" | "/marketing"; label: string }> =
-    side.productAccepted
-      ? [
-          { href: "/sku", label: t("toolSku") },
-          { href: "/supplier", label: t("toolSupplier") },
-          ...(sampleApproved
-            ? ([
-                { href: "/store", label: t("toolStore") },
-                { href: "/marketing", label: t("toolMarketing") },
-              ] as const)
-            : []),
-        ]
+  const topicRowsForRunway =
+    live.length >= 1 && showHub
+      ? await db
+          .select({ perSkuSoldLeft: schema.topicAEntries.perSkuSoldLeft })
+          .from(schema.topicAEntries)
+          .where(eq(schema.topicAEntries.workspaceId, workspace.id))
+          .orderBy(asc(schema.topicAEntries.weekStart))
+          .all()
       : [];
 
-  return (
-    <div className="min-h-screen">
-      <AppHeader isPaused={isPaused} />
+  const skuChips: ShopSkuChip[] = [];
+  let financeUnlockedOnHub = false;
+  // Journeys keyed for Tools row gates against the hub target SKU.
+  const journeyBySkuId = new Map<
+    string,
+    NonNullable<Awaited<ReturnType<typeof getSkuJourney>>>
+  >();
+  if (live.length >= 1 && showHub) {
+    for (const s of live) {
+      const j = await getSkuJourney(s.id);
+      if (j) journeyBySkuId.set(s.id, j);
+    }
 
-      <main id="top" className="mx-auto w-full max-w-6xl px-6 py-8">
-        {isPreviewMode() && <PreviewBanner />}
+    const liveIds = live.map((s) => s.id);
+    const [workingNames, warmedBySku] = await Promise.all([
+      resolveWorkingSupplierNamesBySku(liveIds, journeyBySkuId),
+      resolveWarmedSparesBySku(liveIds, journeyBySkuId),
+    ]);
 
-        <StageHero
-          eyebrow={hero.eyebrow}
-          title={hero.title}
-          subline={hero.subline}
-          ctas={hero.ctas}
-          whisper={hero.whisper}
-        />
+    for (const s of live) {
+      const j = journeyBySkuId.get(s.id) ?? null;
+      const effState = shopPaused ? "paused" : (j?.primaryState ?? "discovery");
+      if (
+        isSkuFinanceSectionUnlocked({
+          batchArrivedReady: !!j?.batchArrivedReady,
+          primaryState: j?.primaryState ?? "discovery",
+          pausedFromState: j?.pausedFromState,
+        })
+      ) {
+        financeUnlockedOnHub = true;
+      }
+      const reorderStatus = normalizeReorderStatus(j?.reorderStatus);
+      const runway = computeRunwayForSkuFromEntries(topicRowsForRunway, s.id, {
+        liveSkuCount: live.length,
+      });
+      const unitsLeftGlance = resolveUnitsLeftGlance(runway);
+      const reorderNudge =
+        effState === "selling" &&
+        reorderStatus === "idle" &&
+        runway.nudge;
+      const showUnits = shouldShowUnitsLeftOnHub({
+        primaryState: effState,
+        unitsLeft:
+          unitsLeftGlance.kind === "known" ? unitsLeftGlance.unitsLeft : null,
+      });
+      const spares = warmedBySku.get(s.id) ?? {
+        insuranceAvailable: false,
+        warmedSpareNames: [],
+      };
+      skuChips.push({
+        id: s.id,
+        name: s.name,
+        primaryState: effState,
+        paused: j?.primaryState === "paused" || shopPaused,
+        workingSupplierName: workingNames.get(s.id) ?? null,
+        insuranceAvailable: spares.insuranceAvailable,
+        warmedSpareNames: spares.warmedSpareNames,
+        unitsLeftGlance: showUnits ? unitsLeftGlance : null,
+        attention: attentionForSku(
+          s.id,
+          j
+            ? {
+                primaryState: j.primaryState,
+                sampleStatus: j.sampleStatus,
+                batchOrdered: j.batchOrdered,
+                batchArrivedReady: j.batchArrivedReady,
+                costQuotesSaved: j.costQuotesSaved,
+                reorderStatus,
+                reorderNudge,
+              }
+            : null,
+          shopT,
+        ),
+      });
+    }
+  }
 
-        {tools.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-stone-dark">
-              {t("toolsLabel")}
-            </span>
-            {tools.map((tool) => (
+  // Hub Tools: active live SKU, else first live — never dead-end with live SKUs.
+  const toolsTargetSkuId = resolveHubToolSkuId(
+    live.map((s) => s.id),
+    workspace.activeSkuId,
+  );
+  const toolsJourney = toolsTargetSkuId
+    ? (journeyBySkuId.get(toolsTargetSkuId) ??
+      (await getSkuJourney(toolsTargetSkuId)))
+    : null;
+  const toolsUnlocked = {
+    // Always one-click (empty/locked /store when sample not approved).
+    store: true,
+    supplier: !!toolsTargetSkuId,
+    marketing: toolsJourney
+      ? isSkuMarketingSectionUnlocked({
+          sampleStatus: toolsJourney.sampleStatus,
+          primaryState: toolsJourney.primaryState,
+          pausedFromState: toolsJourney.pausedFromState,
+        })
+      : false,
+    finance: toolsJourney
+      ? isSkuFinanceSectionUnlocked({
+          batchArrivedReady: !!toolsJourney.batchArrivedReady,
+          primaryState: toolsJourney.primaryState,
+          pausedFromState: toolsJourney.pausedFromState,
+        })
+      : false,
+  };
+
+  // Hub Status + Journey: one labeled SKU (active → attention → first live).
+  const orientationSkuId = resolveHubOrientationSkuId(
+    skuChips.map((s) => ({
+      id: s.id,
+      attentionCount: s.attention.length,
+    })),
+    workspace.activeSkuId,
+  );
+  const orientationSku = orientationSkuId
+    ? live.find((s) => s.id === orientationSkuId)
+    : null;
+  const orientationChip = orientationSkuId
+    ? skuChips.find((s) => s.id === orientationSkuId)
+    : null;
+  const hubNextDeep = orientationChip
+    ? pickHubNextDeepLink(orientationChip.attention)
+    : null;
+  const hubNext =
+    hubNextDeep && orientationChip
+      ? {
+          label: hubNextDeep.label,
+          skuName: orientationChip.name,
+        }
+      : null;
+  const orientationJourney = orientationSkuId
+    ? (journeyBySkuId.get(orientationSkuId) ??
+      (await getSkuJourney(orientationSkuId)))
+    : null;
+  const orientationPrimary = orientationJourney
+    ? effectiveJourneyState({
+        primaryState: orientationJourney.primaryState,
+        pausedFromState: orientationJourney.pausedFromState,
+      })
+    : "discovery";
+  const statusView =
+    orientationSku && orientationJourney
+      ? await getDashboardStatus({
+          workspaceId: workspace.id,
+          skuId: orientationSku.id,
+          skuName: orientationSku.name,
+          locale: locale as AppLocale,
+          primaryState: orientationPrimary,
+          productAccepted: true,
+          sampleStatus: orientationJourney.sampleStatus,
+          batchOrdered: orientationJourney.batchOrdered,
+          batchArrivedReady: orientationJourney.batchArrivedReady,
+          sideMarketingStage: orientationJourney.marketingStage,
+        })
+      : null;
+  const journeyStep = primaryStateToJourneyStep(orientationPrimary);
+
+  // Hub Finance chip: never promise open Finance before any SKU unlocked.
+  const financeChipSkuId = financeUnlockedOnHub
+    ? (live.find((s) => {
+        const j = journeyBySkuId.get(s.id);
+        return (
+          !!j &&
+          isSkuFinanceSectionUnlocked({
+            batchArrivedReady: !!j.batchArrivedReady,
+            primaryState: j.primaryState,
+            pausedFromState: j.pausedFromState,
+          })
+        );
+      })?.id ?? toolsTargetSkuId)
+    : null;
+
+  const financeHref = financeUnlockedOnHub
+    ? financeChipSkuId
+      ? `/sku/${financeChipSkuId}#finance`
+      : "/finance"
+    : "/finance";
+
+  const financeLabel =
+    financeView?.mode === "live" && financeUnlockedOnHub
+      ? t("financeLive", { n: financeView.weekCount })
+      : financeUnlockedOnHub
+        ? t("financePreview")
+        : t("financeLocked");
+
+  // Single hub coaching surface: ShopHub shop tips (from getShopOrchestration).
+  // Do not also mount OrchestratorPanel coachingOnly on the live hub.
+  const coaching: string[] = [];
+  if (orchestration?.coaching?.length && !isPaused) {
+    for (const c of orchestration.coaching.slice(0, 4)) {
+      coaching.push(shopT(`coaching.${c.id}` as never));
+    }
+  }
+
+  const hubBody =
+    live.length >= 1 && showHub ? (
+      <div className="animate-rise space-y-5">
+        <ShopHub
+          shopPaused={shopPaused}
+          storeReadyPercent={side.storeReadyPercent}
+          financeHref={financeHref}
+          financeLabel={financeLabel}
+          financeUnlocked={financeUnlockedOnHub}
+          toolsTargetSkuId={toolsTargetSkuId!}
+          toolsUnlocked={toolsUnlocked}
+          hubNext={hubNext}
+          coaching={coaching}
+          skus={skuChips}
+          archived={archived.map((a) => ({ id: a.id, name: a.name }))}
+          addSku={{
+            ok: addSkuEval?.ok ?? false,
+            error: addSkuEval && !addSkuEval.ok ? addSkuEval.error : undefined,
+            warning:
+              addSkuEval && addSkuEval.ok ? addSkuEval.warning : undefined,
+            seriousnessWarning: addSkuEval?.seriousnessWarning ?? false,
+          }}
+        >
+          {statusView ? <SupplierStatusBlock view={statusView} /> : null}
+          {statusView ? <MarketingStatusBlock view={statusView} /> : null}
+          {orientationSku ? (
+            <JourneyStrip
+              current={journeyStep}
+              skuName={orientationSku.name}
+            />
+          ) : null}
+        </ShopHub>
+        {showAddDiscovery && addSkuDiscovery && (
+          <div id="discovery" className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-sea/30 bg-sea/5 px-4 py-3">
+              <p className="text-sm font-medium text-ink">
+                {shopT("addSkuDiscoveryBanner")}
+              </p>
               <Link
-                key={tool.href}
-                href={tool.href}
-                className="rounded-full border border-stone bg-surface px-3 py-1 text-xs font-medium text-ink transition hover:bg-sand"
+                href="/dashboard?hub=1"
+                className="shrink-0 text-sm font-medium text-sea underline-offset-2 hover:underline"
               >
-                {tool.label}
+                {shopT("addSkuDiscoveryCancel")}
               </Link>
-            ))}
+            </div>
+            <DiscoveryBoard view={addSkuDiscovery} mode="addSku" />
+          </div>
+        )}
+      </div>
+    ) : (
+      <div className="animate-rise space-y-5">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-stone-dark">
+            {shopT("kicker")}
+          </p>
+          <h1 className="font-display text-2xl text-ink">{shopT("title")}</h1>
+          <p className="mt-1 max-w-xl text-sm text-stone-dark">
+            {shopT("introEmpty")}
+          </p>
+        </div>
+
+        {inDiscovery ? (
+          discovery ? (
+            <div id="discovery">
+              <DiscoveryBoard view={discovery} />
+            </div>
+          ) : (
+            <div id="discovery" className="surface-card p-6 text-center">
+              <h2 className="font-display text-lg text-ink">{disc("title")}</h2>
+              <p className="mx-auto mt-2 max-w-md text-sm text-stone-dark">
+                {disc("startHint")}
+              </p>
+              <form action={startDiscoveryAction} className="mt-4">
+                <button
+                  type="submit"
+                  className="rounded-md bg-cedar px-5 py-2.5 text-sm font-semibold text-foam shadow-sm transition hover:bg-cedar-deep"
+                >
+                  {disc("startCta")}
+                </button>
+              </form>
+            </div>
+          )
+        ) : (
+          <div className="surface-card p-5">
+            <h2 className="font-display text-lg text-ink">{t("nextCta")}</h2>
+            <p className="mt-2 text-sm text-stone-dark">
+              {t("nextCtaPlaceholder")}
+            </p>
+            <Link
+              href="/dashboard#discovery"
+              className="mt-3 inline-flex text-sm font-medium text-sea underline-offset-2 hover:underline"
+            >
+              {t("ctaStartDiscovery")}
+            </Link>
           </div>
         )}
 
-        <div className="mt-5 grid gap-5 lg:grid-cols-3">
-          <section className="animate-rise space-y-5 lg:col-span-2">
-            {inDiscovery ? (
-              discovery ? (
-                <div id="discovery">
-                  <DiscoveryBoard view={discovery} />
-                </div>
-              ) : (
-                <div id="discovery" className="surface-card p-6 text-center">
-                  <h2 className="font-display text-lg text-ink">{disc("title")}</h2>
-                  <p className="mx-auto mt-2 max-w-md text-sm text-stone-dark">
-                    {disc("startHint")}
-                  </p>
-                  <form action={startDiscoveryAction} className="mt-4">
-                    <button
-                      type="submit"
-                      className="rounded-md bg-cedar px-5 py-2.5 text-sm font-semibold text-foam shadow-sm transition hover:bg-cedar-deep"
-                    >
-                      {disc("startCta")}
-                    </button>
-                  </form>
-                </div>
-              )
-            ) : skuView ? (
-              <>
-                {isSelling && financeView && <WeekSnapshot view={financeView} />}
-                <CompactSku
-                  sku={skuView}
-                  actual={financeView?.currentActual ?? null}
-                  quiet
-                />
-              </>
-            ) : (
-              <div className="surface-card p-5">
-                <h2 className="font-display text-lg text-ink">{t("nextCta")}</h2>
-                <p className="mt-2 text-sm text-stone-dark">
-                  {t("nextCtaPlaceholder")}
-                </p>
-              </div>
-            )}
-          </section>
+        {/* Empty shop: single coaching surface via Orchestrator (no ShopHub list). */}
+        {orchestration && !isPaused && (
+          <OrchestratorPanel view={orchestration} coachingOnly />
+        )}
+      </div>
+    );
 
-          <aside className="animate-rise-delay space-y-5">
-            {statusView && <StatusCard view={statusView} />}
-            <JourneyStrip current={stageStep(heroState)} />
-            {orchestration && !isPaused && (
-              <OrchestratorPanel view={orchestration} coachingOnly />
-            )}
-          </aside>
-        </div>
+  return (
+    <div className="min-h-screen">
+      <AppHeader
+        isPaused={isPaused}
+        highlightPhase={resolveHubVocabHighlightPhase(
+          live.map((s) => {
+            const j = journeyBySkuId.get(s.id);
+            return {
+              id: s.id,
+              primaryState: j?.primaryState ?? "discovery",
+              pausedFromState: j?.pausedFromState,
+            };
+          }),
+          workspace.activeSkuId,
+        )}
+      />
+
+      <main id="top" className="app-shell py-8">
+        {isPreviewMode() && <PreviewBanner />}
+        {hubBody}
       </main>
     </div>
   );

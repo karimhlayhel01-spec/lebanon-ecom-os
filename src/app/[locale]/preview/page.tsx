@@ -34,6 +34,17 @@ export default async function PreviewPage({ params }: Props) {
       <h1 className="font-display text-2xl text-ink">{t("pageTitle")}</h1>
       <p className="mt-1 text-sm text-stone-dark">{t("pageLead")}</p>
 
+      <section className="mt-5 rounded-md border border-stone bg-surface px-4 py-3">
+        <h2 className="text-sm font-semibold text-ink">{t("guideTitle")}</h2>
+        <ul className="mt-2 list-disc space-y-1.5 ps-5 text-sm text-stone-dark">
+          <li>{t("guideClassic")}</li>
+          <li>{t("guideModeC")}</li>
+          <li>{t("guideGates")}</li>
+          <li>{t("guideArchive")}</li>
+          <li>{t("guideMarketing")}</li>
+        </ul>
+      </section>
+
       <div className="surface-card mt-6 p-5">
         <h2 className="font-display text-base text-ink">{t("jumpTitle")}</h2>
         <p className="mt-1 text-sm text-stone-dark">{t("jumpLead")}</p>

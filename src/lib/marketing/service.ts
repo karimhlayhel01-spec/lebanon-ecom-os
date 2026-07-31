@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import {
@@ -9,7 +9,12 @@ import {
 } from "@/lib/constants";
 import { createApprovalRequest, decideApproval } from "@/lib/approvals/engine";
 import { getJourney, founderEditMarketingKit } from "@/lib/memory/repos";
-import { getSkuView } from "@/lib/sku/service";
+import { getSkuView, getSkuViewById } from "@/lib/sku/service";
+import {
+  getSkuJourney,
+  listLiveSkus,
+  patchSkuJourneyFlags,
+} from "@/lib/sku/journey";
 import {
   buildIntroLesson,
   type IntroLessonPayload,
@@ -17,7 +22,6 @@ import {
 } from "@/lib/marketing/intro-lesson";
 import {
   buildCreatives,
-  creativeCountFor,
   normalizeCreative,
   type Creative,
 } from "@/lib/marketing/creatives";
@@ -25,9 +29,16 @@ import { resolveBatchArrivalEta } from "@/lib/supplier/batch-eta";
 import type { BatchArrivalEtaView } from "@/lib/supplier/batch-eta";
 import {
   resolveDefaultFocusStage,
+  resolveMarketingJourneyFlags,
   resolveUnlockedStages,
   type MarketingStageInfo,
 } from "@/lib/marketing/focus";
+import {
+  needsMarginAckForPaidUi,
+  resolveSkuPlanningMargins,
+} from "@/lib/marketing/margin-gate";
+import { getCurrentActual } from "@/lib/finance/service";
+import type { SkuCardView } from "@/lib/sku/service";
 
 export type { MarketingStageInfo };
 
@@ -89,7 +100,42 @@ export type MarketingPanelView = {
   launchAckNeeded: boolean;
   /** Batch arrival ETA from Supplier (or default 1 month). */
   batchArrivalEta: BatchArrivalEtaView;
+  /** Selected SKU id, or null for whole-shop kit. */
+  selectedSkuId: string | null;
+  /** Live SKUs for the picker. */
+  liveSkus: Array<{ id: string; name: string }>;
+  /** True when ≥3 live SKUs — whole-shop kit option available. */
+  shopKitAvailable: boolean;
+  /** True when viewing the whole-shop kit (skuId null). */
+  isShopKit: boolean;
+  /**
+   * Known planning/actual margins miss 70%/35% bars — top note uses fail copy.
+   * Informational only; never blocks generate.
+   */
+  needsMarginAck: boolean;
 };
+
+async function resolveMarginsForKitContext(args: {
+  workspaceId: string;
+  isShopKit: boolean;
+  sku: SkuCardView | null;
+  monthlyFollowOnBudget: number;
+}): Promise<{ before: number | null; after: number | null }> {
+  if (args.isShopKit) {
+    const actual = await getCurrentActual(args.workspaceId);
+    return {
+      before: actual?.before ?? null,
+      after: actual?.after ?? null,
+    };
+  }
+  if (!args.sku) return { before: null, after: null };
+  const pair = resolveSkuPlanningMargins({
+    quotedCosts: args.sku.quotedCosts,
+    moneySnapshot: args.sku.moneySnapshot,
+    monthlyFollowOnBudget: args.monthlyFollowOnBudget,
+  });
+  return { before: pair.before, after: pair.after };
+}
 
 function parseKitItems(raw: string): {
   kind: "creatives" | "intro_lesson";
@@ -129,10 +175,35 @@ function parseKitItems(raw: string): {
 
 export async function getMarketingPanel(
   workspaceId: string,
+  skuId?: string | null,
 ): Promise<MarketingPanelView | null> {
   ensureMigrated();
-  const sku = await getSkuView(workspaceId);
-  if (!sku) return null;
+  const live = await listLiveSkus(workspaceId);
+  if (live.length === 0) return null;
+
+  const shopKitAvailable = live.length >= 3;
+  const isShopKit = skuId === null && shopKitAvailable;
+
+  let sku =
+    skuId && skuId.length > 0
+      ? await getSkuViewById(workspaceId, skuId)
+      : isShopKit
+        ? null
+        : await getSkuView(workspaceId);
+
+  // Default to active / first live when no explicit pick.
+  if (!isShopKit && !sku) {
+    sku = await getSkuView(workspaceId);
+    if (!sku && live[0]) {
+      sku = await getSkuViewById(workspaceId, live[0].id);
+    }
+  }
+  if (!isShopKit && !sku) return null;
+
+  const selectedSkuId = isShopKit ? null : sku!.id;
+  const skuJourney = selectedSkuId
+    ? await getSkuJourney(selectedSkuId)
+    : null;
 
   const [side, journey, onboarding, store, kitRows] = await Promise.all([
     db
@@ -151,26 +222,58 @@ export async function getMarketingPanel(
       .from(schema.storeReadiness)
       .where(eq(schema.storeReadiness.workspaceId, workspaceId))
       .get(),
-    db
-      .select()
-      .from(schema.marketingKits)
-      .where(eq(schema.marketingKits.skuId, sku.id))
-      .orderBy(asc(schema.marketingKits.createdAt))
-      .all(),
+    isShopKit
+      ? db
+          .select()
+          .from(schema.marketingKits)
+          .where(
+            and(
+              eq(schema.marketingKits.workspaceId, workspaceId),
+              isNull(schema.marketingKits.skuId),
+            ),
+          )
+          .orderBy(asc(schema.marketingKits.createdAt))
+          .all()
+      : db
+          .select()
+          .from(schema.marketingKits)
+          .where(eq(schema.marketingKits.skuId, selectedSkuId!))
+          .orderBy(asc(schema.marketingKits.createdAt))
+          .all(),
   ]);
 
-  const primaryState = journey?.primaryState ?? "";
-  const sampleApproved =
-    side?.sampleStatus === "approved" ||
-    ["sample_approved", "store_setup", "batch_ordered", "batch_arrived_ready", "selling"].includes(
-      primaryState,
-    );
-  const batchOrdered =
-    (side?.batchOrdered ?? false) ||
-    ["batch_ordered", "batch_arrived_ready", "selling"].includes(primaryState);
-  const batchArrivedReady =
-    (side?.batchArrivedReady ?? false) ||
-    ["batch_arrived_ready", "selling"].includes(primaryState);
+  const journeyFlags = resolveMarketingJourneyFlags({
+    skuJourney: skuJourney
+      ? {
+          primaryState: skuJourney.primaryState,
+          pausedFromState: skuJourney.pausedFromState,
+          sampleStatus: skuJourney.sampleStatus,
+          batchOrdered: skuJourney.batchOrdered,
+          batchArrivedReady: skuJourney.batchArrivedReady,
+          marketingStage: skuJourney.marketingStage,
+          batchArrivalEta: skuJourney.batchArrivalEta,
+        }
+      : null,
+    // Legacy single-SKU only — never mix sideStatuses into a real skuJourney.
+    legacy: skuJourney
+      ? null
+      : {
+          primaryState: journey?.primaryState ?? "",
+          sampleStatus: side?.sampleStatus ?? null,
+          batchOrdered: side?.batchOrdered ?? false,
+          batchArrivedReady: side?.batchArrivedReady ?? false,
+          marketingStage: side?.marketingStage ?? null,
+          batchArrivalEta: side?.batchArrivalEta ?? null,
+        },
+  });
+
+  const {
+    primaryState,
+    sampleApproved,
+    batchOrdered,
+    batchArrivedReady,
+    marketingStage: skuMarketingStage,
+  } = journeyFlags;
 
   // One kit per stage in the read model (legacy stacks collapse to newest).
   const kits: MarketingKitView[] = [];
@@ -193,29 +296,36 @@ export async function getMarketingPanel(
   );
 
   const stages = resolveUnlockedStages({
-    sampleApproved,
-    batchOrdered,
-    batchArrivedReady,
+    sampleApproved: isShopKit ? true : sampleApproved,
+    batchOrdered: isShopKit ? true : batchOrdered,
+    batchArrivedReady: isShopKit ? true : batchArrivedReady,
     hasLaunchKit,
   });
 
-  // Default FOCUS (not unlock map): journey-appropriate stage. Unlock can still
-  // open monthly_refresh once a launch kit exists, but we must not treat
-  // "furthest unlocked" as Current — that skipped Launch after seed/generate.
-  const sideStage = (side?.marketingStage as MarketingStage) ?? "none";
   const currentStage = resolveDefaultFocusStage({
-    primaryState,
-    sampleApproved,
-    batchOrdered,
-    batchArrivedReady,
+    primaryState: isShopKit ? "selling" : primaryState,
+    sampleApproved: isShopKit ? true : sampleApproved,
+    batchOrdered: isShopKit ? true : batchOrdered,
+    batchArrivedReady: isShopKit ? true : batchArrivedReady,
     stages,
-    sideStage,
+    sideStage: isShopKit ? "none" : skuMarketingStage,
   });
 
   const launchAckNeeded = !kits.some((k) => k.stage === "launch");
   const batchArrivalEta = resolveBatchArrivalEta(
-    side?.batchArrivalEta ?? null,
+    journeyFlags.batchArrivalEta,
   );
+
+  const margins = await resolveMarginsForKitContext({
+    workspaceId,
+    isShopKit,
+    sku: sku ?? null,
+    monthlyFollowOnBudget: onboarding?.monthlyFollowOnBudget ?? 0,
+  });
+  const needsMarginAck = needsMarginAckForPaidUi({
+    marginBefore: margins.before,
+    marginAfter: margins.after,
+  });
 
   return {
     currentStage,
@@ -226,6 +336,11 @@ export async function getMarketingPanel(
     whatsappSet: !!store?.whatsappNumber,
     launchAckNeeded,
     batchArrivalEta,
+    selectedSkuId,
+    liveSkus: live.map((s) => ({ id: s.id, name: s.name })),
+    shopKitAvailable,
+    isShopKit,
+    needsMarginAck,
   };
 }
 
@@ -241,13 +356,20 @@ export async function generateKit(
   workspaceId: string,
   stage: MarketingStage,
   launchBudgetAck: boolean,
+  skuId?: string | null,
 ): Promise<GenerateKitResult> {
   ensureMigrated();
-  const sku = await getSkuView(workspaceId);
-  if (!sku) return { ok: false, error: "not_found" };
-
-  const panel = await getMarketingPanel(workspaceId);
+  const panel = await getMarketingPanel(workspaceId, skuId);
   if (!panel) return { ok: false, error: "not_found" };
+
+  const isShopKit = panel.isShopKit;
+  const sku = isShopKit
+    ? null
+    : panel.selectedSkuId
+      ? await getSkuViewById(workspaceId, panel.selectedSkuId)
+      : await getSkuView(workspaceId);
+  if (!isShopKit && !sku) return { ok: false, error: "not_found" };
+
   const info = panel.stages.find((s) => s.stage === stage);
   if (!info || !info.unlocked) return { ok: false, error: "stage_locked" };
 
@@ -261,7 +383,7 @@ export async function generateKit(
     const approval = await createApprovalRequest(
       workspaceId,
       "start_launch_marketing",
-      { data: { stage } },
+      { data: { stage }, skuId: panel.selectedSkuId },
     );
     if (approval) {
       await decideApproval(approval.id, {
@@ -273,16 +395,22 @@ export async function generateKit(
 
   // At most one kit per workspace + SKU + stage — replace, never stack.
   // Intro lesson is canonical once created: do not regenerate/replace.
+  const existingQuery = isShopKit
+    ? and(
+        eq(schema.marketingKits.workspaceId, workspaceId),
+        isNull(schema.marketingKits.skuId),
+        eq(schema.marketingKits.stage, stage),
+      )
+    : and(
+        eq(schema.marketingKits.workspaceId, workspaceId),
+        eq(schema.marketingKits.skuId, sku!.id),
+        eq(schema.marketingKits.stage, stage),
+      );
+
   const existing = await db
     .select()
     .from(schema.marketingKits)
-    .where(
-      and(
-        eq(schema.marketingKits.workspaceId, workspaceId),
-        eq(schema.marketingKits.skuId, sku.id),
-        eq(schema.marketingKits.stage, stage),
-      ),
-    )
+    .where(existingQuery)
     .orderBy(asc(schema.marketingKits.createdAt))
     .all();
 
@@ -294,11 +422,16 @@ export async function generateKit(
         .delete(schema.marketingKits)
         .where(inArray(schema.marketingKits.id, extras));
     }
-    await db
-      .update(schema.sideStatuses)
-      .set({ marketingStage: stage, updatedAt: nowIso() })
-      .where(eq(schema.sideStatuses.workspaceId, workspaceId));
-    // Touch keep.updatedAt only if we pruned — otherwise pure no-op success.
+    if (sku) {
+      await patchSkuJourneyFlags(sku.id, { marketingStage: stage });
+    }
+    // Workspace sideStatuses mirror only for shop kit / single-SKU legacy.
+    if (isShopKit || panel.liveSkus.length <= 1) {
+      await db
+        .update(schema.sideStatuses)
+        .set({ marketingStage: stage, updatedAt: nowIso() })
+        .where(eq(schema.sideStatuses.workspaceId, workspaceId));
+    }
     if (extras.length > 0) {
       await db
         .update(schema.marketingKits)
@@ -309,7 +442,6 @@ export async function generateKit(
   }
 
   const now = nowIso();
-  // Variance seed at generate time so regenerate rotates angles/series/captions.
   const varianceSeed =
     Date.now() ^ (existing.length > 0 ? existing.length * 7919 : 1);
   const creativeStage =
@@ -319,19 +451,31 @@ export async function generateKit(
       ? stage
       : null;
   const eta = panel.batchArrivalEta;
+
+  const productName = isShopKit
+    ? "Whole shop"
+    : sku!.name;
+  const category = isShopKit ? "multi" : sku!.basics.category;
+  const hooks = isShopKit
+    ? ["@hooks.localAngle"]
+    : sku!.marketingHooks.hooks;
+  const differentiation = isShopKit
+    ? "multi-SKU shop"
+    : sku!.basics.differentiation;
+
   const items =
     stage === "intro_pdf"
       ? buildIntroLesson({
-          name: sku.name,
-          category: sku.basics.category,
-          differentiation: sku.basics.differentiation,
-          hooks: sku.marketingHooks.hooks,
+          name: productName,
+          category,
+          differentiation,
+          hooks,
         })
       : creativeStage
         ? buildCreatives({
-            name: sku.name,
-            category: sku.basics.category,
-            hooks: sku.marketingHooks.hooks,
+            name: productName,
+            category,
+            hooks,
             stage: creativeStage,
             capacityTier: panel.capacityTier,
             varianceSeed,
@@ -366,7 +510,7 @@ export async function generateKit(
     await db.insert(schema.marketingKits).values({
       id: newId(),
       workspaceId,
-      skuId: sku.id,
+      skuId: isShopKit ? null : sku!.id,
       stage,
       capacityTier,
       items: itemsJson,
@@ -376,15 +520,22 @@ export async function generateKit(
     });
   }
 
-  await db
-    .update(schema.sideStatuses)
-    .set({ marketingStage: stage, updatedAt: now })
-    .where(eq(schema.sideStatuses.workspaceId, workspaceId));
+  if (sku) {
+    await patchSkuJourneyFlags(sku.id, { marketingStage: stage });
+  }
+  // Workspace sideStatuses mirror only for shop kit / single-SKU legacy —
+  // multi-SKU reads use skuJourneys.marketingStage only.
+  if (isShopKit || panel.liveSkus.length <= 1) {
+    await db
+      .update(schema.sideStatuses)
+      .set({ marketingStage: stage, updatedAt: now })
+      .where(eq(schema.sideStatuses.workspaceId, workspaceId));
+  }
 
   const replaced = existing.length > 0;
   const message =
     stage === "intro_pdf"
-      ? `Generated intro lesson for ${sku.name}`
+      ? `Generated intro lesson for ${productName}`
       : `${replaced ? "Replaced" : "Generated"} ${stage} kit (${creativeCount} creatives)`;
 
   await db.insert(schema.orchestratorEvents).values({
@@ -396,6 +547,8 @@ export async function generateKit(
       stage,
       kind: stage === "intro_pdf" ? "intro_lesson" : "creatives",
       replaced,
+      skuId: panel.selectedSkuId,
+      shopKit: isShopKit,
     }),
     createdAt: now,
   });

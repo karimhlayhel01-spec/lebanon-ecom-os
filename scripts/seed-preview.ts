@@ -3,11 +3,16 @@
  *
  * Usage:
  *   npm run db:seed:preview                 # seeds the full "selling" stage
- *   npm run db:seed:preview -- discovery    # stage A
- *   npm run db:seed:preview -- accepted     # stage B
- *   npm run db:seed:preview -- sample_approved        # stage C
- *   npm run db:seed:preview -- batch_arrived_ready    # stage D
- *   npm run db:seed:preview -- selling      # stage E (default)
+ *   npm run db:seed:preview -- discovery    # classic A
+ *   npm run db:seed:preview -- accepted     # classic B
+ *   npm run db:seed:preview -- sample_approved        # classic C
+ *   npm run db:seed:preview -- batch_arrived_ready    # classic D
+ *   npm run db:seed:preview -- selling      # classic E (default)
+ *   npm run db:seed:preview -- wave1_two_sku
+ *   npm run db:seed:preview -- wave1_beginner_blocked
+ *   npm run db:seed:preview -- wave1_ready_add  # leaves 15 Topic A weeks; re-seed before clean path tests
+ *   npm run db:seed:preview -- wave1_archived
+ *   npm run db:seed:preview -- wave1_marketing_paths
  *
  * Delete this file + `src/lib/preview/` to remove preview support entirely.
  */

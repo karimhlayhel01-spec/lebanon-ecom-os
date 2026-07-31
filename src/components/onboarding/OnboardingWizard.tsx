@@ -8,10 +8,10 @@ import {
 } from "@/actions/onboarding";
 import {
   MIN_BUDGET_USD,
-  CLEARANCE_PARTNER_TBD,
   INDUSTRY_OPTIONS,
   type IndustryOptionId,
 } from "@/lib/constants";
+import { InfoTip } from "@/components/ui/InfoTip";
 
 const initial: OnboardingActionState = {};
 
@@ -25,7 +25,6 @@ export type OnboardingInitialValues = {
   monthlyFollowOnBudget?: number;
   hoursPerWeek?: number;
   experience?: string;
-  uiLanguage?: string;
   storageDescription?: string;
   storageLimits?: string;
   riskTolerance?: string;
@@ -127,7 +126,10 @@ export function OnboardingWizard({
           </label>
         </div>
         <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium">{t("budgetUsd")}</span>
+          <span className="inline-flex items-center gap-1 font-medium">
+            {t("budgetUsd")}
+            <InfoTip ariaLabel={t("infoAria")} text={t("info.budgetUsd")} />
+          </span>
           <input
             name="budgetUsd"
             type="number"
@@ -143,7 +145,13 @@ export function OnboardingWizard({
           )}
         </label>
         <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium">{t("monthlyFollowOn")}</span>
+          <span className="inline-flex items-center gap-1 font-medium">
+            {t("monthlyFollowOn")}
+            <InfoTip
+              ariaLabel={t("infoAria")}
+              text={t("info.monthlyFollowOn")}
+            />
+          </span>
           <input
             name="monthlyFollowOnBudget"
             type="number"
@@ -155,7 +163,10 @@ export function OnboardingWizard({
           />
         </label>
         <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium">{t("hoursPerWeek")}</span>
+          <span className="inline-flex items-center gap-1 font-medium">
+            {t("hoursPerWeek")}
+            <InfoTip ariaLabel={t("infoAria")} text={t("info.hoursPerWeek")} />
+          </span>
           <input
             name="hoursPerWeek"
             type="number"
@@ -167,7 +178,10 @@ export function OnboardingWizard({
           />
         </label>
         <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium">{t("experience")}</span>
+          <span className="inline-flex items-center gap-1 font-medium">
+            {t("experience")}
+            <InfoTip ariaLabel={t("infoAria")} text={t("info.experience")} />
+          </span>
           <select
             name="experience"
             defaultValue={initialValues?.experience ?? "beginner"}
@@ -179,7 +193,10 @@ export function OnboardingWizard({
           </select>
         </label>
         <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium">{t("maxLandedCost")}</span>
+          <span className="inline-flex items-center gap-1 font-medium">
+            {t("maxLandedCost")}
+            <InfoTip ariaLabel={t("infoAria")} text={t("info.maxLandedCost")} />
+          </span>
           <input
             name="maxLandedCost"
             type="number"
@@ -194,18 +211,6 @@ export function OnboardingWizard({
 
       <div className={step === 1 ? "flex flex-col gap-4" : "hidden"}>
         <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium">{t("uiLanguage")}</span>
-          <select
-            name="uiLanguage"
-            defaultValue={initialValues?.uiLanguage ?? "en"}
-            className={fieldClass}
-          >
-            <option value="en">{t("langEn")}</option>
-            <option value="ar">{t("langAr")}</option>
-            <option value="both">{t("langBoth")}</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm">
           <span className="font-medium">{t("storageDescription")}</span>
           <textarea
             name="storageDescription"
@@ -216,19 +221,27 @@ export function OnboardingWizard({
           />
         </label>
         <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium">{t("storageLimits")}</span>
+          <span className="inline-flex items-center gap-1 font-medium">
+            {t("storageLimits")}
+            <span className="font-normal text-stone-dark">({t("optional")})</span>
+            <InfoTip
+              ariaLabel={t("infoAria")}
+              text={t("info.storageLimits")}
+            />
+          </span>
           <textarea
             name="storageLimits"
-            required
             rows={2}
             className={fieldClass}
-            defaultValue={
-              initialValues?.storageLimits ?? "Limited space; no hazardous goods"
-            }
+            placeholder={t("storageLimitsPlaceholder")}
+            defaultValue={initialValues?.storageLimits ?? ""}
           />
         </label>
         <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium">{t("riskTolerance")}</span>
+          <span className="inline-flex items-center gap-1 font-medium">
+            {t("riskTolerance")}
+            <InfoTip ariaLabel={t("infoAria")} text={t("info.riskTolerance")} />
+          </span>
           <select
             name="riskTolerance"
             defaultValue={initialValues?.riskTolerance ?? "medium"}
@@ -336,12 +349,16 @@ export function OnboardingWizard({
             defaultChecked={initialValues?.sampleClearanceReady ?? false}
             className="mt-1 size-4 accent-cedar"
           />
-          <span>{t("sampleClearance")}</span>
+          <span className="inline-flex items-start gap-1">
+            <span>{t("sampleClearance")}</span>
+            <InfoTip
+              ariaLabel={t("infoAria")}
+              text={t("info.sampleClearance")}
+            />
+          </span>
         </label>
         <p className="text-xs text-stone-dark">{t("couriersNote")}</p>
-        <p className="text-xs text-stone-dark">
-          {t("clearanceNote")} {CLEARANCE_PARTNER_TBD}
-        </p>
+        <p className="text-xs text-stone-dark">{t("clearanceNote")}</p>
       </div>
 
       {state.error && (

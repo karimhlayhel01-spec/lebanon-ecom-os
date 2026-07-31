@@ -6,6 +6,7 @@ import {
   resolveUnlockedStages,
 } from "@/lib/marketing/focus";
 import { getSupplierPanel } from "@/lib/supplier/service";
+import { skuToolHref } from "@/lib/sku/tools";
 import type { AppLocale } from "@/i18n/routing";
 
 /** Supplier status kinds for the dashboard Status card. */
@@ -25,15 +26,19 @@ export type SupplierStatusRow = {
   supplierName: string | null;
   /** Founder-set ETA summary for the active locale; null when omitted. */
   etaSummary: string | null;
-  href: "/supplier";
+  /** Deep link — Wave 1 hub uses `/sku/[id]#supplier`. */
+  href: string;
 };
 
 export type MarketingStatusRow = {
   stage: MarketingStage;
+  /** Deep link — Wave 1 hub uses `/sku/[id]#marketing`. */
   href: string;
 };
 
 export type DashboardStatusView = {
+  skuId: string;
+  skuName: string;
   supplier: SupplierStatusRow;
   marketing: MarketingStatusRow;
 };
@@ -50,6 +55,8 @@ export type MapSupplierStatusInput = {
   etaSummaryEn: string;
   etaSummaryAr: string;
   locale: AppLocale;
+  /** Override Open href (defaults to `/supplier` when omitted). */
+  href?: string;
 };
 
 /**
@@ -59,7 +66,7 @@ export type MapSupplierStatusInput = {
 export function mapSupplierStatusRow(
   input: MapSupplierStatusInput,
 ): SupplierStatusRow {
-  const href = "/supplier" as const;
+  const href = input.href ?? "/supplier";
   const name = input.supplierName?.trim() || null;
 
   if (!input.productAccepted) {
@@ -143,6 +150,8 @@ export type MapMarketingStatusInput = {
   batchArrivedReady: boolean;
   hasLaunchKit: boolean;
   sideStage: MarketingStage;
+  /** Override Open href (defaults to `/marketing` when omitted). */
+  href?: string;
 };
 
 /** Pure mapper: journey flags → marketing Status focus stage. */
@@ -164,7 +173,8 @@ export function mapMarketingStatusRow(
     sideStage: input.sideStage,
   });
   const href =
-    stage === "none" ? "/marketing" : `/marketing?stage=${stage}`;
+    input.href ??
+    (stage === "none" ? "/marketing" : `/marketing?stage=${stage}`);
   return { stage, href };
 }
 
@@ -187,10 +197,13 @@ async function workspaceHasLaunchKit(
 }
 
 /**
- * Compact dashboard Status read model — supplier facts + marketing focus.
+ * Compact hub Status read model for one SKU — supplier facts + marketing focus.
+ * Uses that SKU’s journey flags + supplier panel (no workspace bleed).
  */
 export async function getDashboardStatus(args: {
   workspaceId: string;
+  skuId: string;
+  skuName: string;
   locale: AppLocale;
   /** Effective journey state (paused → pausedFromState). */
   primaryState: string;
@@ -198,12 +211,13 @@ export async function getDashboardStatus(args: {
   sampleStatus: string;
   batchOrdered: boolean;
   batchArrivedReady: boolean;
+  /** Per-SKU marketing stage from sku_journeys (not shop side_statuses). */
   sideMarketingStage: string;
 }): Promise<DashboardStatusView> {
   ensureMigrated();
 
   const panel = args.productAccepted
-    ? await getSupplierPanel(args.workspaceId)
+    ? await getSupplierPanel(args.workspaceId, args.skuId)
     : null;
 
   const sampleApproved =
@@ -234,6 +248,9 @@ export async function getDashboardStatus(args: {
     supplierName = panel.approvedSampleSupplierName;
   }
 
+  const supplierHref = skuToolHref(args.skuId, "supplier");
+  const marketingHref = skuToolHref(args.skuId, "marketing");
+
   const eta = panel?.batchArrivalEta;
   const supplier = mapSupplierStatusRow({
     productAccepted: args.productAccepted,
@@ -246,12 +263,13 @@ export async function getDashboardStatus(args: {
     etaSummaryEn: eta?.summaryEn ?? "",
     etaSummaryAr: eta?.summaryAr ?? "",
     locale: args.locale,
+    href: supplierHref,
   });
 
-  const hasLaunchKit =
-    panel?.skuId != null
-      ? await workspaceHasLaunchKit(args.workspaceId, panel.skuId)
-      : false;
+  const hasLaunchKit = await workspaceHasLaunchKit(
+    args.workspaceId,
+    args.skuId,
+  );
 
   const sideStage = (
     ["none", "intro_pdf", "pre_launch", "launch", "monthly_refresh"].includes(
@@ -268,7 +286,13 @@ export async function getDashboardStatus(args: {
     batchArrivedReady,
     hasLaunchKit,
     sideStage,
+    href: marketingHref,
   });
 
-  return { supplier, marketing };
+  return {
+    skuId: args.skuId,
+    skuName: args.skuName,
+    supplier,
+    marketing,
+  };
 }

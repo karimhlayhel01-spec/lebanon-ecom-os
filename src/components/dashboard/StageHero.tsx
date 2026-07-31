@@ -66,12 +66,12 @@ export function StageHero({
         <div className="mt-6 flex flex-wrap items-center gap-3">
           {ctas.map((cta) => (
             <CtaLink
-              key={cta.href}
+              key={`${cta.tone}:${cta.label}:${cta.href}`}
               href={cta.href}
               className={
                 cta.tone === "primary"
                   ? "hero-cta rounded-md bg-cedar px-5 py-2.5 text-sm font-semibold text-foam shadow-sm hover:bg-cedar-deep"
-                  : "hero-cta rounded-md border border-cedar/40 bg-surface/70 px-5 py-2.5 text-sm font-semibold text-cedar-deep hover:bg-cedar/5"
+                  : "hero-cta rounded-md border border-stone/70 bg-transparent px-4 py-2 text-xs font-medium text-stone-dark hover:border-cedar/35 hover:bg-cedar/5 hover:text-cedar-deep"
               }
             >
               {cta.label}

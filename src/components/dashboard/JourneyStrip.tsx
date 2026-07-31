@@ -1,29 +1,45 @@
 import { getTranslations } from "next-intl/server";
+import {
+  JOURNEY_STEPS,
+  type JourneyStep,
+} from "@/lib/dashboard/journey-step";
 
-const STEPS = [
-  "discovery",
-  "accepted",
-  "sample",
-  "batch",
-  "arrived",
-  "selling",
-] as const;
-export type JourneyStep = (typeof STEPS)[number];
+export type { JourneyStep };
 
 /**
  * Human-readable status journey (Discovery → Accepted → Sample → Batch →
  * Arrived → Selling), with the current step emphasized. Uses i18n labels, not
  * raw status strings.
+ *
+ * When `skuName` is set (hub), the strip is for that one SKU — not a shop-wide
+ * single journey.
  */
-export async function JourneyStrip({ current }: { current: JourneyStep }) {
+export async function JourneyStrip({
+  current,
+  skuName,
+}: {
+  current: JourneyStep;
+  skuName?: string | null;
+}) {
   const t = await getTranslations("Dashboard");
-  const currentIdx = STEPS.indexOf(current);
+  const currentIdx = JOURNEY_STEPS.indexOf(current);
 
   return (
     <div className="surface-card p-5">
-      <h2 className="font-display text-base text-ink">{t("journeyTitle")}</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-display text-base text-ink">{t("journeyTitle")}</h2>
+        {skuName ? (
+          <p
+            className="truncate text-xs font-medium text-stone-dark"
+            dir="auto"
+            title={skuName}
+          >
+            {t("journeyForSku", { name: skuName })}
+          </p>
+        ) : null}
+      </div>
       <ol className="mt-4 space-y-2.5">
-        {STEPS.map((step, i) => {
+        {JOURNEY_STEPS.map((step, i) => {
           const state =
             i < currentIdx ? "done" : i === currentIdx ? "current" : "upcoming";
           return (

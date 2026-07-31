@@ -47,12 +47,10 @@
     "experienceBeginner": "Beginner",
     "experienceSome": "Some experience",
     "experienceExperienced": "Experienced",
-    "uiLanguage": "UI language preference",
-    "langEn": "English",
-    "langAr": "Arabic",
-    "langBoth": "Both",
     "storageDescription": "Where will you store inventory?",
     "storageLimits": "Storage limits / constraints",
+    "optional": "optional",
+    "storageLimitsPlaceholder": "e.g. 2 free shelves; no boxes over 40cm; dry room; no fragile.",
     "riskTolerance": "Risk tolerance",
     "riskLow": "Low",
     "riskMedium": "Medium",
@@ -82,14 +80,27 @@
     "codComfort": "COD comfort & notes",
     "codNoticeTitle": "Cash on delivery (COD)",
     "codNoticeBody": "COD means the buyer pays you in cash to the delivery person on arrival — not a payment to your China supplier. It is common in Lebanon and carries collection risk, refusal rates, and last-mile courier fees. Plan margins and cash flow accordingly.",
-    "sampleClearance": "I am ready to handle sample clearance with a partner when needed.",
+    "sampleClearance": "I am ready to handle sample clearance with a partner when needed (mainly for Import).",
     "deliveryBand": "Expected delivery band (days)",
     "back": "Back",
     "next": "Next",
     "submit": "Finish onboarding",
     "errorGeneric": "Something went wrong. Check the form and try again.",
     "couriersNote": "Door delivery companies are chosen later in Store setup (placeholders until you confirm a real partner).",
-    "clearanceNote": "Clearance partner (placeholder):"
+    "clearanceNote": "Clearance partner: placeholder until you confirm a real partner. Matters most for Import — Local samples usually skip China customs.",
+    "infoAria": "More about this field",
+    "info": {
+      "budgetUsd": "Total cash the OS assumes for your sample, first batch, and early ads. Fit and Margin guidance use this number. Minimum is $2,000.",
+      "monthlyFollowOn": "What you can keep putting into ads and ops each month after launch. The OS uses it to size marketing spend estimates.",
+      "hoursPerWeek": "Time you can spend on creatives and day-to-day ops. This sets your marketing creative capacity tier (how many assets per plan).",
+      "experience": "A soft Fit ranking signal — not a grade. It nudges how aggressive or beginner-friendly Discovery products look for you.",
+      "maxLandedCost": "Your per-unit ceiling for planning (product + shipping + clearance + courier). Discovery only shows products that can fit under this.",
+      "riskTolerance": "A soft Fit signal for higher-risk or “Okay” products. It shapes ranking; it does not replace your judgment on what to accept.",
+      "sampleClearance": "Means you can handle import clearance for a sample with a partner when needed. Most relevant for Import; Local Lebanon suppliers usually skip China customs. This is not last-mile door delivery to customers — you choose that later in Store setup.",
+      "storageLimits": "Optional. Note anything that limits storage — available space, largest box you can keep, stairs or access, heat/humidity, or fragile/oversized items you can’t handle. We save this to your profile; smarter product suggestions from these notes come later with AI. It does not change product matching in v1."
+    },
+    "experienceSeriousTitle": "Adding a SKU — be serious",
+    "experienceSeriousBody": "Experience doesn’t remove the risk of another SKU. Confirm you can handle the cash and ops load."
   },
   "Dashboard": {
     "title": "Dashboard",
@@ -109,10 +120,11 @@
     "coaching": "Coaching",
     "coachingSlot": "Coaching tips appear here as you move through the journey.",
     "finance": "Finance",
-    "financeSlot": "Finance opens after your batch arrives.",
-    "financeLive": "Live · {n} weeks logged",
-    "financePreview": "Preview — open the panel",
-    "financeLocked": "Unlocks when your batch arrives.",
+    "financeSlot": "Shop Topic A opens after your batch arrives.",
+    "financeLive": "Shop Topic A · {n} weeks",
+    "financePreview": "Shop Topic A · preview",
+    "financeClosed": "Shop Topic A",
+    "financeLocked": "Shop Topic A · locked until batch arrives",
     "editOnboarding": "Edit onboarding",
     "languageSwitch": "Language",
     "languageEn": "EN",
@@ -128,6 +140,7 @@
     "no": "No",
     "backToDashboard": "← Dashboard",
     "backToDashboardCta": "Back to dashboard",
+    "deepPageWorkingOn": "Working on {name} — open full product page",
     "openSku": "Open SKU",
     "openSupplier": "Open supplier",
     "openStore": "Open store",
@@ -137,7 +150,7 @@
     "pageSupplier": "Supplier & import",
     "pageStore": "Store setup",
     "pageMarketing": "Marketing",
-    "pageFinance": "Finance",
+    "pageFinance": "Shop Topic A",
     "supplierStatusPick": "Pick a supplier and mark a sample request (you contact them).",
     "supplierStatusSampleInFlight": "Sample in progress — decide when it arrives.",
     "supplierStatusApproved": "Sample approved — mark your first batch ordered after you place it externally.",
@@ -149,7 +162,7 @@
     "emptySupplier": "Accept a product first — your supplier shortlist and sample flow appear here.",
     "emptyStore": "Approve a sample first — then store setup opens as a parallel side track. It never blocks marking a batch ordered.",
     "emptyMarketing": "Approve a sample first — marketing kits unlock from there.",
-    "emptyFinance": "Finance opens after your batch arrives — preview advice first. Live weekly Topic A starts once you mark selling.",
+    "emptyFinance": "Shop Topic A opens after your batch arrives — preview advice first. Live weekly coaching starts once you mark selling.",
     "heroDiscoveryEyebrow": "Discovery",
     "heroDiscoveryTitle": "Find your first SKU",
     "heroDiscoverySub": "Match products to your budget, experience, and capacity — then accept one to start the supplier path.",
@@ -193,8 +206,14 @@
     "toolSupplier": "Supplier",
     "toolStore": "Store",
     "toolMarketing": "Marketing",
+    "toolFinance": "Shop Topic A",
+    "toolLockedStore": "Store setup unlocks after a sample is approved",
+    "toolLockedSupplier": "Open a live product first",
+    "toolLockedMarketing": "Unlocks after sample approved",
+    "toolLockedFinance": "Shop Topic A unlocks after batch arrived",
     "journeyTitle": "Your journey",
     "journeyNow": "Now",
+    "journeyForSku": "For {name}",
     "journey": {
       "discovery": "Discovery",
       "accepted": "Product accepted",
@@ -205,6 +224,7 @@
     },
     "status": {
       "title": "Status",
+      "forSku": "For {name}",
       "open": "Open →",
       "supplierLabel": "Supplier",
       "marketingLabel": "Marketing",
@@ -252,11 +272,19 @@
       "reinvest": "Invest-next: reinvest — the economics support scaling",
       "hold": "Invest-next: hold — not profitable enough yet",
       "fix_economics": "Invest-next: fix economics before scaling"
-    }
+    },
+    "shopLink": "Shop",
+    "pauseShop": "Pause shop",
+    "resumeShop": "Resume shop",
+    "pauseShopTitle": "Pauses the whole shop (every live SKU). To pause one product only, use multi-select on the Shop hub.",
+    "resumeShopTitle": "Resumes the whole shop. To resume one product only, use multi-select on the Shop hub."
   },
   "Discovery": {
     "title": "Product discovery",
     "intro": "An ability-matched shortlist for your budget, experience, and capacity. Confirm real demand, then accept one product to begin the supplier path.",
+    "addSkuKicker": "Add SKU",
+    "addSkuTitle": "Find another product",
+    "addSkuIntro": "Your live products keep running. Pick and accept one new product for its own sample → batch path — this does not reset or wipe the shop.",
     "startCta": "Start product discovery",
     "startHint": "We'll match 5 products to your profile. You can reveal more — up to 25 per session, depending on how many fit your budget and profile.",
     "sessionCount": "Showing {shown} of up to {cap}",
@@ -272,6 +300,9 @@
     "marginBefore": "Margin before ads",
     "marginAfter": "Margin after ads",
     "estimateNote": "Planning estimate — real supplier, ads & COD may differ.",
+    "sourceCostHintTitle": "Import vs Local cost hint",
+    "sourceCostHintBody": "Import landed ~${importLanded} ({importMargin}% before ads) · Local estimate ~${localLanded} ({localMargin}% before ads).",
+    "sourceCostHintNote": "Accept still uses Import planning margins. Local vs Import is chosen later on Supplier after you accept.",
     "blocked": "Blocked",
     "blockedOversized": "Oversized — can't ship economically for Lebanon.",
     "blockedMargin": "Margins below target (need ≥ 70% before ads and ≥ 35% after ads).",
@@ -355,7 +386,7 @@
     "secShip": "Ship fitness",
     "secStorage": "Storage",
     "secHandling": "Handling",
-    "secImport": "Import / batch",
+    "secImport": "Sample & batch",
     "secMoney": "Money snapshot",
     "secHooks": "Marketing hooks",
     "oversized": "Oversized",
@@ -372,7 +403,7 @@
     "actualLabel": "actual",
     "expectedMarginBefore": "Expected margin before ads",
     "actualMarginAfter": "Current actual after ads",
-    "estimateDisclaimer": "Estimate only — not your final margin. These numbers use a planning cost from Discovery (product + shipping + clearance + courier). Your real supplier price, freight, ads, and COD outcomes can be lower. Confirm after sample + supplier quote, then track weekly once selling.",
+    "estimateDisclaimer": "Estimate only — not your final margin. These numbers use the Import (Discovery) planning path (product + shipping + clearance + courier). Local costs are confirmed later on Supplier quotes after your sample. Real supplier price, freight, ads, and COD outcomes can differ — confirm after sample + quotes, then track weekly once selling.",
     "estimateShort": "Estimate only — not your final margin.",
     "estimateLearnMore": "Learn more",
     "founderNotes": "Founder notes",
@@ -431,10 +462,21 @@
     }
   },
   "Supplier": {
-    "kicker": "Supplier & import",
+    "kicker": "Supplier & sourcing",
     "title": "Choose a supplier — sample first",
-    "intro": "A shortlist of 3 primaries, each with 2 backups. Always get and approve a sample before you commit to a batch. This OS marks steps — you still contact suppliers and place real orders yourself.",
+    "intro": "Two shortlists: Import (China) and Local (Lebanon) — each with 3 primaries and 2 backups. Always get and approve a sample before you commit to a batch. This OS marks steps — you still contact suppliers and place real orders yourself.",
     "sampleFirstBanner": "Sample-first rule: mark a paid sample request here, email the supplier yourself (draft provided), quality-check it, then decide before any batch.",
+    "tabBoth": "Both",
+    "tabImport": "Import",
+    "tabLocal": "Local",
+    "tabsFrozenNote": "Source tabs locked while a sample is active — reject or replace to switch.",
+    "sourceImport": "Import",
+    "sourceLocal": "Local",
+    "poolImport": "Import pool",
+    "poolLocal": "Local pool",
+    "bothTabDensityNote": "You’re seeing Import + Local shortlists (3 primaries + 2 backups each). Use the Import or Local tab to focus on one source.",
+    "estBatchPlanningHint": "Planning estimate only — not a real supplier quote.",
+    "estBatchLocalLegsHint": "Local estimate uses delivery + packaging (not China freight/clearance).",
     "group": "Group {n}",
     "primary": "Primary",
     "backup": "Backup",
@@ -460,6 +502,8 @@
     "emailDraftHint": "Copy and send this yourself — the OS does not email the supplier.",
     "requestSample": "Mark sample requested",
     "requestSampleHint": "Marks the sample as requested in your journey. You still contact the supplier and pay for the sample externally.",
+    "requestBackupSample": "Request spare sample",
+    "requestBackupSampleHint": "Insurance only — does not switch your working supplier. Path changes only if you mark can’t-fulfill later.",
     "sampleTitle": "Sample",
     "sampleStatus": {
       "requested": "Requested",
@@ -509,6 +553,74 @@
     "inventoryAck": "I received and inspected the batch inventory.",
     "markArrived": "Mark batch arrived & ready",
     "batchArrivedDone": "Batch arrived and ready — launch marketing is unlocked.",
+    "units": "units",
+    "reorderTitle": "Order the next batch",
+    "reorderIntro": "You’re selling — mark a restock on the same approved supplier path. Primary journey stays Selling. You still place the real PO with the supplier yourself.",
+    "reorderNudgeWeeks": "Stock looks thin — about {weeks} weeks left at recent sell-through. Consider marking the next batch.",
+    "reorderNudgeThin": "Stock looks thin from your latest Topic A units left. Consider marking the next batch.",
+    "reorderToneReinvest": "Finance looks healthy enough to reinvest — restocking fits your invest-next advice.",
+    "reorderToneWarn": "Invest-next is cautious (hold or fix economics). Restock only if you understand the cash risk.",
+    "reorderSamePath": "Same path (no re-pick)",
+    "reorderBeginnerBlocked": "As a beginner, mark a next batch only when shop invest-next says reinvest (healthier margins and profit). Keep logging Topic A weeks.",
+    "reorderEconomicsAck": "I understand economics look weak — I’ll mark the next batch ordered anyway.",
+    "reorderNeedsEconomicsAck": "Acknowledge the weak-economics warning to continue.",
+    "reorderOrder": "Mark next batch ordered",
+    "reorderOrderHint": "Marks the next batch as ordered in your journey only. Place the real order with the supplier yourself — this app does not contact them.",
+    "reorderNoStoreNote": "Store readiness never blocks next-batch — you can restock with the store incomplete.",
+    "reorderInTransitTitle": "Next batch in transit",
+    "reorderInTransitIntro": "You’re still selling. When the restock arrives, confirm inventory here.",
+    "reorderMarkArrived": "Mark next batch arrived",
+    "reorderEtaTitle": "Expected next-batch arrival",
+    "reorderEtaIntro": "Set when you expect this restock to arrive (same ETA presets as the first batch).",
+    "warmBackupTitle": "Warm a spare",
+    "warmBackupIntro": "Approve a spare sample while your working supplier is fine — if they can’t fulfill later, you can restock without waiting weeks.",
+    "warmBackupAdvise": "Advice: warm at least 2 spare backups when you can — so you still have options if one can’t fulfill.",
+    "warmBackupNone": "No same-source backups left to warm — all eligible backups already have an approved sample.",
+    "warmBackupPathNote": "This does not switch your working supplier. Path only changes if you mark can’t-fulfill later.",
+    "warmBackupSampleInFlight": "A sample is already in progress for this supplier — finish, reject, or replace it before requesting another.",
+    "spareSamplesInFlight": "{n} of {max} spare samples in progress.",
+    "spareSamplesAtCap": "You already have {max} spare samples in progress — finish one before requesting another.",
+    "viewFullShortlist": "View full shortlist",
+    "warmedSparesReady": "Warmed spares: {count} — {names}",
+    "warmedSparesMore": "+{n} more",
+    "warmedSparesMoreAria": "Show {n} more warmed spares",
+    "warmedSparesMoreTitle": "More warmed spares",
+    "warmedSparesMoreClose": "Close",
+    "warmedSparesNoneYet": "Warmed spares: none yet — warm at least 2 when you can",
+    "shortlistBrowseTitle": "Product shortlist",
+    "shortlistBrowseFreezeNote": "Read-only while a sample is in progress. Reject, replace, or finish the current sample before requesting another.",
+    "shortlistBrowseReadonlyNote": "Browse this product’s curated shortlist.",
+    "shortlistBrowseScopeNote": "These are the Import/Local suppliers curated for this product — not every supplier worldwide.",
+    "shortlistBrowseHide": "Hide shortlist",
+    "shortlistBrowseTabsLocked": "Source tabs locked in this browse view.",
+    "cantFulfillTitle": "Supplier can’t fulfill this reorder?",
+    "cantFulfillIntro": "Mark it here (you still handle the real conversation). We’ll cancel an in-transit next-batch mark if needed and stay on Selling.",
+    "cantFulfillCta": "Supplier can’t fulfill",
+    "cantFulfillReason": "Reason (optional)",
+    "cantFulfillReasons": {
+      "no_stock": "No stock / sold out",
+      "moq": "MOQ too high",
+      "price": "Price change",
+      "no_reply": "No reply / ghosted",
+      "other": "Other"
+    },
+    "cantFulfillConfirm": "Mark unavailable",
+    "cantFulfillPickTitle": "Use a warmed spare (same source)",
+    "cantFulfillExhausted": "No backups left on this path. Hold/reduce ads, stretch remaining units, protect cash — coaching only (no auto-pause).",
+    "backupWarm": "warm — sample approved",
+    "backupCold": "cold — needs sample",
+    "switchWarm": "Use this spare",
+    "switchColdSample": "Start sample",
+    "switchCrisisSkip": "Crisis skip sample",
+    "crisisSkipAck": "I accept quality/COD risk of ordering a cold backup without a new approved sample (reorder switch only — not for first sample).",
+    "crisisSkipBeginner": "Beginners must sample a cold backup (or use a warm one).",
+    "crisisSkipNeedAck": "Tick the crisis-skip acknowledgement to continue.",
+    "bridgeTitle": "Bridge while you wait",
+    "bridgeIntro": "Bridge ≠ full restock — stretch what you have; this is coaching only.",
+    "bridgeHoldAds": "Hold or reduce ad spend until stock is clearer.",
+    "bridgeStretch": "Stretch remaining units — don’t sell into empty shelves.",
+    "bridgeLocal": "Local/Both path: a small local bridge buy can help QC/speed — bookkeeping/coaching only in v1.",
+    "coldSamplePending": "Cold backup sample is in progress — finish quality check, then continue next-batch.",
     "etaTitle": "Expected batch arrival",
     "etaIntro": "Set when you expect the batch so Marketing can build a week-by-week pre-launch plan.",
     "etaCurrent": "Current ETA",
@@ -526,16 +638,27 @@
     "etaLockedArrived": "ETA can’t be changed after the batch has arrived.",
     "etaMarketingHint": "Pre-launch kits organize creatives by week across this ETA. Launch still unlocks only after you mark the batch arrived.",
     "clearance": "Clearance partner",
+    "clearancePartnerPlaceholder": "Placeholder until you confirm a real partner",
     "errorGeneric": "Something went wrong. Try again.",
     "marginBefore": "Margin before ads",
     "costQuotesNextStep": "Recommended next step",
     "batchNudgeQuotesFirst": "Save cost quotes first for accurate expected margin and batch estimate — marking batch is still allowed.",
     "costQuotesTitle": "Real unit costs (before batch)",
     "costQuotesIntro": "After your sample is approved, collect quotes for freight, clearance, and local COD delivery. Enter them here to see your expected margin before ads — separate from the Discovery planning estimate.",
+    "costQuotesIntroLocal": "After your local sample is approved, collect quotes for supplier delivery/pickup, packaging prep, and local COD delivery. Enter them here to see your expected margin before ads.",
+    "costQuotesSourceNote": "Quote fields follow your approved sample source: {source}.",
     "costQuotesLocked": "Unlocks after you approve a sample. Discovery planning numbers stay as estimates until then.",
+    "costQuotesBrowseNote": "Unit costs are for your working supplier. Fill or update them when you switch suppliers, or before your first batch on the current path, so margins match who you buy from. Warming a spare does not require this.",
+    "costQuotesCollapsedNote": "Unit costs stay on file for this path. Expand only if you need to edit.",
+    "costQuotesExpand": "Show / edit costs",
+    "costQuotesCollapse": "Hide costs",
+    "sampleFocusCue": "Sample in progress — checklist below",
+    "costQuotesPathSwitchNote": "You switched working supplier — update these unit costs so Topic A margins and Topic B money match who you buy from now. Past Topic A weeks stay as logged.",
     "costQuotesGuideTitle": "Who to contact & what to ask",
     "costQuotesGuideFreight": "Freight forwarder / China agent — per-unit sea or air cost to Beirut for your MOQ box (weight, CBM, incoterms).",
     "costQuotesGuideClearance": "Clearance broker — per-unit customs, VAT, and handling to release the shipment in Lebanon.",
+    "costQuotesGuideDelivery": "Local supplier — delivery or pickup cost to your location per unit at MOQ.",
+    "costQuotesGuidePackaging": "Packaging / prep — per-unit labeling, polybags, or carton prep (may be $0).",
     "costQuotesGuideCourier": "Local COD courier — per-unit last-mile delivery cost for cash-on-delivery orders.",
     "costProductUnit": "Product unit cost (USD)",
     "costProductHint": "Prefilled from your working supplier quote — edit if negotiated.",
@@ -545,8 +668,12 @@
     "costIntlHint": "Freight forwarder quote per unit at your batch size.",
     "costClearance": "Clearance & taxes / unit (USD)",
     "costClearanceHint": "Broker quote per unit through Lebanese customs.",
+    "costSupplierDelivery": "Supplier delivery / unit (USD)",
+    "costSupplierDeliveryHint": "Delivery or pickup to you — not customer last-mile.",
+    "costPackaging": "Packaging / prep / unit (USD)",
+    "costPackagingHint": "May be $0 if supplier ships sellable as-is.",
     "costCourier": "Local courier / unit (USD)",
-    "costCourierHint": "COD courier quote per delivered order.",
+    "costCourierHint": "COD courier quote per delivered order (customer last-mile — not in batch cash).",
     "costCompareMetric": "Metric",
     "costPlanningEstimate": "Planning estimate",
     "costFounderQuoted": "Founder-quoted expected",
@@ -568,7 +695,16 @@
         "mixedReviews": "Mixed reviews — request references."
       }
     },
-    "clearanceVsDeliveryNote": "Clearance/import is for your inbound batch — not the same as store door delivery to the customer."
+    "clearanceLocalSoft": "Clearance coaching is lighter on a Local sample path — customs partner setup is mainly for Import. You can skip Import clearance prep for this SKU.",
+    "clearanceLocalVsDeliveryNote": "Local sourcing still uses last-mile COD courier for customers — that is separate from Import customs clearance.",
+    "clearanceBothNote": "Import suppliers usually need clearance coaching; Local Lebanon suppliers usually do not. Switch to Import or Local for source-specific notes.",
+    "clearanceVsDeliveryNote": "Clearance/import is for your inbound batch — not the same as store door delivery to the customer.",
+    "warmBackupOpenCards": "Warm a spare",
+    "shortlistBrowseInsuranceNote": "Pick any same-source card except your working supplier and tap Request spare sample. That does not switch your working supplier.",
+    "cantFulfillNoWarm": "No warmed spare yet. Warm a spare sample on the supplier cards first — then you can switch here.",
+    "cantFulfillGoWarm": "Warm a spare on cards",
+    "cantFulfillNoSpareYet": "No spare yet — show last-resort cold options",
+    "cantFulfillColdLastResortIntro": "Last resort only: start a cold sample or (if allowed) crisis-skip. Prefer warming a spare first when you can."
   },
   "Store": {
     "kicker": "Store setup (side status)",
@@ -684,10 +820,10 @@
     "gateFinishGoLiveOthers": "Finish the other Go live checks first.",
     "deliveryCompanies": {
       "confirm_later": "I'll confirm later",
-      "partner_a": "Local door delivery — partner A",
-      "partner_b": "Local door delivery — partner B",
-      "partner_c": "Local door delivery — partner C",
-      "partner_d": "Local door delivery — partner D"
+      "partner_a": "Placeholder until confirmed — door delivery A",
+      "partner_b": "Placeholder until confirmed — door delivery B",
+      "partner_c": "Placeholder until confirmed — door delivery C",
+      "partner_d": "Placeholder until confirmed — door delivery D"
     }
   },
   "Marketing": {
@@ -695,7 +831,8 @@
     "title": "Creative kits for your stage",
     "intro": "Kits unlock as you progress. Each has EN + AR creatives and shot lists sized to your weekly capacity.",
     "capacity": "{n} creatives / plan",
-    "notMoneyAdvice": "Marketing kits are creative plans — not money advice. See the Finance panel for money guidance.",
+    "notMoneyAdvice": "Marketing kits are creative plans — not money advice. Aim for ~70% margin before ads and ~35% after before heavy paid spend. See Finance for money guidance.",
+    "notMoneyAdviceMarginsLow": "Marketing kits are creative plans — not money advice. Your margins are below the 70% before-ads / 35% after-ads targets — paid ads can burn cash when margins are thin. See Finance for money guidance.",
     "whatsappRequired": "Add a WhatsApp number in Store setup — every creative drives buyers to WhatsApp.",
     "stage": {
       "intro_pdf": "Intro",
@@ -763,12 +900,15 @@
       "ugc": "UGC",
       "post": "Post",
       "testimonial": "Testimonial"
-    }
+    },
+    "skuPicker": "Choose SKU",
+    "shopKit": "Whole-shop kit",
+    "shopKitHint": "Available with 3+ live SKUs — shop-level creatives."
   },
   "Margins": {
     "legendTitle": "How to read these three margin layers:",
     "planningTag": "Planning / estimate",
-    "planningDesc": "Discovery catalog estimate (product + shipping + clearance + courier).",
+    "planningDesc": "Import (Discovery) planning path (product + shipping + clearance + courier). Local costs are confirmed later on Supplier quotes.",
     "expectedTag": "Expected (quotes) before ads",
     "expectedDesc": "From your saved supplier cost quotes after the sample.",
     "actualTag": "Actual before / after ads",
@@ -776,18 +916,20 @@
     "legendCompact": "Planning = Discovery estimate · Expected = your quotes · Actual = weekly Topic A."
   },
   "Finance": {
-    "kicker": "Topic A + Finance",
-    "title": "Weekly money coaching",
-    "intro": "Log your numbers each week. We turn them into a plain-language health read and, after 4 weeks, an invest-next call.",
+    "kicker": "Shop Topic A",
+    "title": "Weekly money coaching (whole shop)",
+    "intro": "Log shop-level numbers each week. We turn them into a plain-language health read and, after 4 weeks, an invest-next call.",
+    "shopScopeHint": "This is Shop Topic A — combined for every selling product. It is not a private P&L for the SKU page you opened from. A high week count is store history.",
     "live": "Live advice",
     "preview": "Preview",
     "previewNote": "Preview only — the numbers below are illustrative. Real advice starts once you mark selling.",
+    "previewShopHistory": "This shop already has {n} Topic A weeks from earlier selling. They belong to the store, not only the product you’re opening now.",
     "previewSampleTitle": "Example week (sample data)",
     "previewSampleLabel": "Sample week",
     "startSelling": "Mark selling — go live",
     "startSellingHint": "This turns on real weekly Topic A advice.",
     "startSellingLocked": "Available once your batch has arrived and is ready.",
-    "investLocked": "Invest-next unlocks after {need} weeks of Topic A ({have} logged).",
+    "investLocked": "Invest-next unlocks after {need} shop Topic A weeks ({have} logged).",
     "addWeekTitle": "Add a week",
     "fWeek": "Week starting",
     "fSales": "Sales (USD)",
@@ -849,6 +991,11 @@
     "warnBefore": "Actual margin before ads is under {min} — check pricing or import costs. Nothing is blocked.",
     "warnAfter": "Actual margin after ads is under {min} — trim ad spend or raise price. Nothing is blocked.",
     "emptyActual": "Log your first week to calculate actual margins.",
+    "historyTitle": "Finance history",
+    "historyIntro": "Topic A weeks older than the latest 20 on Shop Topic A. Nothing is deleted — this page only shows the older list.",
+    "historyBackToFinance": "← Back to Shop Topic A",
+    "historyEmpty": "No older weeks yet. Once you log more than 20 weeks, earlier weeks appear here automatically.",
+    "historyCount": "{older} older weeks (of {total} total; latest {recent} stay on Finance).",
     "marginBeforeShort": "Before ads",
     "marginAfterShort": "After ads",
     "adPerUnit": "Ad / unit",
@@ -866,7 +1013,23 @@
         "marginsWeak": "Actual after-ads margin is below 35% — fix economics before scaling.",
         "notProfitable": "Not net profitable yet — hold and fix before scaling."
       }
-    }
+    },
+    "sellableSku": "Start selling for",
+    "multiSkuHint": "Enter each product’s sales and units here. Ads, COD, and courier are shop-level. Combined Topic A and the per-product ranking both use this week.",
+    "fSkuSales": "SKU sales (USD)",
+    "skuContribTitle": "How each SKU contributed",
+    "skuContribIntro": "Secondary read — ranked from your logged per-product lines. Shop Topic A above stays the combined truth.",
+    "skuContribWindow": "{n, plural, one {Last # week with per-product lines} other {Last # weeks with per-product lines (same window size as current actual)}}",
+    "skuContribRankedBy": "Ranked by sales",
+    "skuContribSkipped": "{n, plural, one {# older week had no per-product split.} other {# older weeks had no per-product split.}}",
+    "skuContribEmpty": "No per-product split yet — log a multi-SKU week (sales/units per product) to see ranking. Older weeks without lines are skipped.",
+    "skuContribSales": "Sales",
+    "skuContribUnits": "Units sold",
+    "skuContribUnitsShort": "units",
+    "skuContribCogs": "COGS",
+    "skuContribEstAfter": "Est. after ads {pct} — Estimated (shared shop costs)",
+    "weekSkuSplitTitle": "This week by product",
+    "weekSkuSplitNote": "Contribution for this Shop Topic A week only — the card totals above stay shop-combined."
   },
   "Orchestrator": {
     "nextTitle": "Next step",
@@ -932,6 +1095,14 @@
         "title": "Weekly refresh",
         "desc": "Generate a fresh week of creatives to fight fatigue."
       },
+      "reorderBatch": {
+        "title": "Order next batch",
+        "desc": "Stock runway looks short — mark a restock on the same supplier path (still selling)."
+      },
+      "markReorderArrived": {
+        "title": "Mark next batch arrived",
+        "desc": "Confirm the restock arrived — you stay in selling."
+      },
       "resume": {
         "title": "Resume your journey",
         "desc": "Pick up right where you paused."
@@ -969,6 +1140,26 @@
       "likesSoft": {
         "title": "Likes are a soft nudge",
         "body": "Your industry interests help ranking but never override fit or margins."
+      },
+      "multiSku": {
+        "title": "Several products, one shop",
+        "body": "Live SKUs share one store — watch cash and COD across all of them. Per-SKU next steps live on each product’s attention chips."
+      },
+      "cashCod": {
+        "title": "Shop Topic A is store-wide",
+        "body": "Weekly ads, COD, and courier numbers are combined for the whole shop — not private books for one SKU."
+      },
+      "reorderEconomicsWarn": {
+        "title": "Restock with care",
+        "body": "Invest-next is hold or fix economics — protect margins before locking more cash into stock."
+      },
+      "reorderReinvest": {
+        "title": "Healthy to restock",
+        "body": "Invest-next says reinvest and stock is running low — mark the next batch on your same supplier path."
+      },
+      "warmBackup": {
+        "title": "Warm a spare",
+        "body": "Request a spare sample on any same-source card except your working supplier — saves weeks if they can’t fulfill later."
       }
     }
   },
@@ -985,6 +1176,9 @@
   },
   "Settings": {
     "open": "Settings",
+    "financeHistoryLink": "Finance history",
+    "editOnboarding": "Edit onboarding",
+    "pauseShop": "Pause shop",
     "signedInAs": "Signed in as {email}",
     "changePassword": "Change password",
     "changePasswordTitle": "Change password",
@@ -1013,12 +1207,21 @@
   "Preview": {
     "bannerTitle": "Preview data — local QA only",
     "bannerBody": "This workspace is seeded for testing. Not for real use.",
+    "bannerReadyAddNote": "This fixture left 15 healthy Topic A weeks. Re-seed another stage before clean path tests.",
     "bannerCta": "Preview controls",
     "bannerReset": "Reset demo…",
     "pageTitle": "Preview (local QA)",
     "pageLead": "Seed the demo founder to any stage and jump straight into the dashboard.",
+    "guideTitle": "Use this stage for…",
+    "guideClassic": "Classic A–E — single-SKU journey walk (discovery → selling).",
+    "guideModeC": "wave1_two_sku — hub, multi-select pause, Finance Mode C.",
+    "guideGates": "wave1_beginner_blocked / wave1_ready_add — Add SKU gate QA (blocked vs allowed).",
+    "guideArchive": "wave1_archived — archive + restore on hub.",
+    "guideMarketing": "wave1_marketing_paths — per-SKU Marketing Current / unlocks.",
     "jumpTitle": "Jump to a stage",
-    "jumpLead": "Each stage is cumulative and re-seeds the demo workspace from scratch — same demo SKU, prices and numbers every time.",
+    "jumpLead": "Classic path stages are cumulative. Wave 1 fixtures re-seed the demo to a multi-SKU shape — same prices and numbers every time.",
+    "classicGroup": "Classic path (A–E)",
+    "wave1Group": "Wave 1 multi-SKU",
     "stageWipeHint": "Clicking any stage wipes the current demo and rebuilds a stable fixture at that stage.",
     "resetTitle": "Reset the demo",
     "resetLead": "QA only — this wipes the current demo data and rebuilds a fresh, deterministic fixture. The same SKU, supplier prices and numbers come back on every reset.",
@@ -1049,8 +1252,710 @@
       },
       "selling": {
         "title": "E · Selling",
-        "body": "Saved founder cost quotes, 4 Topic A weeks, automatic actual margins + invest-next."
+        "body": "4 Topic A weeks (low stock → next-batch nudge). Stay on Selling; open Supplier for same-path reorder / beginner economics gate."
+      },
+      "wave1_two_sku": {
+        "title": "W1 · Two live SKUs",
+        "body": "2 selling SKUs — hub, Mode C. Both Marketing Current = weekly refresh by design; use wave1_marketing_paths for per-SKU stage differences."
+      },
+      "wave1_beginner_blocked": {
+        "title": "W1 · Beginner blocked",
+        "body": "Beginner + <15 healthy weeks — Add SKU hard-blocked."
+      },
+      "wave1_ready_add": {
+        "title": "W1 · Ready to add SKU",
+        "body": "Seeds 15 healthy Topic A weeks for add-SKU gate QA. Re-seed another stage before clean path tests — those weeks stay until you wipe."
+      },
+      "wave1_archived": {
+        "title": "W1 · Archived SKU",
+        "body": "1 live + 1 archived — restore on hub."
+      },
+      "wave1_marketing_paths": {
+        "title": "W1 · Marketing paths",
+        "body": "3 SKUs at different marketing stages — switch picker to verify per-SKU Current."
       }
     }
+  },
+  "Vocabulary": {
+    "title": "Vocabulary",
+    "open": "Open vocabulary",
+    "close": "Close vocabulary",
+    "guidance": "All phases stay open — read any term anytime. Sections follow the journey so you can focus where you are, without locking the rest.",
+    "searchLabel": "Search vocabulary",
+    "searchPlaceholder": "Search terms…",
+    "noResults": "No terms match your search.",
+    "currentPhaseBadge": "Where you are",
+    "whyLabel": "Why it matters here",
+    "phases": {
+      "discovery": "Discovery",
+      "sample_request": "Sample request",
+      "sample_approved": "Sample approved",
+      "store_setup": "Store setup",
+      "batch_ordered": "Batch ordered",
+      "batch_received": "Batch received",
+      "selling": "Selling"
+    },
+    "terms": {
+      "sku": {
+        "term": "SKU",
+        "meaning": "Stock-keeping unit — your one product",
+        "definition": "The single product you import and sell. Lebanon Ecom OS is built around one active SKU at a time so decisions stay focused.",
+        "why": {
+          "discovery": "You pick and accept one SKU here — that choice becomes your working product for the rest of the journey.",
+          "sample_request": "Supplier emails, MOQ, and sample checks all refer to this same SKU — don't switch mid-sample.",
+          "store_setup": "Your Shopify product page, photos, and policies should describe this SKU clearly before you sell.",
+          "selling": "Weekly numbers (ads, COD, courier) are judged against this SKU's margins — stay with it until you intentionally change."
+        }
+      },
+      "fit": {
+        "term": "Fit",
+        "meaning": "How well a product matches you",
+        "definition": "A score of how well a catalog product matches your budget, capacity, experience, and Lebanon sellability. The OS uses it to rank what you see first.",
+        "why": {
+          "discovery": "Fit steers the shortlist — stronger matches rise so you waste less time on products you can't run."
+        }
+      },
+      "strongFit": {
+        "term": "Strong fit",
+        "meaning": "A clear product match",
+        "definition": "A product that clears your hard filters and scores well on budget, margins, and capacity. Treat it as a serious candidate, not a maybe.",
+        "why": {
+          "discovery": "Strong-fit cards are your best first looks — shortlist them before spending hours on weaker options."
+        }
+      },
+      "okayFit": {
+        "term": "Okay fit",
+        "meaning": "A workable but imperfect match",
+        "definition": "A product that passes the basics but has trade-offs (tighter margin, harder ops, or weaker demand). Worth a look, not automatic accept.",
+        "why": {
+          "discovery": "Okay-fit items fill the list when strong fits are few — compare carefully before you accept one."
+        }
+      },
+      "demandSignal": {
+        "term": "Demand signal",
+        "meaning": "Evidence people want this",
+        "definition": "Clues that buyers in Lebanon (or similar markets) already look for this kind of product — search interest, marketplace presence, or proven niches.",
+        "why": {
+          "discovery": "The OS surfaces demand signals so you don't pick a SKU that only looks cheap — it should be sellable too."
+        }
+      },
+      "differentiation": {
+        "term": "Differentiation",
+        "meaning": "Why yours stands out",
+        "definition": "What makes your offer different enough to win — kit, brand angle, bundle, or positioning — so you're not a pure price race on commodity goods.",
+        "why": {
+          "discovery": "Weak differentiation means paid ads get expensive fast. Prefer SKUs where you can say something clear and ownable."
+        }
+      },
+      "tier1Marketplace": {
+        "term": "Tier-1 marketplace",
+        "meaning": "Major online marketplace",
+        "definition": "A large, well-known marketplace (think Amazon-class). Products already winning there often have clearer demand — but also more copycats.",
+        "why": {
+          "discovery": "Tier-1 presence is a demand clue, not a copy-paste plan. The OS may ask you to customize or drop if it's too crowded."
+        }
+      },
+      "landedCost": {
+        "term": "Landed cost",
+        "meaning": "All-in cost per unit in Lebanon",
+        "definition": "What one unit really costs after product, freight, clearance, and last-mile into your hands. Margins in the OS are judged against landed cost, not factory price alone.",
+        "why": {
+          "discovery": "Early landed-cost estimates decide if a SKU can clear the 70% / 35% margin gates before you accept it.",
+          "sample_approved": "After the sample, enter real quotes so landed cost stops being a guess before you mark a batch ordered.",
+          "batch_ordered": "Your batch cash outlay is landed cost × units — keep ETA and clearance in view so the number stays honest."
+        }
+      },
+      "marginBeforeAds": {
+        "term": "Margin before ads",
+        "meaning": "Profit % before advertising",
+        "definition": "Gross margin after landed cost and selling costs, before you spend on ads. The OS expects about 70%+ here so ads have room to work.",
+        "why": {
+          "discovery": "If before-ads margin is thin at accept time, the SKU is likely a no — don't hope ads will fix a bad unit economy.",
+          "sample_approved": "Update costs after the sample; confirm before-ads margin still holds before you commit batch cash.",
+          "selling": "Topic A weeks compare real results to this target — if it collapses, pause spend and fix price or costs."
+        }
+      },
+      "marginAfterAds": {
+        "term": "Margin after ads",
+        "meaning": "Profit % after advertising",
+        "definition": "What's left after ad spend on top of landed and selling costs. The OS looks for roughly 35%+ after ads as a healthy floor while selling.",
+        "why": {
+          "discovery": "After-ads margin is the reality check — a pretty before-ads number that dies once you advertise won't pass.",
+          "selling": "Weekly health uses after-ads margin to coach spend: cut, hold, or invest next based on what you actually earned."
+        }
+      },
+      "showMore": {
+        "term": "Show more",
+        "meaning": "Reveal extra catalog products",
+        "definition": "A control that reveals additional curated products when your first batch isn't enough. It widens options without dumping the whole catalog at once.",
+        "why": {
+          "discovery": "Use Show more when the first cards don't fit — the OS still ranks by fit instead of random scrolling."
+        }
+      },
+      "curatedCatalog": {
+        "term": "Curated catalog",
+        "meaning": "Pre-screened product list",
+        "definition": "The OS product list already filtered for Lebanon-friendly, importable SKUs. You still judge fit and margins — curation only removes obvious non-starters.",
+        "why": {
+          "discovery": "You're choosing inside a curated set, not the whole internet — faster decisions with fewer regulatory landmines."
+        }
+      },
+      "activeSku": {
+        "term": "Active SKU",
+        "meaning": "The product you're focusing on now",
+        "definition": "The product currently driving supplier and marketing deep-links. Shop Topic A (Finance) stays store-wide across every selling SKU — it is not private books for the active SKU alone.",
+        "why": {
+          "discovery": "Accepting a product sets the active SKU — supplier and marketing tools follow that choice.",
+          "selling": "Open a SKU for product tools; log weeks in Shop Topic A for the whole store’s combined health."
+        }
+      },
+      "approvalGate": {
+        "term": "Approval gate",
+        "meaning": "A human yes/no checkpoint",
+        "definition": "A required founder decision the OS won't skip — accept product, sample decision, batch marks, store ready, and similar. Automation stops; you approve.",
+        "why": {
+          "discovery": "Accepting a product is an approval gate — once you say yes, the OS advances and treats that SKU as active.",
+          "sample_request": "The sample decision gate (approve / reject / stuck path) unlocks batch and parallel setup — don't mark a batch without it."
+        }
+      },
+      "sample": {
+        "term": "Sample",
+        "meaning": "A paid test unit before the batch",
+        "definition": "A small paid order you request to check quality before any first batch. The OS tracks the request; you still contact the supplier yourself.",
+        "why": {
+          "sample_request": "Mark the sample here, email the supplier, then quality-check — this is the sample-first rule in action."
+        }
+      },
+      "sampleFirst": {
+        "term": "Sample first",
+        "meaning": "Never batch before a good sample",
+        "definition": "A hard rule: approve a sample before you mark a first batch ordered. It protects cash from shipping a full MOQ of a bad product.",
+        "why": {
+          "sample_request": "The OS blocks batch flow until sample is approved — treat that lock as a feature, not friction."
+        }
+      },
+      "supplier": {
+        "term": "Supplier",
+        "meaning": "The factory or seller you buy from",
+        "definition": "The Import (often China) or Local (Lebanon) partner who quotes, ships samples, and fulfills your batch. You negotiate and email them; the OS stores facts and drafts.",
+        "why": {
+          "sample_request": "Pick Import or Local primary and backup suppliers here, then mark which one you actually sampled."
+        }
+      },
+      "primarySupplier": {
+        "term": "Primary supplier",
+        "meaning": "First-choice card for your first sample",
+        "definition": "On the shortlist, the primary ranking marks who you usually sample first (Mode A). After approve, your working/path supplier is what matters for batch — that may be this primary. Other same-source cards can become warmed spares later without replacing working until you mark can’t-fulfill.",
+        "why": {
+          "sample_request": "Sample the primary first; only rotate if quality or negotiation fails.",
+          "sample_approved": "After approve, batch follows the working path — not every “primary” label on the shortlist."
+        }
+      },
+      "backupSupplier": {
+        "term": "Backup supplier",
+        "meaning": "A ranking label on shortlist cards — not an automatic path switch",
+        "definition": "Primary vs backup is ranking on the shortlist, not “you already switched path.” After path lock, any same-source card that is not the working supplier can be a spare (see Warmed spare) — primary/backup rank does not block spare sample CTAs. A backup card is not a warmed spare until its sample is approved.",
+        "why": {
+          "sample_request": "If the primary fails the sample gate, try another shortlist card (often the backup rank) before abandoning the SKU.",
+          "sample_approved": "After path lock, use same-source non-working cards for spare insurance — rank alone does not warm them.",
+          "selling": "While selling, spare insurance still uses approved samples on non-working cards — not the backup label by itself."
+        }
+      },
+      "workingSupplier": {
+        "term": "Working supplier",
+        "meaning": "The supplier path you’re buying on for this SKU",
+        "definition": "After the first sample is approved, this is your locked path for batch / next-batch. Approving a spare sample does NOT change it.",
+        "why": {
+          "sample_approved": "Know who your path is — spare approvals are insurance, not a silent switch.",
+          "batch_ordered": "First batch and cost quotes follow the working supplier, not every warmed spare.",
+          "selling": "Shop hub shows Working supplier per product — restock and path stay on this until can’t-fulfill."
+        }
+      },
+      "warmedSpare": {
+        "term": "Warmed spare",
+        "meaning": "A backup with an approved sample ready if path fails",
+        "definition": "Request spare sample on a same-source card that is NOT the working supplier, then approve it. Insurance only — does not switch path. Aim for at least 2 when you can.",
+        "why": {
+          "sample_approved": "Warm a spare while your path is fine — saves weeks if they can’t fulfill later.",
+          "batch_ordered": "You can still warm spares while the first batch ships — path stays put.",
+          "selling": "Hub shows spares ready per product; use them only after can’t-fulfill, not as a casual switch."
+        }
+      },
+      "importVsLocal": {
+        "term": "Import vs Local",
+        "meaning": "Where you source this SKU’s suppliers",
+        "definition": "Import (e.g. China) vs Local (Lebanon) supplier pools — tabs Import | Local | Both. Spare/switch stay same-source (Import↔Import or Local↔Local). Local cost fields differ; last-mile courier stays in Topic A.",
+        "why": {
+          "sample_request": "Pick Import or Local (or Both) before sampling so shortlist and quotes match the pool you can actually buy from.",
+          "sample_approved": "Spare insurance and can’t-fulfill switches stay same-source — don’t mix Import path with a Local spare."
+        }
+      },
+      "moq": {
+        "term": "MOQ",
+        "meaning": "Minimum order quantity",
+        "definition": "The smallest batch the supplier will sell. MOQ × landed cost is the cash you lock when you order — size it to budget and storage.",
+        "why": {
+          "discovery": "High MOQ can kill an otherwise good SKU if your $2k+ budget can't cover sample + first batch safely.",
+          "sample_request": "Confirm MOQ in writing with the supplier while sampling — don't discover a surprise minimum at batch time.",
+          "batch_ordered": "Your first batch quantity should respect MOQ without over-ordering past what you can store and sell."
+        }
+      },
+      "unitPrice": {
+        "term": "Unit price",
+        "meaning": "Factory price per piece",
+        "definition": "What the supplier charges per unit before freight and clearance. It's only one slice of landed cost — never judge margin on unit price alone.",
+        "why": {
+          "sample_request": "Capture unit price from quotes and negotiation so later cost worksheets stay accurate."
+        }
+      },
+      "negotiation": {
+        "term": "Negotiation",
+        "meaning": "Talking price and terms",
+        "definition": "Working the supplier on unit price, MOQ, shipping terms, or extras (labels, packing). Small wins here compound across the whole batch.",
+        "why": {
+          "sample_request": "Negotiate while the sample is in play — leverage is weaker after you've already committed to a large order."
+        }
+      },
+      "qualityChecklist": {
+        "term": "Quality checklist",
+        "meaning": "What to inspect on the sample",
+        "definition": "A practical list for finishing, materials, sizing, packaging, and defects. Use it before you approve — photos help if you reopen the decision later.",
+        "why": {
+          "sample_request": "Approve only after the checklist passes; a vague \"looks fine\" is how bad batches get ordered."
+        }
+      },
+      "clearance": {
+        "term": "Clearance",
+        "meaning": "Customs release into Lebanon",
+        "definition": "Getting the goods legally through Lebanese customs. Partner, fees, and paperwork belong in your landed-cost math and arrival plan.",
+        "why": {
+          "sample_request": "Ask early how samples and batches clear — surprise clearance fees wreck margins.",
+          "batch_ordered": "While inventory is in transit, line up clearance so arrival doesn't stall in port.",
+          "batch_received": "After arrival, confirm clearance is done before you treat stock as ready to sell."
+        }
+      },
+      "cashLock": {
+        "term": "Cash lock",
+        "meaning": "Money tied up until you sell",
+        "definition": "Budget trapped in sample, deposit, freight, or inventory before revenue returns. The OS watches locks so you don't over-commit past your runway.",
+        "why": {
+          "sample_request": "A sample is a small intentional lock — better than locking a full MOQ on an untested product."
+        }
+      },
+      "stuckPath": {
+        "term": "Stuck path",
+        "meaning": "Escalation when sample flow fails",
+        "definition": "A guided branch when suppliers fail, cash is tight, or the sample loop isn't converging — including higher-stakes path options the OS surfaces for approval.",
+        "why": {
+          "sample_request": "If you're looping suppliers without progress, use the stuck path instead of silently burning weeks."
+        }
+      },
+      "sampleApproved": {
+        "term": "Sample approved",
+        "meaning": "You green-lit quality",
+        "definition": "The human gate after a good sample. It unlocks batch ordering and parallel tracks (store + intro marketing) without forcing store readiness first.",
+        "why": {
+          "sample_approved": "You're here because quality passed — next is real costs, batch mark, and parallel setup, not another sample delay."
+        }
+      },
+      "introMarketing": {
+        "term": "Intro marketing",
+        "meaning": "Early lesson and light creatives",
+        "definition": "The first marketing kit after sample approval — teach basics and warm creative direction before heavy paid spend.",
+        "why": {
+          "sample_approved": "Start intro marketing in parallel with costs and store work so you're not learning ads the week stock arrives."
+        }
+      },
+      "parallelNextSteps": {
+        "term": "Parallel next steps",
+        "meaning": "Workstreams that run side by side",
+        "definition": "After sample approval you can advance batch, store, and marketing together. Store readiness is a side status — it never blocks marking a batch ordered.",
+        "why": {
+          "sample_approved": "Don't wait for a perfect store to order stock; run the tracks in parallel and keep batch moving."
+        }
+      },
+      "costQuotes": {
+        "term": "Cost quotes",
+        "meaning": "Real freight and fee numbers",
+        "definition": "Founder-entered quotes for freight, clearance, and courier that replace discovery estimates. They refresh expected margin and batch cash needs.",
+        "why": {
+          "sample_approved": "Enter quotes before you mark batch ordered — fake freight numbers create false confidence."
+        }
+      },
+      "batchVsSample": {
+        "term": "Batch vs sample",
+        "meaning": "Test unit versus sellable stock",
+        "definition": "A sample proves quality; a batch is sellable inventory at MOQ scale. Never treat a sample carton as your launch stock plan.",
+        "why": {
+          "sample_approved": "Approval means quality is good enough to buy a batch — it is not the same as having inventory to sell."
+        }
+      },
+      "shopify": {
+        "term": "Shopify",
+        "meaning": "Your online store platform",
+        "definition": "The storefront where Lebanon customers browse and check out. The OS tracks setup progress; you build and connect payments and delivery yourself.",
+        "why": {
+          "store_setup": "Store readiness lives here as a checklist — finish Shopify basics while the batch is elsewhere in the journey."
+        }
+      },
+      "storeReadiness": {
+        "term": "Store readiness",
+        "meaning": "How complete the store is",
+        "definition": "A side-status percentage of Shopify checklist progress. Important for launch quality — but it never gates marking a batch ordered.",
+        "why": {
+          "store_setup": "Push readiness up in parallel; don't stall the import spine waiting for 100%."
+        }
+      },
+      "cod": {
+        "term": "COD",
+        "meaning": "Cash on delivery",
+        "definition": "Customers pay when the courier delivers. Common in Lebanon, but it creates outstanding cash and return risk you must track weekly.",
+        "why": {
+          "store_setup": "Wire COD into checkout and delivery so launch isn't blocked by payment confusion.",
+          "selling": "COD outstanding is working capital — Topic A weeks watch it so \"sales\" don't hide unpaid deliveries."
+        }
+      },
+      "localPayments": {
+        "term": "Local payments (Whish / OMT)",
+        "meaning": "Lebanon payment rails",
+        "definition": "Local methods like Whish and OMT that many buyers prefer alongside or instead of cards. Offer what your customers already use.",
+        "why": {
+          "store_setup": "Add local rails during store setup so conversion isn't stuck on card-only checkout."
+        }
+      },
+      "deliveryCompany": {
+        "term": "Delivery company",
+        "meaning": "Your courier partner",
+        "definition": "The Lebanon courier that picks up, delivers, and often collects COD. Fees and failed-delivery rates hit after-ads margin.",
+        "why": {
+          "store_setup": "Choose and connect a courier before launch so orders don't pile up unshipped."
+        }
+      },
+      "policyPages": {
+        "term": "Policy pages",
+        "meaning": "Refund, shipping, privacy text",
+        "definition": "Store pages that set expectations on returns, delivery, and data. They reduce disputes and make paid traffic feel safer.",
+        "why": {
+          "store_setup": "Tick policy pages on the readiness checklist before you push hard paid traffic."
+        }
+      },
+      "whatsappCommerce": {
+        "term": "WhatsApp commerce",
+        "meaning": "Selling and support via WhatsApp",
+        "definition": "Using WhatsApp for questions, order confirmations, and sometimes closing sales — expected buyer behavior in Lebanon.",
+        "why": {
+          "store_setup": "Put a clear WhatsApp path on the store so hesitant COD buyers can ask before they order."
+        }
+      },
+      "sideStatus": {
+        "term": "Side status",
+        "meaning": "Progress that doesn't block the spine",
+        "definition": "Tracks like store readiness that matter operationally but do not control the primary journey advance (sample → batch → sell).",
+        "why": {
+          "store_setup": "Store work is a side status — finish it seriously, but never use it as an excuse to delay a justified batch order."
+        }
+      },
+      "batch": {
+        "term": "Batch",
+        "meaning": "Your sellable inventory order",
+        "definition": "The first real stock order after sample approval — sized around MOQ and budget. You place it externally; the OS records that you ordered.",
+        "why": {
+          "batch_ordered": "Marking batch ordered tells the OS inventory is in motion — ETA, pre-launch marketing, and arrival gates follow."
+        }
+      },
+      "firstBatch": {
+        "term": "First batch",
+        "meaning": "Your opening inventory buy",
+        "definition": "The initial MOQ-scale order that funds launch. Keep it lean enough to learn, large enough to not stock-out in week one.",
+        "why": {
+          "batch_ordered": "While waiting on arrival, plan launch creatives against first-batch quantity — not infinite stock."
+        }
+      },
+      "preLaunchMarketing": {
+        "term": "Pre-launch marketing",
+        "meaning": "Warm-up while stock ships",
+        "definition": "Creatives and audience warming after batch is ordered but before arrival. Stay inside the paid cap — you're not in full selling mode yet.",
+        "why": {
+          "batch_ordered": "Use the transit window to warm demand so launch week isn't cold traffic on day one."
+        }
+      },
+      "paidCap": {
+        "term": "Paid cap",
+        "meaning": "Max ad spend before selling",
+        "definition": "A ceiling on pre-launch / early paid spend so you don't burn budget before inventory can fulfill orders.",
+        "why": {
+          "batch_ordered": "Respect the paid cap while stock is in transit — hype without inventory creates refunds and COD pain."
+        }
+      },
+      "inventoryInTransit": {
+        "term": "Inventory in transit",
+        "meaning": "Stock that has shipped but not arrived",
+        "definition": "Units you've paid for (or committed to) that are between factory and your shelves. Track ETA and clearance; they're cash lock until received.",
+        "why": {
+          "batch_ordered": "This is your main status while waiting — don't mark arrived until goods are actually in hand and clearable."
+        }
+      },
+      "eta": {
+        "term": "ETA",
+        "meaning": "Expected arrival date",
+        "definition": "When you expect the batch to land. The OS uses it to pace pre-launch work and to flag when arrival is overdue.",
+        "why": {
+          "batch_ordered": "Keep ETA updated so marketing and store launch timing stay realistic."
+        }
+      },
+      "inventory": {
+        "term": "Inventory",
+        "meaning": "Units you can sell",
+        "definition": "Physical stock available (or soon available) to fulfill orders. Inventory ties cash, storage, and how hard you can advertise.",
+        "why": {
+          "batch_ordered": "In-transit inventory is almost sellable — plan launch volume against units on the water, not wishful extras.",
+          "batch_received": "Arrived inventory unlocks ready-to-sell — count units before you scale ads.",
+          "selling": "Weekly health should reflect stock left; selling hard into empty shelves wastes ad spend."
+        }
+      },
+      "batchArrived": {
+        "term": "Batch arrived",
+        "meaning": "Stock has landed",
+        "definition": "You mark that the first batch is in Lebanon and usable. It unlocks finance preview and the path toward selling.",
+        "why": {
+          "batch_received": "Mark arrived only when goods are truly here — that gate turns transit hopes into sellable reality."
+        }
+      },
+      "readyToSell": {
+        "term": "Ready to sell",
+        "meaning": "Stock + ops can fulfill orders",
+        "definition": "Inventory is received and you're operationally able to take orders (store, delivery, payments far enough along). Launch marketing can go live.",
+        "why": {
+          "batch_received": "Confirm ready-to-sell before blasting ads — orders without fulfillment destroy trust and COD rates."
+        }
+      },
+      "launchKit": {
+        "term": "Launch kit",
+        "meaning": "Go-live marketing pack",
+        "definition": "Creatives and guidance for opening paid/organic push once stock can fulfill. Stronger than intro marketing — meant for real demand.",
+        "why": {
+          "batch_received": "Pull the launch kit when arrived and ready — this is the creative set for first selling weeks."
+        }
+      },
+      "preSalesEstimate": {
+        "term": "Pre-sales estimate",
+        "meaning": "Expected early revenue guess",
+        "definition": "A rough forecast of early sales based on batch size, price, and planned spend. Use it to set week-one targets, not as a promise.",
+        "why": {
+          "batch_received": "Compare the estimate to first Topic A weeks later — learning beats clinging to the forecast."
+        }
+      },
+      "topicA": {
+        "term": "Topic A",
+        "meaning": "Weekly live selling review (whole shop)",
+        "definition": "The shop-combined weekly finance loop once you're selling — log spend, COD, courier, and per-SKU sales so the OS can coach margins and invest-next. Not a private P&L for one product.",
+        "why": {
+          "selling": "Do Shop Topic A every week; skipped weeks hide bleed until cash is gone."
+        }
+      },
+      "topicB": {
+        "term": "Topic B",
+        "meaning": "SKU deep-dive card",
+        "definition": "The product-focused view of your active SKU economics and facts — companion to weekly Topic A, not a replacement.",
+        "why": {
+          "selling": "Open Topic B when unit economics look off — price, landed cost, or offer may need a change."
+        }
+      },
+      "weeklyHealth": {
+        "term": "Weekly health",
+        "meaning": "How the business looked this week",
+        "definition": "A compact read of margins, cash movement, and risk signals from your Topic A inputs. It's the coaching pulse, not a vanity dashboard.",
+        "why": {
+          "selling": "Read weekly health before raising ad spend — it tells you whether last week earned the next dollar."
+        }
+      },
+      "codOutstanding": {
+        "term": "COD outstanding",
+        "meaning": "Uncollected cash-on-delivery",
+        "definition": "Money still with customers or couriers from COD orders not yet remitted. It inflates \"sales\" until it hits your account — or returns.",
+        "why": {
+          "selling": "Track COD outstanding weekly so you don't spend ads against cash you don't actually have."
+        }
+      },
+      "adSpend": {
+        "term": "Ad spend",
+        "meaning": "Money paid to acquire buyers",
+        "definition": "What you spent on paid traffic in the period. After-ads margin only works if this number is honest and complete.",
+        "why": {
+          "selling": "Log ad spend in Topic A every week — missing spend makes margins look healthier than they are."
+        }
+      },
+      "courierFees": {
+        "term": "Courier fees",
+        "meaning": "Delivery company charges",
+        "definition": "Per-order or weekly fees from your delivery partner, including failed-delivery costs. They sit in selling costs and shrink margin.",
+        "why": {
+          "selling": "Include courier fees in weekly logs; ignoring them quietly kills the 35% after-ads floor."
+        }
+      },
+      "investNext": {
+        "term": "Invest next",
+        "meaning": "Where to put the next dollar",
+        "definition": "OS coaching on whether to raise ads, fix offer/creative, cut spend, or free cash — based on the week you just logged.",
+        "why": {
+          "selling": "Follow invest-next as a decision aid after Topic A; don't raise spend on autopilot."
+        }
+      },
+      "nextBatch": {
+        "term": "Next batch",
+        "meaning": "Restock while you’re already selling",
+        "definition": "A side-flow on Selling — mark next batch ordered with the same working supplier (bookkeeping). Not the first batch; does not rewind the journey to batch_ordered.",
+        "why": {
+          "selling": "Use next batch when runway or invest-next says restock — keep it distinct from your first batch journey."
+        }
+      },
+      "cantFulfillSwitch": {
+        "term": "Can’t fulfill (switch)",
+        "meaning": "How you change working supplier while selling",
+        "definition": "If the working supplier can’t fulfill a restock, mark can’t-fulfill on that SKU’s Supplier panel, then pick a warmed spare (same source). Stay on Selling — path changes only then.",
+        "why": {
+          "selling": "This is the only switch moment — warming a spare is not a path change until you mark can’t-fulfill."
+        }
+      },
+      "addSku": {
+        "term": "Add SKU",
+        "meaning": "Start another product in the same shop",
+        "definition": "Opens discovery for a new live product in one Shopify workspace. Gates by experience (beginner needs healthy Topic A streak; some warn; experienced after first accept). Each SKU has its own supplier/marketing journey.",
+        "why": {
+          "discovery": "You’re adding another product to the same shop — not opening a second store.",
+          "selling": "Add SKU from the hub when experience and Topic A health allow — each product keeps its own supplier path."
+        }
+      },
+      "archiveSku": {
+        "term": "Archive SKU",
+        "meaning": "Hide a live product without wiping history",
+        "definition": "Archive removes it from live hub focus; restore brings it back. Wipe forever is a separate permanent step. Shop Topic A history stays.",
+        "why": {
+          "selling": "Archive from the hub when a product should pause out of live focus — restore if you need it again."
+        }
+      },
+      "conversion": {
+        "term": "Conversion",
+        "meaning": "Visitors who become orders",
+        "definition": "The rate at which store traffic turns into paid (or COD) orders. Weak conversion burns ad spend even when the product is fine.",
+        "why": {
+          "selling": "If conversion drops, refresh creative and page before blaming the SKU — creative fatigue often shows up here first."
+        }
+      },
+      "creativeFatigue": {
+        "term": "Creative fatigue",
+        "meaning": "Ads that stopped working",
+        "definition": "When the same creatives wear out and performance falls. Lebanon audiences are small — fatigue shows up faster than in huge markets.",
+        "why": {
+          "selling": "Weekly refresh fights fatigue; don't wait until after-ads margin collapses to rotate creatives."
+        }
+      },
+      "weeklyRefresh": {
+        "term": "Weekly refresh",
+        "meaning": "Rotate creatives on a cadence",
+        "definition": "A habit of updating ads/offers each week so messaging stays fresh. Pairs with Topic A so you change creative from evidence, not boredom.",
+        "why": {
+          "selling": "Schedule a weekly refresh alongside Topic A — small creative changes beat rare big redesigns."
+        }
+      }
+    }
+  },
+  "Shop": {
+    "kicker": "Your shop",
+    "title": "Shop hub",
+    "intro": "Watch every live SKU, add another when ready, and pause selected products here. Pause the whole shop from the top bar.",
+    "hubNextLine": "Next: {label} — {name}",
+    "introEmpty": "Start by discovering and accepting your first product. Once you have more than one, this hub becomes your shop overview.",
+    "storePct": "Store {pct}% ready",
+    "shopPausedBanner": "Shop is paused from the top bar — every SKU shows as paused until you resume there.",
+    "skusTitle": "Live products",
+    "noSkus": "No live products yet.",
+    "shopToolsTitle": "Shop tools",
+    "workingSupplier": "Working supplier: {name}",
+    "workingSupplierNone": "No working supplier yet.",
+    "sparesReady": "Spares ready: {count} — {names}",
+    "sparesMore": "+{n} more",
+    "sparesNoneYet": "Spares ready: none yet — warm at least 2 when you can",
+    "sparesManageLink": "Warm / manage on Supplier",
+    "sparesSwitchNote": "Warming a spare does not switch your working supplier. If they can’t fulfill, open that product’s Supplier → Supplier can’t fulfill → pick a warmed spare.",
+    "selectSku": "Select {name}",
+    "paused": "Paused",
+    "pauseSelected": "Pause selected",
+    "resumeSelected": "Resume selected",
+    "addSkuTitle": "Add SKU",
+    "addSkuIntro": "Open discovery for a new product. Gates depend on your experience and shop Topic A health.",
+    "addSkuCta": "Start add SKU",
+    "addSkuDiscoveryBanner": "Adding another product — your live SKUs and shop journey stay as they are.",
+    "addSkuDiscoveryCancel": "Cancel — back to shop hub",
+    "archivedTitle": "Archived",
+    "archivedHint": "Archive is reversible — Restore brings the product back with its history. Wipe forever is permanent and only available after archive.",
+    "archivedSkuBanner": "This product is archived. Restore to continue its journey (reversible), or Wipe forever (permanent — cannot be undone).",
+    "restore": "Restore",
+    "coachingTitle": "Shop coaching",
+    "backToShop": "← Shop",
+    "skuEyebrow": "Product",
+    "skuSubline": "This SKU’s spine — sample, batch, and selling.",
+    "archive": "Archive",
+    "wipe": "Wipe forever",
+    "archiveConfirm": "Archive this SKU? You can restore it later with full history. Shop Topic A history stays. Wipe forever is a separate, permanent step after archive.",
+    "wipeConfirm": "Wipe forever? This permanently deletes the SKU and cannot be undone. Wipe is only available after archive — Restore will no longer be possible.",
+    "chip": {
+      "sample": "Sample needed",
+      "costs": "Enter costs",
+      "batch": "Mark batch",
+      "store": "Store setup",
+      "arrived": "Mark arrived",
+      "selling": "Start selling",
+      "topicA": "Log week",
+      "restock": "Restock soon",
+      "reorderInTransit": "Restock arriving"
+    },
+    "unitsLeftLabel": "Units left: {n}",
+    "unitsLeftSub": "From your last money week.",
+    "unitsLeftWeeks": "~{weeks} weeks at recent sell-through",
+    "unitsLeftUnknown": "Units left aren’t logged yet for this product.",
+    "unitsLeftLogWeek": "Log a money week in Finance → Topic A",
+    "state": {
+      "discovery": "Discovery",
+      "supplier_sample": "Supplier sample",
+      "sample_approved": "Sample approved",
+      "store_setup": "Store setup",
+      "batch_ordered": "Batch marked",
+      "batch_arrived_ready": "Batch arrived",
+      "selling": "Selling",
+      "paused": "Paused"
+    },
+    "gate": {
+      "beginner_blocked": "As a beginner, add a second SKU only after ≥15 healthy Topic A weeks and the last 5 all healthy.",
+      "early_add": "Warning: you’re adding early before the Topic A bar — continue carefully.",
+      "watch_previous_sku": "Your previous SKU looks weak on recent Topic A — watch it before expanding.",
+      "both": "Early add and the previous SKU needs attention — continue only if you’re ready.",
+      "experienced_serious": "You changed experience to Experienced. That unlocks earlier Add SKU — confirm you understand the cash and ops risk.",
+      "need_serious_ack": "Please confirm the seriousness warning to continue."
+    },
+    "coaching": {
+      "sampleFirst": "Sample first — always — before any batch.",
+      "codRisk": "COD carries collection risk — plan margins and cash flow.",
+      "protectMargins": "Protect 70% before ads and 35% after.",
+      "startSmall": "Start with a small first batch.",
+      "over10k": "Over $10k needs cash + risk acknowledgement.",
+      "likesSoft": "Industry likes are a soft preference only.",
+      "multiSku": "Several live SKUs share one store — watch cash and COD across all of them.",
+      "cashCod": "Shop Topic A tracks ads, COD, and courier for the whole store.",
+      "batchMargins": "Confirm costs and margins before locking batch cash on this SKU."
+    },
+    "archiveWarnSample": "Warning: a sample is still in progress (not marked arrived / decided).",
+    "archiveWarnBatch": "Warning: a batch was marked ordered but not marked arrived yet.",
+    "skuCoachingTitle": "Coaching for this SKU",
+    "sectionNavAria": "On this page",
+    "sectionProduct": "Product",
+    "sectionSupplier": "Supplier & sample",
+    "sectionStore": "Store setup",
+    "storeParallelKicker": "Parallel with batch",
+    "storeSectionHint": "Shop store readiness runs beside this SKU’s batch — finishing the store never blocks marking or receiving a batch.",
+    "openStoreSetup": "Open store setup",
+    "sectionMarketing": "Marketing",
+    "sectionFinance": "Shop Topic A & selling",
+    "sectionFocusNext": "Next: {label}"
   }
 }

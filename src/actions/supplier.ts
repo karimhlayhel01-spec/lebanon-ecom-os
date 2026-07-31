@@ -7,16 +7,26 @@ import { getWorkspaceForUser } from "@/lib/memory/repos";
 import {
   decideSample,
   markBatchArrived,
+  markReorderArrived,
   markSampleReceived,
   orderBatch,
+  orderNextBatch,
+  reportSupplierCantFulfill,
   requestSample,
   saveCostQuotes,
   setBatchArrivalEta,
+  setReorderArrivalEta,
+  switchReorderBackup,
   type CostQuoteInput,
+  type MarkReorderArrivedResult,
   type OrderBatchResult,
+  type OrderNextBatchResult,
+  type ReportCantFulfillResult,
   type SampleDecision,
   type SaveCostQuotesResult,
   type SetBatchArrivalEtaResult,
+  type SetReorderArrivalEtaResult,
+  type SwitchReorderBackupResult,
 } from "@/lib/supplier/service";
 import type { SetBatchArrivalEtaInput } from "@/lib/supplier/batch-eta";
 
@@ -77,33 +87,105 @@ export async function orderBatchAction(
   return res;
 }
 
-export async function markBatchArrivedAction(inventoryAck: boolean) {
+export async function markBatchArrivedAction(
+  skuId: string,
+  inventoryAck: boolean,
+) {
   ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
-  const res = await markBatchArrived(workspace.id, inventoryAck);
+  const res = await markBatchArrived(workspace.id, skuId, inventoryAck);
   revalidatePath("/", "layout");
   return res;
 }
 
 export async function saveCostQuotesAction(
   input: CostQuoteInput,
+  skuId?: string,
 ): Promise<SaveCostQuotesResult> {
   ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
-  const res = await saveCostQuotes(workspace.id, input);
+  const res = await saveCostQuotes(workspace.id, input, skuId);
   revalidatePath("/", "layout");
   return res;
 }
 
 export async function setBatchArrivalEtaAction(
+  skuId: string,
   input: SetBatchArrivalEtaInput,
 ): Promise<SetBatchArrivalEtaResult> {
   ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
-  const res = await setBatchArrivalEta(workspace.id, input);
+  const res = await setBatchArrivalEta(workspace.id, skuId, input);
+  revalidatePath("/", "layout");
+  return res;
+}
+
+export async function orderNextBatchAction(
+  skuId: string,
+  quantity: number,
+  opts: { economicsAck?: boolean; stuckAcks?: boolean } = {},
+): Promise<OrderNextBatchResult> {
+  ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false, error: "not_found" };
+  const res = await orderNextBatch(workspace.id, skuId, quantity, opts);
+  revalidatePath("/", "layout");
+  return res;
+}
+
+export async function markReorderArrivedAction(
+  skuId: string,
+  inventoryAck: boolean,
+): Promise<MarkReorderArrivedResult> {
+  ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false, error: "not_found" };
+  const res = await markReorderArrived(workspace.id, skuId, inventoryAck);
+  revalidatePath("/", "layout");
+  return res;
+}
+
+export async function setReorderArrivalEtaAction(
+  skuId: string,
+  input: SetBatchArrivalEtaInput,
+): Promise<SetReorderArrivalEtaResult> {
+  ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false, error: "not_found" };
+  const res = await setReorderArrivalEta(workspace.id, skuId, input);
+  revalidatePath("/", "layout");
+  return res;
+}
+
+export async function reportSupplierCantFulfillAction(
+  skuId: string,
+  reason?: string,
+): Promise<ReportCantFulfillResult> {
+  ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false, error: "not_found" };
+  const res = await reportSupplierCantFulfill(workspace.id, skuId, { reason });
+  revalidatePath("/", "layout");
+  return res;
+}
+
+export async function switchReorderBackupAction(
+  skuId: string,
+  backupSupplierId: string,
+  opts: { skipSampleAck?: boolean } = {},
+): Promise<SwitchReorderBackupResult> {
+  ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false, error: "not_found" };
+  const res = await switchReorderBackup(
+    workspace.id,
+    skuId,
+    backupSupplierId,
+    opts,
+  );
   revalidatePath("/", "layout");
   return res;
 }

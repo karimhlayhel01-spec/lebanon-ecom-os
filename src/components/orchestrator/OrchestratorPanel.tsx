@@ -8,19 +8,26 @@ import type {
   OrchestratorCta,
 } from "@/lib/orchestrator/service";
 
-// Map orchestrator anchors to their real routes. Discovery stays on the hub;
-// the heavy stages each live on their own deep page.
-const ANCHOR_TO_HREF: Record<string, "/dashboard" | "/supplier" | "/store" | "/marketing" | "/finance"> = {
-  top: "/dashboard",
-  discovery: "/dashboard",
-  supplier: "/supplier",
-  store: "/store",
-  marketing: "/marketing",
-  finance: "/finance",
-};
+// Hub coachingOnly has empty CTAs. If CTAs ever render, prefer SKU #sections
+// when a skuId is supplied; Store stays shop-level /store.
+function ctaHref(
+  cta: OrchestratorCta,
+  skuId: string | null | undefined,
+): string {
+  if (cta.anchor === "store") return "/store";
+  if (cta.anchor === "top" || cta.anchor === "discovery") return "/dashboard?hub=1";
+  if (skuId && (cta.anchor === "supplier" || cta.anchor === "marketing" || cta.anchor === "finance")) {
+    return `/sku/${skuId}#${cta.anchor}`;
+  }
+  if (cta.anchor === "supplier") return "/supplier";
+  if (cta.anchor === "marketing") {
+    const stage = MARKETING_CTA_STAGE[cta.id];
+    return stage ? `/marketing?stage=${stage}` : "/marketing";
+  }
+  if (cta.anchor === "finance") return "/finance";
+  return "/dashboard?hub=1";
+}
 
-// Marketing CTAs deep-link to the matching stage so the panel lands focused on
-// the right kit instead of the full stacked list.
 const MARKETING_CTA_STAGE: Record<string, string> = {
   marketingIntro: "intro_pdf",
   preLaunch: "pre_launch",
@@ -31,9 +38,12 @@ const MARKETING_CTA_STAGE: Record<string, string> = {
 export function OrchestratorPanel({
   view,
   coachingOnly = false,
+  skuId,
 }: {
   view: Orchestration;
   coachingOnly?: boolean;
+  /** When set, CTA anchors prefer `/sku/[id]#section` (primary work surface). */
+  skuId?: string | null;
 }) {
   const t = useTranslations("Orchestrator");
 
@@ -59,7 +69,9 @@ export function OrchestratorPanel({
             {view.ctas.length === 0 ? (
               <p className="text-sm text-stone-dark">{t("allDone")}</p>
             ) : (
-              view.ctas.map((cta) => <CtaCard key={cta.id} cta={cta} />)
+              view.ctas.map((cta) => (
+                <CtaCard key={cta.id} cta={cta} skuId={skuId} />
+              ))
             )}
           </div>
         </div>
@@ -79,7 +91,13 @@ export function OrchestratorPanel({
   );
 }
 
-function CtaCard({ cta }: { cta: OrchestratorCta }) {
+function CtaCard({
+  cta,
+  skuId,
+}: {
+  cta: OrchestratorCta;
+  skuId?: string | null;
+}) {
   const t = useTranslations("Orchestrator");
   const toneClass =
     cta.tone === "primary"
@@ -88,14 +106,7 @@ function CtaCard({ cta }: { cta: OrchestratorCta }) {
         ? "border-sea/30 bg-sea/5"
         : "border-stone bg-surface-subtle";
 
-  const stageQuery =
-    cta.anchor === "marketing" ? MARKETING_CTA_STAGE[cta.id] : undefined;
-  const baseHref = ANCHOR_TO_HREF[cta.anchor] ?? "/dashboard";
-  const href = stageQuery
-    ? `/marketing?stage=${stageQuery}`
-    : cta.id === "costQuotes"
-      ? "/supplier#cost-quotes"
-      : baseHref;
+  const href = ctaHref(cta, skuId);
 
   return (
     <Link

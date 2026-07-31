@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import {
@@ -16,53 +16,64 @@ import { compareCreativesByCalendar } from "@/lib/marketing/creatives";
 import type { BatchArrivalEtaView } from "@/lib/supplier/batch-eta";
 import type { MarketingStage } from "@/lib/constants";
 
-function unlockedStageOrFallback(
-  view: MarketingPanelView,
-  candidate: string | undefined,
-  fallback: MarketingStage,
-): MarketingStage {
-  const info = view.stages.find(
-    (s) => s.stage === candidate && s.unlocked,
-  );
-  return info ? info.stage : fallback;
-}
-
 export function MarketingPanel({
   view,
   requestedStage,
+  surface = "deep",
 }: {
   view: MarketingPanelView;
   requestedStage?: string;
+  /**
+   * `sku` = embedded on `/sku/[id]` (primary surface) — stage picks stay local.
+   * `deep` = `/marketing` route (secondary door to the same work).
+   */
+  surface?: "deep" | "sku";
 }) {
   const t = useTranslations("Marketing");
   const router = useRouter();
 
-  // Sticky selection: deep link / rail wins; never snap to journey default
-  // (e.g. monthly on selling) after generate revalidate drops ?stage=.
-  const [selectedStage, setSelectedStage] = useState<MarketingStage>(() =>
-    unlockedStageOrFallback(view, requestedStage, view.currentStage),
-  );
+  // Sticky selection: deep link wins; otherwise last user pick; else journey default.
+  const [userStage, setUserStage] = useState<MarketingStage | null>(null);
 
-  useEffect(() => {
-    if (!requestedStage) return;
-    const info = view.stages.find(
-      (s) => s.stage === requestedStage && s.unlocked,
-    );
-    if (info) setSelectedStage(info.stage);
-  }, [requestedStage, view.stages]);
-
-  const activeStage = view.stages.some(
-    (s) => s.stage === selectedStage && s.unlocked,
-  )
-    ? selectedStage
-    : view.currentStage;
+  const activeStage = (() => {
+    if (requestedStage) {
+      const info = view.stages.find(
+        (s) => s.stage === requestedStage && s.unlocked,
+      );
+      if (info) return info.stage;
+    }
+    if (
+      userStage &&
+      view.stages.some((s) => s.stage === userStage && s.unlocked)
+    ) {
+      return userStage;
+    }
+    return view.currentStage;
+  })();
 
   // Only the selected stage’s kits — never dump other stages under this screen.
   const activeKits = view.kits.filter((k) => k.stage === activeStage);
 
   function stickToStage(stage: MarketingStage) {
-    setSelectedStage(stage);
-    router.replace(`/marketing?stage=${stage}`);
+    setUserStage(stage);
+    // On the SKU page, keep the founder on the product spine — don't bounce to /marketing.
+    if (surface === "sku") return;
+    const skuQ = view.isShopKit
+      ? "shop"
+      : (view.selectedSkuId ?? undefined);
+    const qs = new URLSearchParams({ stage });
+    if (skuQ) qs.set("sku", skuQ);
+    router.replace(`/marketing?${qs.toString()}`);
+  }
+
+  function pickSku(skuId: string | null) {
+    // Prefer the SKU product page as the primary work surface.
+    if (skuId) {
+      router.push(`/sku/${skuId}#marketing`);
+      return;
+    }
+    setUserStage(null);
+    router.replace("/marketing?sku=shop");
   }
 
   return (
@@ -80,8 +91,47 @@ export function MarketingPanel({
         </span>
       </div>
 
+      {view.liveSkus.length > 1 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-stone-dark">
+            {t("skuPicker")}
+          </span>
+          {view.liveSkus.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => pickSku(s.id)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                view.selectedSkuId === s.id && !view.isShopKit
+                  ? "border-cedar bg-cedar/10 text-cedar-deep"
+                  : "border-stone bg-surface text-ink hover:bg-sand"
+              }`}
+              dir="auto"
+            >
+              {s.name}
+            </button>
+          ))}
+          {view.shopKitAvailable && (
+            <button
+              type="button"
+              onClick={() => pickSku(null)}
+              title={t("shopKitHint")}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                view.isShopKit
+                  ? "border-cedar bg-cedar/10 text-cedar-deep"
+                  : "border-stone bg-surface text-ink hover:bg-sand"
+              }`}
+            >
+              {t("shopKit")}
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-        {t("notMoneyAdvice")}
+        {view.needsMarginAck
+          ? t("notMoneyAdviceMarginsLow")
+          : t("notMoneyAdvice")}
       </div>
 
       {!view.whatsappSet && (
@@ -92,7 +142,14 @@ export function MarketingPanel({
 
       {activeStage === "pre_launch" &&
         !view.stages.some((s) => s.stage === "launch" && s.unlocked) && (
-          <PreLaunchEtaBanner eta={view.batchArrivalEta} />
+          <PreLaunchEtaBanner
+            eta={view.batchArrivalEta}
+            supplierHref={
+              view.selectedSkuId
+                ? `/sku/${view.selectedSkuId}#supplier`
+                : "/supplier"
+            }
+          />
         )}
 
       {/* Stage rail — free travel among unlocked stages */}
@@ -107,6 +164,9 @@ export function MarketingPanel({
             maxDailyPaid={view.maxDailyPaid}
             hasKit={view.kits.some((k) => k.stage === s.stage)}
             onGenerated={stickToStage}
+            onSelect={stickToStage}
+            kitSkuId={view.isShopKit ? null : view.selectedSkuId}
+            surface={surface}
           />
         ))}
       </div>
@@ -132,7 +192,13 @@ export function MarketingPanel({
   );
 }
 
-function PreLaunchEtaBanner({ eta }: { eta: BatchArrivalEtaView }) {
+function PreLaunchEtaBanner({
+  eta,
+  supplierHref,
+}: {
+  eta: BatchArrivalEtaView;
+  supplierHref: string;
+}) {
   const t = useTranslations("Marketing");
   const locale = useLocale();
   const summary = locale === "ar" ? eta.summaryAr : eta.summaryEn;
@@ -151,7 +217,7 @@ function PreLaunchEtaBanner({ eta }: { eta: BatchArrivalEtaView }) {
         <p className="mt-1 text-amber-900">
           {t("etaDefaultNote")}{" "}
           <Link
-            href="/supplier"
+            href={supplierHref}
             className="font-semibold text-cedar-deep underline underline-offset-2"
           >
             {t("etaGoSupplier")}
@@ -170,6 +236,9 @@ function StageCard({
   maxDailyPaid,
   hasKit,
   onGenerated,
+  onSelect,
+  kitSkuId,
+  surface,
 }: {
   stage: MarketingStage;
   unlocked: boolean;
@@ -178,6 +247,10 @@ function StageCard({
   maxDailyPaid: number;
   hasKit: boolean;
   onGenerated: (stage: MarketingStage) => void;
+  onSelect: (stage: MarketingStage) => void;
+  /** null = shop kit; string = SKU id; undefined = active SKU default */
+  kitSkuId?: string | null;
+  surface: "deep" | "sku";
 }) {
   const t = useTranslations("Marketing");
   const [pending, startTransition] = useTransition();
@@ -197,6 +270,13 @@ function StageCard({
           ? t("regenerate")
           : t("generate");
 
+  const stageHref =
+    surface === "sku" && kitSkuId
+      ? `/sku/${kitSkuId}#marketing`
+      : kitSkuId
+        ? `/marketing?stage=${stage}&sku=${kitSkuId}`
+        : `/marketing?stage=${stage}`;
+
   return (
     <div
       className={`relative flex min-h-full flex-col rounded-lg border p-3 ${
@@ -207,14 +287,23 @@ function StageCard({
             : "border-stone bg-sand/40 opacity-70"
       }`}
     >
-      {unlocked && (
-        <Link
-          href={`/marketing?stage=${stage}`}
-          aria-label={t(`stage.${stage}` as never)}
-          aria-current={current ? "page" : undefined}
-          className="absolute inset-0 z-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cedar"
-        />
-      )}
+      {unlocked &&
+        (surface === "sku" ? (
+          <button
+            type="button"
+            aria-label={t(`stage.${stage}` as never)}
+            aria-current={current ? "page" : undefined}
+            onClick={() => onSelect(stage)}
+            className="absolute inset-0 z-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cedar"
+          />
+        ) : (
+          <Link
+            href={stageHref}
+            aria-label={t(`stage.${stage}` as never)}
+            aria-current={current ? "page" : undefined}
+            className="absolute inset-0 z-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cedar"
+          />
+        ))}
 
       <h3 className="relative z-[1] text-sm font-semibold text-ink pointer-events-none">
         {t(`stage.${stage}` as never)}
@@ -242,7 +331,11 @@ function StageCard({
               setError(null);
               startTransition(async () => {
                 // Button click acknowledges launch budget rules (no checkbox).
-                const res = await generateKitAction(stage, true);
+                const res = await generateKitAction(
+                  stage,
+                  true,
+                  kitSkuId,
+                );
                 if (!res.ok) {
                   setError(
                     res.error === "stage_locked"

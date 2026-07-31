@@ -18,6 +18,10 @@ export const workspaces = sqliteTable("workspaces", {
   name: text("name").notNull().default("My Store"),
   language: text("language").notNull().default("en"), // en | ar | both
   activeSkuId: text("active_sku_id"),
+  /** Shop-wide pause — overlays all SKU journeys until resumed. */
+  shopPaused: integer("shop_paused", { mode: "boolean" })
+    .notNull()
+    .default(false),
   shopifyStatus: text("shopify_status").notNull().default("not_started"),
   createdAt: text("created_at").notNull(),
 });
@@ -34,7 +38,8 @@ export const onboardingProfiles = sqliteTable("onboarding_profiles", {
   experience: text("experience").notNull(), // beginner | some | experienced
   uiLanguage: text("ui_language").notNull(), // en | ar | both
   storageDescription: text("storage_description").notNull(),
-  storageLimits: text("storage_limits").notNull(),
+  /** Optional free-text notes; empty string when blank. Not used in v1 Fit/Discovery. */
+  storageLimits: text("storage_limits").notNull().default(""),
   riskTolerance: text("risk_tolerance").notNull(), // low | medium | high
   categoryLikes: text("category_likes").notNull(), // JSON array
   lebanonSellabilityAck: integer("lebanon_sellability_ack", { mode: "boolean" })
@@ -103,6 +108,15 @@ export const sideStatuses = sqliteTable("side_statuses", {
   discoveryExhaustedRounds: integer("discovery_exhausted_rounds")
     .notNull()
     .default(0),
+  /**
+   * Set when founder edits onboarding experience TO `experienced` from a lower
+   * level. Cleared after they acknowledge seriousness on Add SKU.
+   */
+  experienceRaisedPendingAck: integer("experience_raised_pending_ack", {
+    mode: "boolean",
+  })
+    .notNull()
+    .default(false),
   updatedAt: text("updated_at").notNull(),
 });
 
@@ -193,7 +207,72 @@ export const skuCards = sqliteTable("sku_cards", {
   reportedMargin: text("reported_margin"), // DEPRECATED — old manual "reported margin after ads". No longer written/read by product UI; after-ads margins are now computed automatically from Topic A. Left in place for a clean later cleanup.
   marketingHooks: text("marketing_hooks").notNull(),
   founderNotes: text("founder_notes").notNull().default(""),
+  /** live | archived | wiped — add-SKU sequencing counts live only. */
+  lifecycleStatus: text("lifecycle_status").notNull().default("live"),
+  archivedAt: text("archived_at"),
   createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * Per-SKU journey spine + SKU-scoped side flags (Wave 1 multi-SKU).
+ * Shop-level store readiness stays on side_statuses / store_readiness.
+ */
+export const skuJourneys = sqliteTable("sku_journeys", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id),
+  skuId: text("sku_id")
+    .notNull()
+    .unique()
+    .references(() => skuCards.id),
+  primaryState: text("primary_state").notNull().default("discovery"),
+  pausedFromState: text("paused_from_state"),
+  blockedFromState: text("blocked_from_state"),
+  blockedReason: text("blocked_reason"),
+  sampleStatus: text("sample_status").notNull().default("none"),
+  batchOrdered: integer("batch_ordered", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  batchArrivedReady: integer("batch_arrived_ready", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  batchArrivalEta: text("batch_arrival_eta"),
+  marketingStage: text("marketing_stage").notNull().default("none"),
+  costQuotesSaved: integer("cost_quotes_saved", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  cashLockAck: integer("cash_lock_ack", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  stuckOver10kAck: integer("stuck_over_10k_ack", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  okayRiskAck: integer("okay_risk_ack", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  tier1Resolved: integer("tier1_resolved", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  /**
+   * Next-batch side-flow while primary stays selling.
+   * idle | ordered (in transit). Arrived resets to idle.
+   */
+  reorderStatus: text("reorder_status").notNull().default("idle"),
+  reorderArrivalEta: text("reorder_arrival_eta"),
+  reorderSupplierId: text("reorder_supplier_id"),
+  reorderQty: integer("reorder_qty"),
+  reorderEstCost: real("reorder_est_cost"),
+  /**
+   * Working supplier for next-batch path (may diverge after can’t-fulfill switch).
+   * Null → derive from first-batch / approved sample.
+   */
+  reorderPathSupplierId: text("reorder_path_supplier_id"),
+  /** JSON map supplierId → { reason, at } — unavailable for reorder. */
+  reorderUnavailableJson: text("reorder_unavailable_json"),
+  /** JSON string[] of supplier ids allowed via crisis sample skip. */
+  reorderCrisisSkipJson: text("reorder_crisis_skip_json"),
   updatedAt: text("updated_at").notNull(),
 });
 
@@ -208,6 +287,8 @@ export const supplierOptions = sqliteTable("supplier_options", {
   name: text("name").notNull(),
   role: text("role").notNull(), // primary | backup
   rank: integer("rank").notNull(),
+  /** Wave 2: import (China) | local (Lebanon). Legacy rows default import. */
+  source: text("source").notNull().default("import"),
   years: integer("years").notNull(),
   rating: real("rating").notNull(),
   verified: integer("verified", { mode: "boolean" }).notNull().default(true),
@@ -302,6 +383,8 @@ export const approvalRequests = sqliteTable("approval_requests", {
   workspaceId: text("workspace_id")
     .notNull()
     .references(() => workspaces.id),
+  /** SKU-scoped gates (sample/batch/selling); null for shop-level gates. */
+  skuId: text("sku_id").references(() => skuCards.id),
   gateId: text("gate_id").notNull(),
   status: text("status").notNull().default("pending"), // pending | approved | rejected
   payload: text("payload").notNull(), // JSON

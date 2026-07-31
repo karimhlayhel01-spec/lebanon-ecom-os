@@ -1,44 +1,58 @@
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
-import { logoutAction } from "@/actions/auth";
 import { LanguageSwitch } from "@/components/dashboard/LanguageSwitch";
 import { PauseResumeControls } from "@/components/dashboard/PauseResumeControls";
 import { SettingsMenu } from "@/components/dashboard/SettingsMenu";
+import { VocabularyDrawer } from "@/components/vocabulary/VocabularyDrawer";
 import { getSessionUser } from "@/lib/auth";
+import { getJourney } from "@/lib/memory/repos";
+import {
+  resolveVocabHighlightPhase,
+  type VocabPhase,
+} from "@/lib/vocabulary/glossary";
 import { getWorkspaceForUser } from "@/lib/workspace";
 
 /**
- * Shared top bar for the dashboard hub and the deep pages. Keeps the header
- * "unchanged in spirit": brand, language, edit onboarding, pause/resume, logout.
- * Deep pages pass `showBack` to add a "← Dashboard" link.
+ * Shared top bar for the dashboard hub and deep pages.
+ * Always visible: brand (+ workspace) · Shop · Language · Vocab · ⚙
+ * Resume stays in the header when the shop is paused; Pause / Edit onboarding /
+ * Logout live in the gear menu. Finance history stays gear-only.
  */
 export async function AppHeader({
   isPaused,
-  showBack = false,
+  highlightPhase: highlightPhaseProp,
 }: {
   isPaused: boolean;
-  showBack?: boolean;
+  /** Soft vocab highlight; `null` = no highlight; omit = workspace fallback. */
+  highlightPhase?: VocabPhase | null;
 }) {
   const t = await getTranslations("Dashboard");
   const brand = await getTranslations("Brand");
-  const auth = await getTranslations("Auth");
   const user = await getSessionUser();
   const workspace = user ? await getWorkspaceForUser(user.id) : null;
+  const journey = workspace ? await getJourney(workspace.id) : null;
+  const highlightPhase =
+    highlightPhaseProp !== undefined
+      ? highlightPhaseProp
+      : resolveVocabHighlightPhase(
+          journey?.primaryState,
+          journey?.pausedFromState,
+        );
 
   return (
     <header className="border-b border-stone bg-surface">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-3.5">
-        <div className="flex items-center gap-4">
+      <div className="app-shell flex items-center justify-between gap-2 py-2.5 sm:gap-3 sm:py-3.5">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <div className="flex min-w-0 flex-col">
             <Link
               href="/"
-              className="font-display text-lg font-semibold tracking-tight text-ink"
+              className="truncate font-display text-base font-semibold tracking-tight text-ink sm:text-lg"
             >
               {brand("name")}
             </Link>
             {workspace?.name ? (
               <span
-                className="truncate text-xs text-stone-dark"
+                className="truncate text-[11px] text-stone-dark sm:text-xs"
                 dir="auto"
                 title={workspace.name}
               >
@@ -46,34 +60,23 @@ export async function AppHeader({
               </span>
             ) : null}
           </div>
-          {showBack && (
-            <Link
-              href="/dashboard"
-              className="text-sm font-medium text-sea underline-offset-2 hover:underline"
-            >
-              {t("backToDashboard")}
-            </Link>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <LanguageSwitch />
           <Link
-            href="/onboarding?edit=1"
-            className="rounded-md border border-stone px-3 py-2 text-sm font-medium text-ink transition hover:bg-sand"
+            href="/dashboard?hub=1"
+            className="shrink-0 text-sm font-medium text-sea underline-offset-2 hover:underline"
           >
-            {t("editOnboarding")}
+            {t("shopLink")}
           </Link>
-          <PauseResumeControls isPaused={isPaused} />
-          <form action={logoutAction}>
-            <button
-              type="submit"
-              className="rounded-md border border-stone px-3 py-2 text-sm font-medium text-ink transition hover:bg-sand"
-            >
-              {auth("logout")}
-            </button>
-          </form>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <VocabularyDrawer highlightPhase={highlightPhase} />
+          <LanguageSwitch />
+          {isPaused ? <PauseResumeControls isPaused /> : null}
           {user && workspace ? (
-            <SettingsMenu email={user.email} workspaceName={workspace.name} />
+            <SettingsMenu
+              email={user.email}
+              workspaceName={workspace.name}
+              isPaused={isPaused}
+            />
           ) : null}
         </div>
       </div>

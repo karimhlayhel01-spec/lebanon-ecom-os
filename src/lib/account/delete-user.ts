@@ -10,12 +10,13 @@ export const WORKSPACE_CASCADE_DELETE_ORDER = [
   "supplier_options",
   "marketing_kits",
   "demand_signals",
+  "sku_journeys",
+  "approval_requests",
   "sku_cards",
   "product_candidates",
   "discovery_sessions",
   "topic_a_entries",
   "finance_verdicts",
-  "approval_requests",
   "orchestrator_events",
   "store_readiness",
   "onboarding_profiles",
@@ -32,6 +33,11 @@ export async function deleteWorkspaceById(workspaceId: string): Promise<void> {
   await db.delete(schema.supplierOptions).where(eq(schema.supplierOptions.workspaceId, id));
   await db.delete(schema.marketingKits).where(eq(schema.marketingKits.workspaceId, id));
   await db.delete(schema.demandSignals).where(eq(schema.demandSignals.workspaceId, id));
+  // Wave 1: sku_journeys + approvals reference sku_cards — delete before cards.
+  await db.delete(schema.skuJourneys).where(eq(schema.skuJourneys.workspaceId, id));
+  await db
+    .delete(schema.approvalRequests)
+    .where(eq(schema.approvalRequests.workspaceId, id));
   await db.delete(schema.skuCards).where(eq(schema.skuCards.workspaceId, id));
   await db
     .delete(schema.productCandidates)
@@ -43,9 +49,6 @@ export async function deleteWorkspaceById(workspaceId: string): Promise<void> {
   await db
     .delete(schema.financeVerdicts)
     .where(eq(schema.financeVerdicts.workspaceId, id));
-  await db
-    .delete(schema.approvalRequests)
-    .where(eq(schema.approvalRequests.workspaceId, id));
   await db
     .delete(schema.orchestratorEvents)
     .where(eq(schema.orchestratorEvents.workspaceId, id));

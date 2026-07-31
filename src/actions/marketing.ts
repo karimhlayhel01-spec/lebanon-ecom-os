@@ -20,11 +20,12 @@ async function workspaceForRequest() {
 export async function generateKitAction(
   stage: MarketingStage,
   launchBudgetAck: boolean,
+  skuId?: string | null,
 ): Promise<GenerateKitResult> {
   ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
-  const res = await generateKit(workspace.id, stage, launchBudgetAck);
+  const res = await generateKit(workspace.id, stage, launchBudgetAck, skuId);
   revalidatePath("/", "layout");
   return res;
 }

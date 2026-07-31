@@ -5,10 +5,33 @@ import {
   INVEST_NEXT_MIN_WEEKS,
   MARGIN_AFTER_ADS_MIN,
   MARGIN_BEFORE_ADS_MIN,
+  TOPIC_A_RECENT_WEEKS,
 } from "@/lib/constants";
 import { createApprovalRequest, decideApproval } from "@/lib/approvals/engine";
 import { getJourney } from "@/lib/memory/repos";
-import { getSkuView, type SkuCardView } from "@/lib/sku/service";
+import {
+  getSkuView,
+  getSkuViewById,
+  type SkuCardView,
+} from "@/lib/sku/service";
+import {
+  getSkuJourney,
+  listLiveSkus,
+  resolveActiveSkuId,
+} from "@/lib/sku/journey";
+import {
+  computeSkuContributionBreakdown,
+  computeWeekSkuContribution,
+  type SkuContributionBreakdown,
+  type WeekSkuContribution,
+} from "@/lib/finance/sku-contribution";
+
+export type {
+  SkuContributionBreakdown,
+  SkuContributionRow,
+  WeekSkuContribution,
+  WeekSkuContributionRow,
+} from "@/lib/finance/sku-contribution";
 
 /**
  * Topic A + Finance panel.
@@ -16,6 +39,11 @@ import { getSkuView, type SkuCardView } from "@/lib/sku/service";
  * Topic A is the weekly money-coaching loop. Before the founder marks "selling"
  * we only show a PREVIEW (illustrative, clearly labelled) — real advice starts
  * once selling is marked (via the `mark_selling` gate).
+ *
+ * Mode C (Wave 1 multi-SKU): shop-level ads/COD/courier + per-SKU sales/units.
+ * Roll-up sums sales and COGS across SKUs; health/invest-next use the roll-up.
+ * `mode: live` when ANY live SKU is selling. Topic A history is kept when SKUs
+ * are later archived (COGS bases still resolve from archived cards).
  *
  * ACTUAL margins are computed automatically from the founder's real weekly Topic
  * A inputs (no manual "reported margin" typing). Every after-ads surface (this
@@ -34,6 +62,21 @@ export type WeeklyInput = {
   courierFees: number;
   skuSold: number;
   skuLeft: number;
+  /** Present when entry used multi-SKU mode C shape. */
+  skuLines?: SkuWeekLine[];
+};
+
+/** Per-SKU sales/units line inside Topic A `perSkuSoldLeft` JSON. */
+export type SkuWeekLine = {
+  skuId: string;
+  sold: number;
+  left: number;
+  sales: number;
+};
+
+export type SkuCostLine = SkuWeekLine & {
+  importCogsPerUnit: number;
+  usesQuotes: boolean;
 };
 
 export type WeeklyHealth = {
@@ -62,6 +105,11 @@ export type WeeklyEntryView = WeeklyInput & {
   id: string;
   health: WeeklyHealth;
   margins: WeeklyMargins;
+  /**
+   * Per-week Mode C SKU split (read-only). Null when no skuLines.
+   * Does not alter shop combined health/margins on the card.
+   */
+  weekSkuSplit: WeekSkuContribution | null;
 };
 
 export type InvestNextView = {
@@ -102,12 +150,30 @@ export type CurrentActualView = {
   profitAfterAds: number; // profitBeforeAds − (sumMeta + sumTiktok) === netTotal
 };
 
+export type SellableSku = {
+  id: string;
+  name: string;
+};
+
 export type FinancePanelView = {
   mode: "preview" | "live";
   canStartSelling: boolean;
+  /** Live SKUs at batch_arrived_ready that can be marked selling. */
+  sellableSkus: SellableSku[];
+  /** All live (non-archived) SKUs — Mode C Topic A when length ≥ 2. */
+  liveSkus: SellableSku[];
+  /** Live SKUs currently in selling. */
+  liveSellingSkus: SellableSku[];
+  /** Full Topic A week count (gates / invest-next unlock). */
   weekCount: number;
   investNextMinWeeks: number;
+  /**
+   * Newest {@link TOPIC_A_RECENT_WEEKS} weeks only (oldest→newest within that
+   * window). Older weeks are on `/finance/history`.
+   */
   entries: WeeklyEntryView[];
+  /** Weeks older than the main panel window (full DB − recent). */
+  olderWeekCount: number;
   investNext: InvestNextView | null;
   previewSample: WeeklyEntryView | null;
   landedCost: number;
@@ -115,24 +181,60 @@ export type FinancePanelView = {
   planningMarginAfter: number; // Discovery estimate (muted)
   expectedMarginBefore: number | null; // founder cost quotes, if saved
   currentActual: CurrentActualView;
+  /**
+   * Secondary read-only Mode C breakdown. Null when <2 SKUs in the split
+   * window or no weeks with skuLines. Never replaces shop Topic A.
+   */
+  skuContribution: SkuContributionBreakdown | null;
 };
+
+/**
+ * Split Topic A rows (oldest→newest) into main-panel recent vs history.
+ * Display-only — callers must still run gates on the full list.
+ */
+export function partitionTopicAEntries<T>(
+  entriesOldestFirst: readonly T[],
+  recentLimit: number = TOPIC_A_RECENT_WEEKS,
+): { recent: T[]; older: T[] } {
+  const limit = Math.max(0, Math.floor(recentLimit));
+  if (entriesOldestFirst.length <= limit) {
+    return { recent: [...entriesOldestFirst], older: [] };
+  }
+  const cut = entriesOldestFirst.length - limit;
+  return {
+    older: entriesOldestFirst.slice(0, cut) as T[],
+    recent: entriesOldestFirst.slice(cut) as T[],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Shared pure margin helpers — the SINGLE source of truth for actual margins.
 // Used by the Finance panel, week rows, invest-next, and the SKU mirror.
 // ---------------------------------------------------------------------------
 
-/** Import COGS per unit = product unit + intl ship + clearance (NEVER local courier). */
+/**
+ * Unit COGS for Finance (NEVER last-mile courier).
+ * Import = product + intlShip + clearance; Local quotes store delivery/packaging
+ * in the intlShip/clearanceTaxes slots (plus optional explicit fields).
+ */
 export type CostBasis = { importCogsPerUnit: number; usesQuotes: boolean };
 
 /** Prefer founder cost quotes when saved; else Discovery planning moneySnapshot. */
 export function costBasisForSku(sku: SkuCardView): CostBasis {
   if (sku.quotedCosts) {
+    const q = sku.quotedCosts;
+    // Local: prefer explicit legs when present; else mapped import-shaped slots.
+    const freightOrDelivery =
+      q.source === "local" && typeof q.supplierDelivery === "number"
+        ? q.supplierDelivery
+        : q.intlShip;
+    const clearanceOrPackaging =
+      q.source === "local" && typeof q.packaging === "number"
+        ? q.packaging
+        : q.clearanceTaxes;
     return {
       importCogsPerUnit:
-        sku.quotedCosts.productCost +
-        sku.quotedCosts.intlShip +
-        sku.quotedCosts.clearanceTaxes,
+        q.productCost + freightOrDelivery + clearanceOrPackaging,
       usesQuotes: true,
     };
   }
@@ -143,6 +245,103 @@ export function costBasisForSku(sku: SkuCardView): CostBasis {
       sku.moneySnapshot.clearanceTaxes,
     usesQuotes: false,
   };
+}
+
+/**
+ * Multi-SKU Topic A roll-up (Mode C):
+ *   sales = Σ sales_i
+ *   COGS  = Σ (importCogsPerUnit_i × sold_i)
+ * Blended basis keeps single-basis helpers working for health/margins.
+ */
+export function rollUpMultiSkuWeek(lines: SkuCostLine[]): {
+  sales: number;
+  skuSold: number;
+  skuLeft: number;
+  importCogsTotal: number;
+  blendedBasis: CostBasis;
+} {
+  const sales = lines.reduce((s, l) => s + Math.max(l.sales, 0), 0);
+  const skuSold = lines.reduce((s, l) => s + Math.max(l.sold, 0), 0);
+  const skuLeft = lines.reduce((s, l) => s + Math.max(l.left, 0), 0);
+  const importCogsTotal = lines.reduce(
+    (s, l) => s + l.importCogsPerUnit * Math.max(l.sold, 0),
+    0,
+  );
+  const usesQuotes = lines.some((l) => l.usesQuotes);
+  return {
+    sales,
+    skuSold,
+    skuLeft,
+    importCogsTotal,
+    blendedBasis: {
+      importCogsPerUnit: skuSold > 0 ? importCogsTotal / skuSold : 0,
+      usesQuotes,
+    },
+  };
+}
+
+/**
+ * Parse `per_sku_sold_left` JSON.
+ * Legacy: `{ orders, sku: { sold, left } }` or `{ orders, sold, left }`
+ * Mode C: `{ orders, skus: { [skuId]: { sold, left, sales } } }`
+ */
+export function parsePerSkuSoldLeft(raw: string): {
+  orders: number;
+  skuSold: number;
+  skuLeft: number;
+  skus: Record<string, { sold: number; left: number; sales: number }>;
+} {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const orders = Number(parsed.orders ?? 0);
+    if (parsed.skus && typeof parsed.skus === "object") {
+      const skus: Record<string, { sold: number; left: number; sales: number }> =
+        {};
+      let skuSold = 0;
+      let skuLeft = 0;
+      for (const [id, v] of Object.entries(
+        parsed.skus as Record<
+          string,
+          { sold?: number; left?: number; sales?: number }
+        >,
+      )) {
+        const sold = Number(v?.sold ?? 0);
+        const left = Number(v?.left ?? 0);
+        const sales = Number(v?.sales ?? 0);
+        skus[id] = { sold, left, sales };
+        skuSold += sold;
+        skuLeft += left;
+      }
+      return { orders, skuSold, skuLeft, skus };
+    }
+    const legacySku =
+      parsed.sku && typeof parsed.sku === "object"
+        ? (parsed.sku as { sold?: number; left?: number })
+        : null;
+    return {
+      orders,
+      skuSold: Number(legacySku?.sold ?? parsed.sold ?? 0),
+      skuLeft: Number(legacySku?.left ?? parsed.left ?? 0),
+      skus: {},
+    };
+  } catch {
+    return { orders: 0, skuSold: 0, skuLeft: 0, skus: {} };
+  }
+}
+
+export function serializePerSkuSoldLeft(input: {
+  orders: number;
+  skuSold?: number;
+  skuLeft?: number;
+  skus?: Record<string, { sold: number; left: number; sales: number }>;
+}): string {
+  if (input.skus && Object.keys(input.skus).length > 0) {
+    return JSON.stringify({ orders: input.orders, skus: input.skus });
+  }
+  return JSON.stringify({
+    orders: input.orders,
+    sku: { sold: input.skuSold ?? 0, left: input.skuLeft ?? 0 },
+  });
 }
 
 /**
@@ -315,28 +514,29 @@ export function computeHealth(
 }
 
 function parseEntry(row: typeof schema.topicAEntries.$inferSelect): WeeklyInput {
-  let orders = 0;
-  let skuSold = 0;
-  let skuLeft = 0;
-  try {
-    const parsed = JSON.parse(row.perSkuSoldLeft);
-    orders = Number(parsed.orders ?? 0);
-    skuSold = Number(parsed.sku?.sold ?? parsed.sold ?? 0);
-    skuLeft = Number(parsed.sku?.left ?? parsed.left ?? 0);
-  } catch {
-    /* ignore */
-  }
+  const parsed = parsePerSkuSoldLeft(row.perSkuSoldLeft);
+  const skuLines = Object.entries(parsed.skus).map(([skuId, v]) => ({
+    skuId,
+    sold: v.sold,
+    left: v.left,
+    sales: v.sales,
+  }));
   return {
     weekStart: row.weekStart,
-    sales: row.storeTotalsUsd,
-    orders,
+    // Mode C: prefer sum of per-SKU sales when present; else store totals.
+    sales:
+      skuLines.length > 0
+        ? skuLines.reduce((s, l) => s + l.sales, 0)
+        : row.storeTotalsUsd,
+    orders: parsed.orders,
     metaSpend: row.metaSpend,
     tiktokSpend: row.tiktokSpend,
     codCollected: row.codCollected,
     codOutstanding: row.codOutstanding,
     courierFees: row.courierFees,
-    skuSold,
-    skuLeft,
+    skuSold: parsed.skuSold,
+    skuLeft: parsed.skuLeft,
+    skuLines: skuLines.length > 0 ? skuLines : undefined,
   };
 }
 
@@ -353,14 +553,46 @@ const SAMPLE_PREVIEW: WeeklyInput = {
   skuLeft: 70,
 };
 
+async function loadBasisMap(
+  workspaceId: string,
+  skuIds: string[],
+): Promise<Map<string, CostBasis>> {
+  const map = new Map<string, CostBasis>();
+  for (const id of skuIds) {
+    const view = await getSkuViewById(workspaceId, id);
+    if (view) map.set(id, costBasisForSku(view));
+  }
+  return map;
+}
+
+function basisForEntry(
+  input: WeeklyInput,
+  fallback: CostBasis,
+  basisBySku: Map<string, CostBasis>,
+): CostBasis {
+  if (!input.skuLines || input.skuLines.length === 0) return fallback;
+  const costLines: SkuCostLine[] = input.skuLines.map((l) => {
+    const b = basisBySku.get(l.skuId) ?? fallback;
+    return {
+      ...l,
+      importCogsPerUnit: b.importCogsPerUnit,
+      usesQuotes: b.usesQuotes,
+    };
+  });
+  return rollUpMultiSkuWeek(costLines).blendedBasis;
+}
+
 export async function getFinancePanel(
   workspaceId: string,
 ): Promise<FinancePanelView | null> {
   ensureMigrated();
+  const live = await listLiveSkus(workspaceId);
+  if (live.length === 0) return null;
+
   const sku = await getSkuView(workspaceId);
   if (!sku) return null;
 
-  const [journey, side, rows] = await Promise.all([
+  const [journey, side, rows, journeys] = await Promise.all([
     getJourney(workspaceId),
     db
       .select()
@@ -373,51 +605,195 @@ export async function getFinancePanel(
       .where(eq(schema.topicAEntries.workspaceId, workspaceId))
       .orderBy(asc(schema.topicAEntries.weekStart))
       .all(),
+    db
+      .select()
+      .from(schema.skuJourneys)
+      .where(eq(schema.skuJourneys.workspaceId, workspaceId))
+      .all(),
   ]);
 
-  const selling = journey?.primaryState === "selling";
-  const landedCost = sku.moneySnapshot.landedCost;
-  const basis = costBasisForSku(sku);
+  const journeyBySku = new Map(journeys.map((j) => [j.skuId, j]));
+  const anySelling = live.some(
+    (s) => journeyBySku.get(s.id)?.primaryState === "selling",
+  );
+  const sellableSkus: SellableSku[] = live
+    .filter((s) => {
+      const j = journeyBySku.get(s.id);
+      return (
+        j?.primaryState === "batch_arrived_ready" &&
+        (j.batchArrivedReady || side?.batchArrivedReady)
+      );
+    })
+    .map((s) => ({ id: s.id, name: s.name }));
+  const liveSellingSkus: SellableSku[] = live
+    .filter((s) => journeyBySku.get(s.id)?.primaryState === "selling")
+    .map((s) => ({ id: s.id, name: s.name }));
+  const liveSkus: SellableSku[] = live.map((s) => ({ id: s.id, name: s.name }));
 
-  const entries: WeeklyEntryView[] = rows.map((r) => {
+  // Legacy workspace-level canStartSelling still true when active SKU is ready.
+  const activeCanStart =
+    journey?.primaryState === "batch_arrived_ready" &&
+    (side?.batchArrivedReady ?? true);
+
+  const fallbackBasis = costBasisForSku(sku);
+  const allSkuIds = new Set<string>([sku.id]);
+  for (const s of live) allSkuIds.add(s.id);
+  for (const r of rows) {
+    const parsed = parsePerSkuSoldLeft(r.perSkuSoldLeft);
+    for (const id of Object.keys(parsed.skus)) allSkuIds.add(id);
+  }
+  const basisBySku = await loadBasisMap(workspaceId, [...allSkuIds]);
+
+  const skuNames = new Map<string, string>();
+  for (const s of live) skuNames.set(s.id, s.name);
+
+  const allEntries: WeeklyEntryView[] = rows.map((r) => {
     const input = parseEntry(r);
+    const basis = basisForEntry(input, fallbackBasis, basisBySku);
     return {
       id: r.id,
       ...input,
       health: computeHealth(input, basis),
       margins: computeWeeklyMargins(input, basis),
+      weekSkuSplit: computeWeekSkuContribution({
+        skuLines: input.skuLines,
+        basisBySku,
+        skuNames,
+      }),
     };
   });
 
-  const weekCount = entries.length;
-  const currentActual = computeCurrentActual(entries, basis);
+  const weekCount = allEntries.length;
+  const { recent: entries, older } = partitionTopicAEntries(allEntries);
+  const olderWeekCount = older.length;
+
+  // Blended rolling basis: prefer dollar-weighted from multi-SKU weeks when present.
+  // Uses FULL history — not the display window.
+  const rollingBasis = (() => {
+    const multi = allEntries.filter((e) => e.skuLines && e.skuLines.length > 0);
+    if (multi.length === 0) return fallbackBasis;
+    const costLines: SkuCostLine[] = [];
+    for (const e of multi.slice(-INVEST_NEXT_MIN_WEEKS)) {
+      for (const l of e.skuLines ?? []) {
+        const b = basisBySku.get(l.skuId) ?? fallbackBasis;
+        costLines.push({
+          ...l,
+          importCogsPerUnit: b.importCogsPerUnit,
+          usesQuotes: b.usesQuotes,
+        });
+      }
+    }
+    return rollUpMultiSkuWeek(costLines).blendedBasis;
+  })();
+
+  const currentActual = computeCurrentActual(allEntries, rollingBasis);
   const investNext =
-    selling && weekCount >= INVEST_NEXT_MIN_WEEKS
+    anySelling && weekCount >= INVEST_NEXT_MIN_WEEKS
       ? computeInvestNext(currentActual)
+      : null;
+
+  // Secondary Mode C breakdown when 2+ live (same gate as Topic A form).
+  const skuContribution =
+    liveSkus.length >= 2
+      ? computeSkuContributionBreakdown({
+          entries: allEntries,
+          basisBySku,
+          skuNames,
+        })
       : null;
 
   const previewSample: WeeklyEntryView = {
     id: "preview",
     ...SAMPLE_PREVIEW,
-    health: computeHealth(SAMPLE_PREVIEW, basis),
-    margins: computeWeeklyMargins(SAMPLE_PREVIEW, basis),
+    health: computeHealth(SAMPLE_PREVIEW, fallbackBasis),
+    margins: computeWeeklyMargins(SAMPLE_PREVIEW, fallbackBasis),
+    weekSkuSplit: null,
   };
 
   return {
-    mode: selling ? "live" : "preview",
-    canStartSelling:
-      journey?.primaryState === "batch_arrived_ready" &&
-      (side?.batchArrivedReady ?? true),
+    mode: anySelling ? "live" : "preview",
+    canStartSelling: sellableSkus.length > 0 || activeCanStart,
+    sellableSkus:
+      sellableSkus.length > 0
+        ? sellableSkus
+        : activeCanStart
+          ? [{ id: sku.id, name: sku.name }]
+          : [],
+    liveSkus,
+    liveSellingSkus,
     weekCount,
     investNextMinWeeks: INVEST_NEXT_MIN_WEEKS,
     entries,
+    olderWeekCount,
     investNext,
-    previewSample: selling ? null : previewSample,
-    landedCost,
+    previewSample: anySelling ? null : previewSample,
+    landedCost: sku.moneySnapshot.landedCost,
     sellPrice: sku.moneySnapshot.sellPrice,
     planningMarginAfter: sku.moneySnapshot.marginAfter,
     expectedMarginBefore: sku.quotedCosts?.expectedMarginBefore ?? null,
     currentActual,
+    skuContribution,
+  };
+}
+
+/**
+ * Older Topic A weeks for `/finance/history` (everything before the recent window).
+ * Newest-first display is the page’s job; return is oldest→newest.
+ */
+export async function getTopicAHistoryEntries(
+  workspaceId: string,
+): Promise<{
+  entries: WeeklyEntryView[];
+  olderWeekCount: number;
+  totalWeekCount: number;
+  recentLimit: number;
+} | null> {
+  ensureMigrated();
+  const live = await listLiveSkus(workspaceId);
+  if (live.length === 0) return null;
+  const sku = await getSkuView(workspaceId);
+  if (!sku) return null;
+
+  const rows = await db
+    .select()
+    .from(schema.topicAEntries)
+    .where(eq(schema.topicAEntries.workspaceId, workspaceId))
+    .orderBy(asc(schema.topicAEntries.weekStart))
+    .all();
+
+  const fallbackBasis = costBasisForSku(sku);
+  const allSkuIds = new Set<string>([sku.id]);
+  for (const s of live) allSkuIds.add(s.id);
+  for (const r of rows) {
+    const parsed = parsePerSkuSoldLeft(r.perSkuSoldLeft);
+    for (const id of Object.keys(parsed.skus)) allSkuIds.add(id);
+  }
+  const basisBySku = await loadBasisMap(workspaceId, [...allSkuIds]);
+  const skuNames = new Map<string, string>();
+  for (const s of live) skuNames.set(s.id, s.name);
+
+  const allEntries: WeeklyEntryView[] = rows.map((r) => {
+    const input = parseEntry(r);
+    const basis = basisForEntry(input, fallbackBasis, basisBySku);
+    return {
+      id: r.id,
+      ...input,
+      health: computeHealth(input, basis),
+      margins: computeWeeklyMargins(input, basis),
+      weekSkuSplit: computeWeekSkuContribution({
+        skuLines: input.skuLines,
+        basisBySku,
+        skuNames,
+      }),
+    };
+  });
+
+  const { older } = partitionTopicAEntries(allEntries);
+  return {
+    entries: older,
+    olderWeekCount: older.length,
+    totalWeekCount: allEntries.length,
+    recentLimit: TOPIC_A_RECENT_WEEKS,
   };
 }
 
@@ -430,16 +806,8 @@ export async function getCurrentActual(
   workspaceId: string,
 ): Promise<CurrentActualView | null> {
   ensureMigrated();
-  const sku = await getSkuView(workspaceId);
-  if (!sku) return null;
-  const rows = await db
-    .select()
-    .from(schema.topicAEntries)
-    .where(eq(schema.topicAEntries.workspaceId, workspaceId))
-    .orderBy(asc(schema.topicAEntries.weekStart))
-    .all();
-  const entries = rows.map(parseEntry);
-  return computeCurrentActual(entries, costBasisForSku(sku));
+  const panel = await getFinancePanel(workspaceId);
+  return panel?.currentActual ?? null;
 }
 
 /**
@@ -486,16 +854,42 @@ function computeInvestNext(actual: CurrentActualView): InvestNextView {
 // Mutations
 // ---------------------------------------------------------------------------
 
+export async function canStartSellingForSku(
+  workspaceId: string,
+  skuId: string,
+): Promise<boolean> {
+  ensureMigrated();
+  const journey = await getSkuJourney(skuId);
+  if (!journey || journey.workspaceId !== workspaceId) return false;
+  return (
+    journey.primaryState === "batch_arrived_ready" && journey.batchArrivedReady
+  );
+}
+
 export async function startSelling(
   workspaceId: string,
+  skuId?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   ensureMigrated();
-  const journey = await getJourney(workspaceId);
+  const resolvedSkuId = skuId ?? (await resolveActiveSkuId(workspaceId));
+  if (!resolvedSkuId) return { ok: false, error: "not_found" };
+
+  const journey = await getSkuJourney(resolvedSkuId);
   if (!journey || journey.primaryState !== "batch_arrived_ready") {
-    return { ok: false, error: "not_ready" };
+    // Fallback: legacy workspace journey for single-SKU workspaces mid-migration.
+    if (!skuId) {
+      const wsJourney = await getJourney(workspaceId);
+      if (!wsJourney || wsJourney.primaryState !== "batch_arrived_ready") {
+        return { ok: false, error: "not_ready" };
+      }
+    } else {
+      return { ok: false, error: "not_ready" };
+    }
   }
+
   const approval = await createApprovalRequest(workspaceId, "mark_selling", {
     data: {},
+    skuId: resolvedSkuId,
   });
   if (!approval) return { ok: false, error: "error" };
   const decided = await decideApproval(approval.id, {
@@ -509,33 +903,115 @@ export async function startSelling(
     workspaceId,
     kind: "mark_selling",
     message: "Marked selling — Topic A advice is now live",
-    meta: "{}",
+    meta: JSON.stringify({ skuId: resolvedSkuId }),
     createdAt: nowIso(),
   });
   return { ok: true };
 }
 
+export type AddWeeklyEntryInput = WeeklyInput & {
+  /** Mode C: per-SKU lines. When set, sales/skuSold/skuLeft are derived. */
+  skuLines?: SkuWeekLine[];
+};
+
 export async function addWeeklyEntry(
   workspaceId: string,
-  input: WeeklyInput,
+  input: AddWeeklyEntryInput,
 ): Promise<{ ok: boolean; error?: string }> {
   ensureMigrated();
-  const journey = await getJourney(workspaceId);
-  if (journey?.primaryState !== "selling") {
+  const panel = await getFinancePanel(workspaceId);
+  if (!panel || panel.mode !== "live") {
     return { ok: false, error: "not_selling" };
   }
   const sku = await getSkuView(workspaceId);
   if (!sku) return { ok: false, error: "not_found" };
+
+  const live = await listLiveSkus(workspaceId);
+  const multiLive = live.length >= 2;
+
+  let sales = input.sales;
+  let skuSold = input.skuSold;
+  let skuLeft = input.skuLeft;
+  let skusJson:
+    | Record<string, { sold: number; left: number; sales: number }>
+    | undefined;
+  let basis = costBasisForSku(sku);
+  let skuLines = input.skuLines;
+
+  // 2+ live → always persist Mode C skus map (never legacy-only weeks).
+  if (multiLive) {
+    const byId = new Map(
+      (skuLines ?? []).map((l) => [l.skuId, l] as const),
+    );
+    skuLines = live.map((s) => {
+      const existing = byId.get(s.id);
+      if (existing) {
+        return {
+          skuId: s.id,
+          sold: Math.max(0, existing.sold),
+          left: Math.max(0, existing.left),
+          sales: Math.max(0, existing.sales),
+        };
+      }
+      // Missing line: zeros (not-yet-selling) — except attribute legacy
+      // single-field payload to the active SKU when no lines were posted.
+      if ((!input.skuLines || input.skuLines.length === 0) && s.id === sku.id) {
+        return {
+          skuId: s.id,
+          sold: Math.max(0, input.skuSold),
+          left: Math.max(0, input.skuLeft),
+          sales: Math.max(0, input.sales),
+        };
+      }
+      return { skuId: s.id, sold: 0, left: 0, sales: 0 };
+    });
+  }
+
+  if (skuLines && skuLines.length > 0) {
+    const basisBySku = await loadBasisMap(
+      workspaceId,
+      skuLines.map((l) => l.skuId),
+    );
+    const costLines: SkuCostLine[] = skuLines.map((l) => {
+      const b = basisBySku.get(l.skuId) ?? basis;
+      return {
+        ...l,
+        importCogsPerUnit: b.importCogsPerUnit,
+        usesQuotes: b.usesQuotes,
+      };
+    });
+    const roll = rollUpMultiSkuWeek(costLines);
+    sales = roll.sales;
+    skuSold = roll.skuSold;
+    skuLeft = roll.skuLeft;
+    basis = roll.blendedBasis;
+    skusJson = Object.fromEntries(
+      skuLines.map((l) => [
+        l.skuId,
+        { sold: l.sold, left: l.left, sales: l.sales },
+      ]),
+    );
+  }
+
+  const weekInput: WeeklyInput = {
+    ...input,
+    sales,
+    skuSold,
+    skuLeft,
+    skuLines,
+  };
 
   const now = nowIso();
   await db.insert(schema.topicAEntries).values({
     id: newId(),
     workspaceId,
     weekStart: input.weekStart,
-    storeTotalsUsd: input.sales,
-    perSkuSoldLeft: JSON.stringify({
+    storeTotalsUsd: sales,
+    perSkuSoldLeft: serializePerSkuSoldLeft({
       orders: input.orders,
-      sku: { sold: input.skuSold, left: input.skuLeft },
+      skuSold,
+      skuLeft,
+      skus: skusJson,
     }),
     metaSpend: input.metaSpend,
     tiktokSpend: input.tiktokSpend,
@@ -545,7 +1021,7 @@ export async function addWeeklyEntry(
     createdAt: now,
   });
 
-  const health = computeHealth(input, costBasisForSku(sku));
+  const health = computeHealth(weekInput, basis);
   await db.insert(schema.financeVerdicts).values({
     id: newId(),
     workspaceId,

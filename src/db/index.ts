@@ -37,6 +37,7 @@ export function ensureMigrated() {
       name TEXT NOT NULL DEFAULT 'My Store',
       language TEXT NOT NULL DEFAULT 'en',
       active_sku_id TEXT,
+      shop_paused INTEGER NOT NULL DEFAULT 0,
       shopify_status TEXT NOT NULL DEFAULT 'not_started',
       created_at TEXT NOT NULL
     );
@@ -49,7 +50,7 @@ export function ensureMigrated() {
       experience TEXT NOT NULL,
       ui_language TEXT NOT NULL,
       storage_description TEXT NOT NULL,
-      storage_limits TEXT NOT NULL,
+      storage_limits TEXT NOT NULL DEFAULT '',
       risk_tolerance TEXT NOT NULL,
       category_likes TEXT NOT NULL,
       lebanon_sellability_ack INTEGER NOT NULL DEFAULT 0,
@@ -150,7 +151,37 @@ export function ensureMigrated() {
       money_snapshot TEXT NOT NULL,
       marketing_hooks TEXT NOT NULL,
       founder_notes TEXT NOT NULL DEFAULT '',
+      lifecycle_status TEXT NOT NULL DEFAULT 'live',
+      archived_at TEXT,
       created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sku_journeys (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+      sku_id TEXT NOT NULL UNIQUE REFERENCES sku_cards(id),
+      primary_state TEXT NOT NULL DEFAULT 'discovery',
+      paused_from_state TEXT,
+      blocked_from_state TEXT,
+      blocked_reason TEXT,
+      sample_status TEXT NOT NULL DEFAULT 'none',
+      batch_ordered INTEGER NOT NULL DEFAULT 0,
+      batch_arrived_ready INTEGER NOT NULL DEFAULT 0,
+      batch_arrival_eta TEXT,
+      marketing_stage TEXT NOT NULL DEFAULT 'none',
+      cost_quotes_saved INTEGER NOT NULL DEFAULT 0,
+      cash_lock_ack INTEGER NOT NULL DEFAULT 0,
+      stuck_over_10k_ack INTEGER NOT NULL DEFAULT 0,
+      okay_risk_ack INTEGER NOT NULL DEFAULT 0,
+      tier1_resolved INTEGER NOT NULL DEFAULT 0,
+      reorder_status TEXT NOT NULL DEFAULT 'idle',
+      reorder_arrival_eta TEXT,
+      reorder_supplier_id TEXT,
+      reorder_qty INTEGER,
+      reorder_est_cost REAL,
+      reorder_path_supplier_id TEXT,
+      reorder_unavailable_json TEXT,
+      reorder_crisis_skip_json TEXT,
       updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS supplier_options (
@@ -160,6 +191,7 @@ export function ensureMigrated() {
       name TEXT NOT NULL,
       role TEXT NOT NULL,
       rank INTEGER NOT NULL,
+      source TEXT NOT NULL DEFAULT 'import',
       years INTEGER NOT NULL,
       rating REAL NOT NULL,
       verified INTEGER NOT NULL DEFAULT 1,
@@ -231,6 +263,7 @@ export function ensureMigrated() {
     CREATE TABLE IF NOT EXISTS approval_requests (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+      sku_id TEXT REFERENCES sku_cards(id),
       gate_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       payload TEXT NOT NULL,
@@ -261,6 +294,18 @@ export function ensureMigrated() {
   ensureColumn("sku_cards", "quoted_costs", "TEXT");
   ensureColumn("sku_cards", "reported_margin", "TEXT");
   ensureColumn(
+    "sku_cards",
+    "lifecycle_status",
+    "TEXT NOT NULL DEFAULT 'live'",
+  );
+  ensureColumn("sku_cards", "archived_at", "TEXT");
+  ensureColumn(
+    "workspaces",
+    "shop_paused",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  ensureColumn("approval_requests", "sku_id", "TEXT");
+  ensureColumn(
     "side_statuses",
     "cost_quotes_saved",
     "INTEGER NOT NULL DEFAULT 0",
@@ -276,10 +321,33 @@ export function ensureMigrated() {
     "INTEGER NOT NULL DEFAULT 0",
   );
   ensureColumn("side_statuses", "batch_arrival_eta", "TEXT");
+  ensureColumn(
+    "side_statuses",
+    "experience_raised_pending_ack",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
   ensureColumn("users", "first_name", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("users", "last_name", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(
+    "supplier_options",
+    "source",
+    "TEXT NOT NULL DEFAULT 'import'",
+  );
+  ensureColumn(
+    "sku_journeys",
+    "reorder_status",
+    "TEXT NOT NULL DEFAULT 'idle'",
+  );
+  ensureColumn("sku_journeys", "reorder_arrival_eta", "TEXT");
+  ensureColumn("sku_journeys", "reorder_supplier_id", "TEXT");
+  ensureColumn("sku_journeys", "reorder_qty", "INTEGER");
+  ensureColumn("sku_journeys", "reorder_est_cost", "REAL");
+  ensureColumn("sku_journeys", "reorder_path_supplier_id", "TEXT");
+  ensureColumn("sku_journeys", "reorder_unavailable_json", "TEXT");
+  ensureColumn("sku_journeys", "reorder_crisis_skip_json", "TEXT");
   backfillUserNameParts();
   backfillLegacyWorkspaceNames();
+  migrateSkuJourneysFromWorkspace();
 
   migrated = true;
 }
@@ -332,6 +400,149 @@ function backfillLegacyWorkspaceNames() {
     const next =
       locale === "ar" ? `متجر ${first}` : `${first}'s Store`;
     update.run(next, row.id);
+  }
+}
+
+/**
+ * Wave 1: copy workspace journey + SKU-scoped side flags onto the active SKU
+ * (or every existing SKU card missing a journey row). Idempotent.
+ */
+function migrateSkuJourneysFromWorkspace() {
+  // Ensure table exists even for DBs that ran an older ensureMigrated body
+  // before sku_journeys was added (CREATE IF NOT EXISTS is in the main exec,
+  // but re-run here for safety if the main exec was skipped mid-migration).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS sku_journeys (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+      sku_id TEXT NOT NULL UNIQUE REFERENCES sku_cards(id),
+      primary_state TEXT NOT NULL DEFAULT 'discovery',
+      paused_from_state TEXT,
+      blocked_from_state TEXT,
+      blocked_reason TEXT,
+      sample_status TEXT NOT NULL DEFAULT 'none',
+      batch_ordered INTEGER NOT NULL DEFAULT 0,
+      batch_arrived_ready INTEGER NOT NULL DEFAULT 0,
+      batch_arrival_eta TEXT,
+      marketing_stage TEXT NOT NULL DEFAULT 'none',
+      cost_quotes_saved INTEGER NOT NULL DEFAULT 0,
+      cash_lock_ack INTEGER NOT NULL DEFAULT 0,
+      stuck_over_10k_ack INTEGER NOT NULL DEFAULT 0,
+      okay_risk_ack INTEGER NOT NULL DEFAULT 0,
+      tier1_resolved INTEGER NOT NULL DEFAULT 0,
+      reorder_status TEXT NOT NULL DEFAULT 'idle',
+      reorder_arrival_eta TEXT,
+      reorder_supplier_id TEXT,
+      reorder_qty INTEGER,
+      reorder_est_cost REAL,
+      reorder_path_supplier_id TEXT,
+      reorder_unavailable_json TEXT,
+      reorder_crisis_skip_json TEXT,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  const skus = sqlite
+    .prepare(
+      `SELECT s.id AS id, s.workspace_id AS workspace_id,
+              w.active_sku_id AS active_sku_id
+       FROM sku_cards s
+       JOIN workspaces w ON w.id = s.workspace_id
+       WHERE s.id NOT IN (SELECT sku_id FROM sku_journeys)`,
+    )
+    .all() as {
+    id: string;
+    workspace_id: string;
+    active_sku_id: string | null;
+  }[];
+
+  if (skus.length === 0) return;
+
+  const insert = sqlite.prepare(`
+    INSERT INTO sku_journeys (
+      id, workspace_id, sku_id, primary_state, paused_from_state,
+      blocked_from_state, blocked_reason, sample_status, batch_ordered,
+      batch_arrived_ready, batch_arrival_eta, marketing_stage,
+      cost_quotes_saved, cash_lock_ack, stuck_over_10k_ack, okay_risk_ack,
+      tier1_resolved, updated_at
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )
+  `);
+
+  const getJourney = sqlite.prepare(
+    `SELECT * FROM journey_states WHERE workspace_id = ?`,
+  );
+  const getSide = sqlite.prepare(
+    `SELECT * FROM side_statuses WHERE workspace_id = ?`,
+  );
+
+  const now = new Date().toISOString();
+
+  for (const sku of skus) {
+    const isActive = sku.active_sku_id === sku.id;
+    const journey = getJourney.get(sku.workspace_id) as
+      | {
+          primary_state: string;
+          paused_from_state: string | null;
+          blocked_from_state: string | null;
+          blocked_reason: string | null;
+        }
+      | undefined;
+    const side = getSide.get(sku.workspace_id) as
+      | {
+          sample_status: string;
+          batch_ordered: number;
+          batch_arrived_ready: number;
+          batch_arrival_eta: string | null;
+          marketing_stage: string;
+          cost_quotes_saved: number;
+          cash_lock_ack: number;
+          stuck_over_10k_ack: number;
+          okay_risk_ack: number;
+          tier1_resolved: number;
+        }
+      | undefined;
+
+    // Active SKU inherits workspace journey; other legacy SKUs start at selling
+    // only if they somehow existed without journeys (shouldn't happen in v1).
+    const primaryState = isActive
+      ? (journey?.primary_state ?? "supplier_sample")
+      : "supplier_sample";
+
+    insert.run(
+      `sj_${sku.id}`,
+      sku.workspace_id,
+      sku.id,
+      primaryState,
+      isActive ? (journey?.paused_from_state ?? null) : null,
+      isActive ? (journey?.blocked_from_state ?? null) : null,
+      isActive ? (journey?.blocked_reason ?? null) : null,
+      isActive ? (side?.sample_status ?? "none") : "none",
+      isActive ? (side?.batch_ordered ?? 0) : 0,
+      isActive ? (side?.batch_arrived_ready ?? 0) : 0,
+      isActive ? (side?.batch_arrival_eta ?? null) : null,
+      isActive ? (side?.marketing_stage ?? "none") : "none",
+      isActive ? (side?.cost_quotes_saved ?? 0) : 0,
+      isActive ? (side?.cash_lock_ack ?? 0) : 0,
+      isActive ? (side?.stuck_over_10k_ack ?? 0) : 0,
+      isActive ? (side?.okay_risk_ack ?? 0) : 0,
+      isActive ? (side?.tier1_resolved ?? 0) : 0,
+      now,
+    );
+  }
+
+  // Mirror shop pause from workspace journey paused overlay.
+  const pausedShops = sqlite
+    .prepare(
+      `SELECT workspace_id FROM journey_states WHERE primary_state = 'paused'`,
+    )
+    .all() as { workspace_id: string }[];
+  const pauseShop = sqlite.prepare(
+    `UPDATE workspaces SET shop_paused = 1 WHERE id = ?`,
+  );
+  for (const row of pausedShops) {
+    pauseShop.run(row.workspace_id);
   }
 }
 

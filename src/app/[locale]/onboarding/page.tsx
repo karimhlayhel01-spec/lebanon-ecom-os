@@ -58,7 +58,6 @@ export default async function OnboardingPage({ params, searchParams }: Props) {
       monthlyFollowOnBudget: p.monthlyFollowOnBudget,
       hoursPerWeek: p.hoursPerWeek,
       experience: p.experience,
-      uiLanguage: p.uiLanguage,
       storageDescription: p.storageDescription,
       storageLimits: p.storageLimits,
       riskTolerance: p.riskTolerance,

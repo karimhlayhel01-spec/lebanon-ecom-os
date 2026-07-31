@@ -6,6 +6,10 @@ import type { SkuCardView } from "@/lib/sku/service";
 import type { CurrentActualView } from "@/lib/finance/service";
 
 /**
+ * TODO(wave1): unused after hub Status/Journey rewire — keep for possible
+ * compact SKU mirror; hub uses Supplier/Marketing status blocks + JourneyStrip
+ * via ShopHub children.
+ *
  * Compact SKU summary for the hub. The full card lives on /sku. `quiet` renders
  * a smaller, secondary version for the cockpit stages where the hero leads.
  */

@@ -3,6 +3,9 @@ import { Link } from "@/i18n/navigation";
 import type { FinancePanelView } from "@/lib/finance/service";
 
 /**
+ * TODO(wave1): unused after hub Status/Journey rewire — keep for a possible
+ * selling-stage snapshot; hub Finance chip + `/finance` cover money today.
+ *
  * This-week snapshot for the selling stage: 3–4 headline numbers pulled from the
  * latest Topic A entry (honest zeros when no week is logged yet), plus a link
  * into the full finance page and an optional invest-next nudge.

@@ -3,6 +3,8 @@
 import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
+import { logoutAction } from "@/actions/auth";
+import { pauseShopAction } from "@/actions/sku";
 import {
   changePasswordAction,
   deleteAccountAction,
@@ -24,11 +26,16 @@ const menuBtnClass =
 export function SettingsMenu({
   email,
   workspaceName,
+  isPaused = false,
 }: {
   email: string;
   workspaceName: string;
+  /** When false, Pause shop is offered in this menu (Resume stays in the header). */
+  isPaused?: boolean;
 }) {
   const t = useTranslations("Settings");
+  const tDash = useTranslations("Dashboard");
+  const tAuth = useTranslations("Auth");
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
@@ -78,9 +85,9 @@ export function SettingsMenu({
         aria-controls={menuId}
         aria-label={t("open")}
         onClick={toggle}
-        className="inline-flex size-11 items-center justify-center rounded-md text-ink transition hover:bg-sand hover:text-cedar-deep"
+        className="inline-flex size-9 items-center justify-center rounded-md text-ink transition hover:bg-sand hover:text-cedar-deep sm:size-11"
       >
-        <span aria-hidden className="text-2xl leading-none">
+        <span aria-hidden className="text-xl leading-none sm:text-2xl">
           ⚙
         </span>
       </button>
@@ -103,6 +110,40 @@ export function SettingsMenu({
                 type="button"
                 role="menuitem"
                 className={menuBtnClass}
+                onClick={() => {
+                  close();
+                  router.push("/finance/history");
+                }}
+              >
+                {t("financeHistoryLink")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={menuBtnClass}
+                onClick={() => {
+                  close();
+                  router.push("/onboarding?edit=1");
+                }}
+              >
+                {t("editOnboarding")}
+              </button>
+              {!isPaused && (
+                <form action={pauseShopAction}>
+                  <button
+                    type="submit"
+                    role="menuitem"
+                    title={tDash("pauseShopTitle")}
+                    className={menuBtnClass}
+                  >
+                    {t("pauseShop")}
+                  </button>
+                </form>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                className={menuBtnClass}
                 onClick={() => setPanel("password")}
               >
                 {t("changePassword")}
@@ -115,6 +156,11 @@ export function SettingsMenu({
               >
                 {t("renameWorkspace")}
               </button>
+              <form action={logoutAction}>
+                <button type="submit" role="menuitem" className={menuBtnClass}>
+                  {tAuth("logout")}
+                </button>
+              </form>
               <form action={logoutEverywhereAction}>
                 <button type="submit" role="menuitem" className={menuBtnClass}>
                   {t("logoutEverywhere")}
@@ -191,7 +237,10 @@ function PasswordPanel({
     initial,
   );
   const doneRef = useRef(onDone);
-  doneRef.current = onDone;
+
+  useEffect(() => {
+    doneRef.current = onDone;
+  }, [onDone]);
 
   useEffect(() => {
     if (state.success) doneRef.current();
@@ -271,7 +320,10 @@ function RenamePanel({
     initial,
   );
   const doneRef = useRef(onDone);
-  doneRef.current = onDone;
+
+  useEffect(() => {
+    doneRef.current = onDone;
+  }, [onDone]);
 
   useEffect(() => {
     if (state.success) doneRef.current();

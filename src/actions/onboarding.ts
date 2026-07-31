@@ -27,9 +27,11 @@ const onboardingSchema = z.object({
   monthlyFollowOnBudget: z.coerce.number().min(0),
   hoursPerWeek: z.coerce.number().int().min(1).max(168),
   experience: z.enum(["beginner", "some", "experienced"]),
-  uiLanguage: z.enum(["en", "ar", "both"]),
   storageDescription: z.string().min(1).max(500),
-  storageLimits: z.string().min(1).max(500),
+  storageLimits: z.preprocess(
+    (v) => (typeof v === "string" ? v.trim() : ""),
+    z.string().max(500),
+  ),
   riskTolerance: z.enum(["low", "medium", "high"]),
   categoryLikes: z.array(industryIdSchema).min(1),
   lebanonSellabilityAck: z
@@ -77,7 +79,6 @@ export async function completeOnboardingAction(
     monthlyFollowOnBudget: formData.get("monthlyFollowOnBudget"),
     hoursPerWeek: formData.get("hoursPerWeek"),
     experience: formData.get("experience"),
-    uiLanguage: formData.get("uiLanguage"),
     storageDescription: formData.get("storageDescription"),
     storageLimits: formData.get("storageLimits"),
     riskTolerance: formData.get("riskTolerance"),
@@ -133,12 +134,14 @@ export async function completeOnboardingAction(
     .get();
   const isFirstCompletion = !priorSide?.onboardingComplete;
 
+  const locale = await getLocale();
+  const requestLocale: "en" | "ar" = locale === "ar" ? "ar" : "en";
+
   const profileValues = {
     budgetUsd: parsed.data.budgetUsd,
     monthlyFollowOnBudget: parsed.data.monthlyFollowOnBudget,
     hoursPerWeek: parsed.data.hoursPerWeek,
     experience: parsed.data.experience,
-    uiLanguage: parsed.data.uiLanguage,
     storageDescription: parsed.data.storageDescription,
     storageLimits: parsed.data.storageLimits,
     riskTolerance: parsed.data.riskTolerance,
@@ -151,6 +154,8 @@ export async function completeOnboardingAction(
     sampleClearanceReady: Boolean(parsed.data.sampleClearanceReady),
     completedAt: updatedAt,
     updatedAt,
+    // Language is owned by the header switch after first save.
+    ...(isFirstCompletion ? { uiLanguage: requestLocale } : {}),
   };
 
   if (existing) {
@@ -162,6 +167,7 @@ export async function completeOnboardingAction(
     await db.insert(schema.onboardingProfiles).values({
       id: newId(),
       workspaceId: workspace.id,
+      uiLanguage: requestLocale,
       ...profileValues,
     });
   }
@@ -177,19 +183,20 @@ export async function completeOnboardingAction(
     })
     .where(eq(schema.users.id, user.id));
 
-  const locale = await getLocale();
   const nameLocale: WorkspaceNameLocale = resolveWorkspaceNameLocale(
-    parsed.data.uiLanguage,
-    locale === "ar" ? "ar" : "en",
+    workspace.language,
+    requestLocale,
   );
   const workspacePatch: {
-    language: typeof parsed.data.uiLanguage;
     shopifyStatus: typeof parsed.data.shopifyStatus;
+    language?: "en" | "ar";
     name?: string;
   } = {
-    language: parsed.data.uiLanguage,
     shopifyStatus: parsed.data.shopifyStatus,
   };
+  if (isFirstCompletion) {
+    workspacePatch.language = requestLocale;
+  }
   if (isAutoDefaultWorkspaceName(workspace.name, dbUser.firstName)) {
     workspacePatch.name = defaultWorkspaceName({
       firstName,
@@ -216,12 +223,20 @@ export async function completeOnboardingAction(
       .where(eq(schema.journeyStates.workspaceId, workspace.id));
   }
 
+  const priorExperience = existing?.experience ?? null;
+  const raisedToExperienced =
+    !isFirstCompletion &&
+    parsed.data.experience === "experienced" &&
+    priorExperience !== null &&
+    priorExperience !== "experienced";
+
   await db
     .update(schema.sideStatuses)
     .set({
       onboardingComplete: true,
       // Meaningful profile edit resets the Discovery reject-all ladder (Fix #13).
       ...(!isFirstCompletion ? { discoveryExhaustedRounds: 0 } : {}),
+      ...(raisedToExperienced ? { experienceRaisedPendingAck: true } : {}),
       updatedAt,
     })
     .where(eq(schema.sideStatuses.workspaceId, workspace.id));

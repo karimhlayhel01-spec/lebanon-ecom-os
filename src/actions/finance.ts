@@ -11,11 +11,11 @@ async function workspaceForRequest() {
   return getWorkspaceForUser(user.id);
 }
 
-export async function startSellingAction() {
+export async function startSellingAction(skuId?: string) {
   ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
-  const res = await startSelling(workspace.id);
+  const res = await startSelling(workspace.id, skuId || undefined);
   revalidatePath("/", "layout");
   return res;
 }
@@ -38,6 +38,31 @@ export async function addWeeklyEntryAction(
   const weekStart = String(formData.get("weekStart") ?? "").trim();
   if (!weekStart) return { error: "missing_week" };
 
+  const skuLinesRaw = String(formData.get("skuLines") ?? "").trim();
+  let skuLines:
+    | Array<{ skuId: string; sold: number; left: number; sales: number }>
+    | undefined;
+  if (skuLinesRaw) {
+    try {
+      const parsed = JSON.parse(skuLinesRaw) as Array<{
+        skuId: string;
+        sold: number;
+        left: number;
+        sales: number;
+      }>;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        skuLines = parsed.map((l) => ({
+          skuId: String(l.skuId),
+          sold: Number(l.sold) || 0,
+          left: Number(l.left) || 0,
+          sales: Number(l.sales) || 0,
+        }));
+      }
+    } catch {
+      return { error: "invalid_sku_lines" };
+    }
+  }
+
   const res = await addWeeklyEntry(workspace.id, {
     weekStart,
     sales: num(formData, "sales"),
@@ -49,6 +74,7 @@ export async function addWeeklyEntryAction(
     courierFees: num(formData, "courierFees"),
     skuSold: num(formData, "skuSold"),
     skuLeft: num(formData, "skuLeft"),
+    skuLines,
   });
 
   revalidatePath("/", "layout");

@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
+import { PREVIEW_LAST_STAGE_COOKIE } from "@/lib/preview/config";
 
 /**
  * REMOVABLE PREVIEW COMPONENT — local QA only.
@@ -10,30 +12,44 @@ import { Link } from "@/i18n/navigation";
  */
 export async function PreviewBanner() {
   const t = await getTranslations("Preview");
+  const jar = await cookies();
+  const lastStage = jar.get(PREVIEW_LAST_STAGE_COOKIE)?.value;
+  const readyAddNote = lastStage === "wave1_ready_add";
+
   return (
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
-      <div className="flex items-center gap-2 text-sm text-amber-900">
-        <span
-          className="inline-flex size-2 rounded-full bg-amber-500"
-          aria-hidden
-        />
-        <span className="font-semibold">{t("bannerTitle")}</span>
-        <span className="text-amber-800">{t("bannerBody")}</span>
+    <div className="mb-6 space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
+        <div className="flex items-center gap-2 text-sm text-amber-900">
+          <span
+            className="inline-flex size-2 rounded-full bg-amber-500"
+            aria-hidden
+          />
+          <span className="font-semibold">{t("bannerTitle")}</span>
+          <span className="text-amber-800">{t("bannerBody")}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/preview"
+            className="rounded-md border border-amber-400 bg-white/60 px-3 py-1.5 text-sm font-medium text-amber-900 transition hover:bg-white"
+          >
+            {t("bannerCta")}
+          </Link>
+          <Link
+            href="/preview"
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-amber-900 underline-offset-2 transition hover:underline"
+          >
+            {t("bannerReset")}
+          </Link>
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <Link
-          href="/preview"
-          className="rounded-md border border-amber-400 bg-white/60 px-3 py-1.5 text-sm font-medium text-amber-900 transition hover:bg-white"
+      {readyAddNote && (
+        <p
+          role="status"
+          className="rounded-md border border-amber-400 bg-amber-100/80 px-4 py-2 text-sm font-medium text-amber-950"
         >
-          {t("bannerCta")}
-        </Link>
-        <Link
-          href="/preview"
-          className="rounded-md px-3 py-1.5 text-sm font-medium text-amber-900 underline-offset-2 transition hover:underline"
-        >
-          {t("bannerReset")}
-        </Link>
-      </div>
+          {t("bannerReadyAddNote")}
+        </p>
+      )}
     </div>
   );
 }

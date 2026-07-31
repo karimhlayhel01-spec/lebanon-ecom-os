@@ -3,37 +3,56 @@ import { Link } from "@/i18n/navigation";
 import { AppHeader } from "@/components/dashboard/AppHeader";
 import { isPreviewMode } from "@/lib/preview/config"; // PREVIEW (removable)
 import { PreviewBanner } from "@/components/preview/PreviewBanner"; // PREVIEW (removable)
+import type { ToolsSection } from "@/lib/sku/tools";
+import { skuToolHref } from "@/lib/sku/tools";
 
 /**
- * Frame for the deep pages (/sku, /supplier, /store, /marketing, /finance).
- * Shares the app header + preview banner with the dashboard, adds a page title
- * and a "← Dashboard" link, and hosts one heavy panel (or an empty state).
+ * Frame for deep pages (/supplier, /store, /marketing, /finance).
+ * SKU page sections are the primary work surface; deep pages stay valid as the
+ * same work with an explicit link back to the full product page.
  */
 export async function DeepPageLayout({
   isPaused,
   title,
+  skuContext,
   children,
 }: {
   isPaused: boolean;
   title: string;
+  /** When set, clarify this deep page is the same work as the SKU spine. */
+  skuContext?: {
+    id: string;
+    name: string;
+    section?: ToolsSection;
+  } | null;
   children: React.ReactNode;
 }) {
   const t = await getTranslations("Dashboard");
+  const productHref = skuContext
+    ? skuContext.section
+      ? skuToolHref(skuContext.id, skuContext.section)
+      : `/sku/${skuContext.id}`
+    : null;
 
   return (
     <div className="min-h-screen">
-      <AppHeader isPaused={isPaused} showBack />
-      <main className="mx-auto w-full max-w-6xl px-6 py-8">
+      <AppHeader isPaused={isPaused} />
+      <main className="app-shell py-8">
         {isPreviewMode() && <PreviewBanner />}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="font-display text-2xl text-ink">{title}</h1>
-          <Link
-            href="/dashboard"
-            className="text-sm font-medium text-sea underline-offset-2 hover:underline"
-          >
-            {t("backToDashboard")}
-          </Link>
         </div>
+        {skuContext && productHref ? (
+          <p className="mt-2 max-w-2xl text-sm text-stone-dark">
+            <Link
+              href={productHref}
+              className="font-medium text-sea underline-offset-2 hover:underline"
+              dir="auto"
+            >
+              {t("deepPageWorkingOn", { name: skuContext.name })}
+            </Link>
+          </p>
+        ) : null}
         <div className="mt-6 animate-rise">{children}</div>
       </main>
     </div>
@@ -48,7 +67,7 @@ export async function EmptyState({ message }: { message: string }) {
     <div className="surface-card p-8 text-center">
       <p className="mx-auto max-w-md text-sm text-stone-dark">{message}</p>
       <Link
-        href="/dashboard"
+        href="/dashboard?hub=1"
         className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-cedar px-4 py-2 text-sm font-semibold text-foam shadow-sm transition hover:bg-cedar-deep"
       >
         {t("backToDashboardCta")}

@@ -7,7 +7,11 @@
 
 import { useActionState } from "react";
 import { useTranslations } from "next-intl";
-import { PREVIEW_STAGES } from "@/lib/preview/config";
+import {
+  CLASSIC_PREVIEW_STAGES,
+  WAVE1_PREVIEW_STAGES,
+  PREVIEW_STAGES,
+} from "@/lib/preview/config";
 import {
   seedAndEnterAction,
   type PreviewActionState,
@@ -26,26 +30,57 @@ export function PreviewControls() {
   return (
     <div className="space-y-5">
       {/* Stage jump — each click is a full wipe + deterministic rebuild. */}
-      <form action={action} className="space-y-2">
-        <div className="grid gap-2 sm:grid-cols-2">
-          {PREVIEW_STAGES.map((stage) => (
-            <button
-              key={stage}
-              type="submit"
-              name="stage"
-              value={stage}
-              disabled={pending}
-              className="flex flex-col items-start gap-0.5 rounded-md border border-stone bg-surface px-4 py-3 text-start transition hover:bg-sand disabled:opacity-60"
-            >
-              <span className="text-sm font-semibold text-ink">
-                {t(`stage.${stage}.title`)}
-              </span>
-              <span className="text-xs text-stone-dark">
-                {t(`stage.${stage}.body`)}
-              </span>
-            </button>
-          ))}
+      <form action={action} className="space-y-4">
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-dark">
+            {t("classicGroup")}
+          </h3>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {CLASSIC_PREVIEW_STAGES.map((stage) => (
+              <button
+                key={stage}
+                type="submit"
+                name="stage"
+                value={stage}
+                disabled={pending}
+                className="flex flex-col items-start gap-0.5 rounded-md border border-stone bg-surface px-4 py-3 text-start transition hover:bg-sand disabled:opacity-60"
+              >
+                <span className="text-sm font-semibold text-ink">
+                  {t(`stage.${stage}.title`)}
+                </span>
+                <span className="text-xs text-stone-dark">
+                  {t(`stage.${stage}.body`)}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
+
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-dark">
+            {t("wave1Group")}
+          </h3>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {WAVE1_PREVIEW_STAGES.map((stage) => (
+              <button
+                key={stage}
+                type="submit"
+                name="stage"
+                value={stage}
+                disabled={pending}
+                className="flex flex-col items-start gap-0.5 rounded-md border border-stone bg-surface px-4 py-3 text-start transition hover:bg-sand disabled:opacity-60"
+              >
+                <span className="text-sm font-semibold text-ink">
+                  {t(`stage.${stage}.title`)}
+                </span>
+                <span className="text-xs text-stone-dark">
+                  {t(`stage.${stage}.body`)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <p className="text-xs text-stone-dark">{t("stageWipeHint")}</p>
       </form>
 

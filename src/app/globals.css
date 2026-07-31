@@ -83,6 +83,22 @@ body {
   animation: none;
 }
 
+/* Shared centered shell — one fixed max width so full-screen vs windowed
+   only changes side gutters (header, dashboard, deep pages align).
+   Always keep horizontal padding so cards never touch the viewport edges. */
+.app-shell {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 64rem; /* max-w-5xl — ~1024px content */
+  padding-inline: 1.5rem; /* px-6 — mobile gutters */
+}
+
+@media (min-width: 640px) {
+  .app-shell {
+    padding-inline: 2rem; /* px-8 — larger screens */
+  }
+}
+
 /* Reusable commerce surface */
 .surface-card {
   background: var(--surface);
@@ -138,4 +154,50 @@ body {
 }
 .animate-step {
   animation: step-pop 0.4s ease-out 0.1s both;
+}
+
+/* Deep-link land: brief cue when hub chips / Tools jump to #section */
+@keyframes sku-section-focus-fade {
+  0% {
+    box-shadow: 0 0 0 0 transparent;
+    background-color: transparent;
+  }
+  12% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--sea) 35%, transparent);
+    background-color: color-mix(in srgb, var(--sea) 6%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--sea) 28%, transparent);
+    background-color: color-mix(in srgb, var(--sea) 5%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+    background-color: transparent;
+  }
+}
+
+.sku-section-focus {
+  border-radius: 0.75rem;
+  animation: sku-section-focus-fade 2.8s ease-out both;
+}
+
+/* Non-primary unlocked sections — present but quieter (U2 hierarchy). */
+.sku-section-secondary {
+  opacity: 0.9;
+}
+
+.sku-section-secondary > h2 {
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  font-weight: 500;
+}
+
+/* Supplier panel stage hierarchy (U3) — demote, don’t hide. */
+.supplier-block-secondary {
+  opacity: 0.88;
+}
+
+.supplier-block-primary > [id^="sample-tracker"],
+.supplier-block-primary > [id="cost-quotes"],
+.supplier-block-primary > [id="reorder"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cedar) 22%, transparent);
 }

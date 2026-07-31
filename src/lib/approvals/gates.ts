@@ -70,6 +70,23 @@ export const GATE_DEFINITIONS: Record<ApprovalGateId, GateDefinition> = {
     targetState: "selling",
     requiredAcks: [],
   },
+  reorder_ordered: {
+    gateId: "reorder_ordered",
+    // Side-only — primary stays selling; never re-enters batch_ordered.
+    targetState: null,
+    // weak_economics_ack added at request time for some/experienced when needed.
+    requiredAcks: [],
+  },
+  reorder_arrived: {
+    gateId: "reorder_arrived",
+    targetState: null,
+    requiredAcks: ["inventory_ack"],
+  },
+  reorder_crisis_skip: {
+    gateId: "reorder_crisis_skip",
+    targetState: null,
+    requiredAcks: ["reorder_skip_sample_ack"],
+  },
 };
 
 /** Primary state → the single gate that guards reaching it (if any). */

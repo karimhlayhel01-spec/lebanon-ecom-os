@@ -5,13 +5,21 @@ import { enforceFounderEdit } from "@/lib/memory/allowed-fields";
 import {
   planAdvance,
   planBlock,
-  planPause,
-  planResume,
   planUnblock,
   type FsmResult,
   type JourneyView,
 } from "@/lib/journey/fsm";
 import type { JourneyState } from "@/lib/constants";
+import {
+  advanceSkuJourney,
+  blockSkuJourney,
+  getSkuJourney,
+  pauseSkuJourney,
+  resolveActiveSkuId,
+  resumeSkuJourney,
+  setShopPaused,
+  unblockSkuJourney,
+} from "@/lib/sku/journey";
 
 /**
  * Repositories for the Shared Business Memory — the single source of truth for
@@ -22,7 +30,7 @@ import type { JourneyState } from "@/lib/constants";
  *    only touch the fields they own.
  *
  * Journey transitions go through the pure FSM in `@/lib/journey/fsm` and are
- * persisted atomically here.
+ * persisted on per-SKU journeys (Wave 1), with a legacy workspace mirror.
  */
 
 export async function getWorkspace(workspaceId: string) {
@@ -67,11 +75,7 @@ export async function loadBusinessMemory(workspaceId: string) {
       .from(schema.onboardingProfiles)
       .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
       .get(),
-    db
-      .select()
-      .from(schema.journeyStates)
-      .where(eq(schema.journeyStates.workspaceId, workspaceId))
-      .get(),
+    getJourney(workspaceId),
     db
       .select()
       .from(schema.sideStatuses)
@@ -136,16 +140,68 @@ export async function loadBusinessMemory(workspaceId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Journey FSM persistence
+// Journey FSM persistence (Wave 1: per-SKU with workspace fallback)
 // ---------------------------------------------------------------------------
 
 export async function getJourney(workspaceId: string) {
   ensureMigrated();
+  const workspace = await getWorkspace(workspaceId);
+  if (workspace?.shopPaused) {
+    const skuId = await resolveActiveSkuId(workspaceId);
+    const skuJourney = skuId ? await getSkuJourney(skuId) : null;
+    return {
+      id: "shop-paused",
+      workspaceId,
+      primaryState: "paused",
+      pausedFromState:
+        skuJourney?.primaryState === "paused"
+          ? skuJourney.pausedFromState
+          : (skuJourney?.primaryState ?? "discovery"),
+      blockedFromState: null,
+      blockedReason: null,
+      updatedAt: nowIso(),
+    };
+  }
+
+  const skuId = await resolveActiveSkuId(workspaceId);
+  if (skuId) {
+    const skuJourney = await getSkuJourney(skuId);
+    if (skuJourney) {
+      return {
+        id: skuJourney.id,
+        workspaceId,
+        primaryState: skuJourney.primaryState,
+        pausedFromState: skuJourney.pausedFromState,
+        blockedFromState: skuJourney.blockedFromState,
+        blockedReason: skuJourney.blockedReason,
+        updatedAt: skuJourney.updatedAt,
+      };
+    }
+  }
+
   return db
     .select()
     .from(schema.journeyStates)
     .where(eq(schema.journeyStates.workspaceId, workspaceId))
     .get();
+}
+
+export async function getJourneyForSku(workspaceId: string, skuId: string) {
+  ensureMigrated();
+  const workspace = await getWorkspace(workspaceId);
+  const skuJourney = await getSkuJourney(skuId);
+  if (!skuJourney) return null;
+  if (workspace?.shopPaused) {
+    return {
+      ...skuJourney,
+      primaryState: "paused",
+      pausedFromState:
+        skuJourney.primaryState === "paused"
+          ? skuJourney.pausedFromState
+          : skuJourney.primaryState,
+    };
+  }
+  return skuJourney;
 }
 
 function toJourneyView(row: {
@@ -162,12 +218,16 @@ function toJourneyView(row: {
   };
 }
 
-async function runTransition(
+async function runWorkspaceLegacyTransition(
   workspaceId: string,
   plan: (view: JourneyView) => FsmResult,
 ): Promise<FsmResult> {
   ensureMigrated();
-  const row = await getJourney(workspaceId);
+  const row = await db
+    .select()
+    .from(schema.journeyStates)
+    .where(eq(schema.journeyStates.workspaceId, workspaceId))
+    .get();
   if (!row) return { ok: false, error: "invalid_transition" };
 
   const result = plan(toJourneyView(row));
@@ -181,24 +241,83 @@ async function runTransition(
   return result;
 }
 
-export function advanceJourney(workspaceId: string, to: JourneyState) {
-  return runTransition(workspaceId, (view) => planAdvance(view, to));
+/**
+ * Advance the active SKU journey (or workspace legacy when no live SKU).
+ * Prefer `advanceSkuJourney` / skuId overload for multi-SKU callers.
+ */
+export async function advanceJourney(
+  workspaceId: string,
+  to: JourneyState,
+  skuId?: string,
+): Promise<FsmResult> {
+  const targetSku = skuId ?? (await resolveActiveSkuId(workspaceId));
+  if (targetSku) {
+    return advanceSkuJourney(targetSku, to);
+  }
+  return runWorkspaceLegacyTransition(workspaceId, (view) =>
+    planAdvance(view, to),
+  );
 }
 
-export function pauseJourney(workspaceId: string) {
-  return runTransition(workspaceId, planPause);
+/** Shop-wide pause (Wave 1). */
+export async function pauseJourney(workspaceId: string): Promise<FsmResult> {
+  await setShopPaused(workspaceId, true);
+  return {
+    ok: true,
+    patch: {
+      primaryState: "paused",
+      pausedFromState: "discovery",
+      blockedFromState: null,
+      blockedReason: null,
+    },
+  };
 }
 
-export function resumeJourney(workspaceId: string) {
-  return runTransition(workspaceId, planResume);
+/** Resume shop-wide pause. */
+export async function resumeJourney(workspaceId: string): Promise<FsmResult> {
+  await setShopPaused(workspaceId, false);
+  const journey = await getJourney(workspaceId);
+  if (!journey) return { ok: false, error: "not_paused" };
+  return {
+    ok: true,
+    patch: {
+      primaryState: journey.primaryState as JourneyState,
+      pausedFromState: null,
+      blockedFromState: null,
+      blockedReason: null,
+    },
+  };
 }
 
-export function blockJourney(workspaceId: string, reason: string) {
-  return runTransition(workspaceId, (view) => planBlock(view, reason));
+export async function blockJourney(workspaceId: string, reason: string) {
+  const skuId = await resolveActiveSkuId(workspaceId);
+  if (skuId) return blockSkuJourney(skuId, reason);
+  return runWorkspaceLegacyTransition(workspaceId, (view) =>
+    planBlock(view, reason),
+  );
 }
 
-export function unblockJourney(workspaceId: string) {
-  return runTransition(workspaceId, planUnblock);
+export async function unblockJourney(workspaceId: string) {
+  const skuId = await resolveActiveSkuId(workspaceId);
+  if (skuId) return unblockSkuJourney(skuId);
+  return runWorkspaceLegacyTransition(workspaceId, planUnblock);
+}
+
+/** Pause one or more SKUs (not shop-wide). */
+export async function pauseSkuJourneys(skuIds: string[]) {
+  const results = [];
+  for (const id of skuIds) {
+    results.push(await pauseSkuJourney(id));
+  }
+  return results;
+}
+
+export async function resumeSkuJourneys(skuIds: string[]) {
+  const results = [];
+  for (const id of skuIds) {
+    results.push(await resumeSkuJourney(id));
+  }
+  return results;
 }
 
 // ---------------------------------------------------------------------------

@@ -341,7 +341,7 @@ export function suggestSchedule(args: {
     suggestedDay: day,
     suggestedTimeBand: band,
     whyEn: `Early-week warm-up — ${args.format} fits a calm ${band} slot while you grow follows.`,
-    whyAr: `تسخين أوائل الخطة — ${args.format} يناسب وقت ${bandAr} الهادئ بينما تبني المتابعات.`,
+    whyAr: `تهيئة أوائل الخطة — ${args.format} يناسب وقت ${bandAr} الهادئ بينما تبني المتابعات.`,
   };
 }
 
@@ -400,7 +400,7 @@ function buildWarmPreLaunchPool(
       seriesStemEn: shortEn,
       seriesStemAr: shortAr,
       captionLeadEn: `${s1En}. Warming the ${world.en} niche — follow for part 2.`,
-      captionLeadAr: `${s1Ar}. ندفّئ نيش ${world.ar} — تابع للجزء ٢.`,
+      captionLeadAr: `${s1Ar}. نهيّئ جمهور ${world.ar} — تابع للجزء ٢.`,
     },
     {
       angleEn: s2En,
@@ -542,7 +542,7 @@ function buildTeaserPreLaunchPool(
     },
     {
       angleEn: `Final warm-up before ${name} launch`,
-      angleAr: `التسخين الأخير قبل إطلاق ${name}`,
+      angleAr: `التهيئة الأخيرة قبل إطلاق ${name}`,
       hookEn: `One more tip before stock lands…`,
       hookAr: `نصيحة أخيرة قبل وصول المخزون…`,
       seriesStemEn: shortEn,

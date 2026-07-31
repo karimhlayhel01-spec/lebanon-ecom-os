@@ -4,9 +4,14 @@ import {
   computeHealth,
   computeWeekEconomics,
   computeWeeklyMargins,
+  parsePerSkuSoldLeft,
+  partitionTopicAEntries,
+  rollUpMultiSkuWeek,
   type CostBasis,
+  type SkuCostLine,
   type WeeklyInput,
 } from "@/lib/finance/service";
+import { TOPIC_A_RECENT_WEEKS } from "@/lib/constants";
 
 function week(overrides: Partial<WeeklyInput> = {}): WeeklyInput {
   return {
@@ -23,6 +28,39 @@ function week(overrides: Partial<WeeklyInput> = {}): WeeklyInput {
     ...overrides,
   };
 }
+
+describe("partitionTopicAEntries (display split)", () => {
+  it("keeps all weeks in recent when ≤ limit", () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({ id: `w${i}` }));
+    const { recent, older } = partitionTopicAEntries(rows, 20);
+    expect(recent).toHaveLength(5);
+    expect(older).toHaveLength(0);
+  });
+
+  it("puts oldest beyond limit into older; recent is newest window", () => {
+    const rows = Array.from({ length: 25 }, (_, i) => ({
+      id: `w${i}`,
+      weekStart: `2026-${String(i + 1).padStart(2, "0")}-01`,
+    }));
+    const { recent, older } = partitionTopicAEntries(rows, 20);
+    expect(TOPIC_A_RECENT_WEEKS).toBe(20);
+    expect(older).toHaveLength(5);
+    expect(recent).toHaveLength(20);
+    expect(older[0]?.id).toBe("w0");
+    expect(older[4]?.id).toBe("w4");
+    expect(recent[0]?.id).toBe("w5");
+    expect(recent[19]?.id).toBe("w24");
+  });
+
+  it("default limit is TOPIC_A_RECENT_WEEKS", () => {
+    const rows = Array.from({ length: TOPIC_A_RECENT_WEEKS + 3 }, (_, i) => ({
+      id: i,
+    }));
+    const { recent, older } = partitionTopicAEntries(rows);
+    expect(recent).toHaveLength(TOPIC_A_RECENT_WEEKS);
+    expect(older).toHaveLength(3);
+  });
+});
 
 describe("computeWeekEconomics / computeHealth (Fix #14)", () => {
   it("uses import COGS only — courier counted once via courierFees", () => {
@@ -100,5 +138,80 @@ describe("computeCurrentActual salesByWeek", () => {
       actual.sumSales,
     );
     expect(actual.sumSales).toBe(3900);
+  });
+});
+
+describe("multi-SKU Topic A roll-up (Mode C)", () => {
+  it("sums sales and COGS across 2 SKUs with different unit costs", () => {
+    const lines: SkuCostLine[] = [
+      {
+        skuId: "a",
+        sold: 10,
+        left: 40,
+        sales: 400,
+        importCogsPerUnit: 8,
+        usesQuotes: true,
+      },
+      {
+        skuId: "b",
+        sold: 20,
+        left: 30,
+        sales: 600,
+        importCogsPerUnit: 12,
+        usesQuotes: false,
+      },
+    ];
+    const roll = rollUpMultiSkuWeek(lines);
+    expect(roll.sales).toBe(1000);
+    expect(roll.skuSold).toBe(30);
+    expect(roll.skuLeft).toBe(70);
+    expect(roll.importCogsTotal).toBe(8 * 10 + 12 * 20); // 320
+    expect(roll.blendedBasis.importCogsPerUnit).toBeCloseTo(320 / 30);
+    expect(roll.blendedBasis.usesQuotes).toBe(true);
+
+    const input: WeeklyInput = {
+      weekStart: "2026-04-07",
+      sales: roll.sales,
+      orders: 30,
+      metaSpend: 100,
+      tiktokSpend: 50,
+      codCollected: 700,
+      codOutstanding: 200,
+      courierFees: 90,
+      skuSold: roll.skuSold,
+      skuLeft: roll.skuLeft,
+    };
+    const health = computeHealth(input, roll.blendedBasis);
+    expect(health.cogs).toBe(320);
+    // net = 1000 − 320 − 90 − 150 = 440
+    expect(health.netProfit).toBe(440);
+  });
+
+  it("parses Mode C JSON and legacy single-sku shapes", () => {
+    const multi = parsePerSkuSoldLeft(
+      JSON.stringify({
+        orders: 12,
+        skus: {
+          a: { sold: 5, left: 10, sales: 200 },
+          b: { sold: 7, left: 3, sales: 280 },
+        },
+      }),
+    );
+    expect(multi.orders).toBe(12);
+    expect(multi.skuSold).toBe(12);
+    expect(multi.skuLeft).toBe(13);
+    expect(multi.skus.a?.sales).toBe(200);
+
+    const legacy = parsePerSkuSoldLeft(
+      JSON.stringify({ orders: 8, sku: { sold: 8, left: 22 } }),
+    );
+    expect(legacy.skuSold).toBe(8);
+    expect(legacy.skuLeft).toBe(22);
+    expect(Object.keys(legacy.skus)).toHaveLength(0);
+
+    const flat = parsePerSkuSoldLeft(
+      JSON.stringify({ orders: 3, sold: 3, left: 7 }),
+    );
+    expect(flat.skuSold).toBe(3);
   });
 });

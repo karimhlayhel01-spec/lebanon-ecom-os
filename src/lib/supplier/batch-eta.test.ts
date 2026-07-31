@@ -5,10 +5,38 @@ import {
   canEditBatchArrivalEta,
   computeEtaWeeks,
   resolveBatchArrivalEta,
+  resolvePanelScopedSkuId,
   toStoredEta,
   weeksUntilDate,
 } from "@/lib/supplier/batch-eta";
 import { LAUNCH_PLAN_WEEKS } from "@/lib/marketing/creatives";
+
+describe("panel-scoped first-batch skuId (arrived / ETA)", () => {
+  it("uses panel skuId even when activeSkuId differs", () => {
+    expect(
+      resolvePanelScopedSkuId({
+        panelSkuId: "panel-sku",
+        activeSkuId: "active-sku",
+      }),
+    ).toBe("panel-sku");
+  });
+
+  it("rejects empty panel skuId — no activeSkuId fallback", () => {
+    expect(
+      resolvePanelScopedSkuId({
+        panelSkuId: "",
+        activeSkuId: "active-sku",
+      }),
+    ).toBeNull();
+    expect(
+      resolvePanelScopedSkuId({
+        panelSkuId: null,
+        activeSkuId: "active-sku",
+      }),
+    ).toBeNull();
+    expect(resolvePanelScopedSkuId({ panelSkuId: "   " })).toBeNull();
+  });
+});
 
 describe("batch arrival ETA", () => {
   it("ETA editable only while ordered and not arrived", () => {

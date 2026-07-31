@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import { type ApprovalGateId, type PrimaryJourneyState } from "@/lib/constants";
@@ -10,8 +10,11 @@ import {
   type ApprovalDecision,
   type TransitionGuardResult,
 } from "@/lib/approvals/gates";
+import { isAtOrPastOnSpine } from "@/lib/approvals/spine";
 import { advanceJourney, getJourney } from "@/lib/memory/repos";
 import { isPrimaryState, type FsmResult } from "@/lib/journey/fsm";
+import { getSkuJourney } from "@/lib/sku/journey";
+import { effectiveJourneyState } from "@/lib/sku/page-sections";
 
 /**
  * Human Approvals engine — first-class approval records plus the server-side
@@ -75,16 +78,21 @@ export async function listPendingApprovals(workspaceId: string) {
 
 /**
  * Open (or return the existing pending) approval request for a gate. A gate has
- * at most one pending request per workspace so the inbox never shows dupes.
+ * at most one pending request per workspace+sku so the inbox never shows dupes.
  */
 export async function createApprovalRequest(
   workspaceId: string,
   gateId: ApprovalGateId,
-  opts: { data?: Record<string, unknown>; requiredAcks?: readonly string[] } = {},
+  opts: {
+    data?: Record<string, unknown>;
+    requiredAcks?: readonly string[];
+    skuId?: string | null;
+  } = {},
 ) {
   ensureMigrated();
 
-  const existing = await db
+  const skuId = opts.skuId ?? null;
+  const existingQuery = db
     .select()
     .from(schema.approvalRequests)
     .where(
@@ -92,20 +100,27 @@ export async function createApprovalRequest(
         eq(schema.approvalRequests.workspaceId, workspaceId),
         eq(schema.approvalRequests.gateId, gateId),
         eq(schema.approvalRequests.status, "pending"),
+        skuId
+          ? eq(schema.approvalRequests.skuId, skuId)
+          : isNull(schema.approvalRequests.skuId),
       ),
-    )
-    .get();
+    );
+  const existing = await existingQuery.get();
   if (existing) return existing;
 
   const requiredAcks = [
     ...(opts.requiredAcks ?? GATE_DEFINITIONS[gateId].requiredAcks),
   ];
   const id = newId();
-  const payload: ApprovalPayload = { requiredAcks, data: opts.data ?? {} };
+  const payload: ApprovalPayload = {
+    requiredAcks,
+    data: { ...(opts.data ?? {}), ...(skuId ? { skuId } : {}) },
+  };
 
   await db.insert(schema.approvalRequests).values({
     id,
     workspaceId,
+    skuId,
     gateId,
     status: "pending",
     payload: JSON.stringify(payload),
@@ -175,8 +190,48 @@ export async function decideApproval(
   const target = gateTargetState(row.gateId as ApprovalGateId);
 
   // Transition gates: advance first; only commit approval if the FSM accepts.
+  // If already at/past the target (e.g. warm-backup sample while selling),
+  // record the approval without moving the primary spine.
   if (target && isPrimaryState(target)) {
-    const transition = await advanceJourney(row.workspaceId, target);
+    const payload = parsePayload(row.payload);
+    const skuFromPayload =
+      typeof payload.data.skuId === "string" ? payload.data.skuId : null;
+    const skuId = row.skuId ?? skuFromPayload ?? undefined;
+
+    let currentPrimary: string | null = null;
+    if (skuId) {
+      const sj = await getSkuJourney(skuId);
+      if (sj) {
+        currentPrimary = effectiveJourneyState({
+          primaryState: sj.primaryState,
+          pausedFromState: sj.pausedFromState,
+        });
+      }
+    }
+    if (!currentPrimary) {
+      const j = await getJourney(row.workspaceId);
+      currentPrimary = j
+        ? effectiveJourneyState({
+            primaryState: j.primaryState,
+            pausedFromState: j.pausedFromState,
+          })
+        : null;
+    }
+
+    if (currentPrimary && isAtOrPastOnSpine(currentPrimary, target)) {
+      await db
+        .update(schema.approvalRequests)
+        .set({
+          status: outcome.status,
+          acknowledgements: JSON.stringify(outcome.acknowledgements),
+          decisionNote: outcome.decisionNote,
+          decidedAt: nowIso(),
+        })
+        .where(eq(schema.approvalRequests.id, id));
+      return { ok: true, status: "approved" };
+    }
+
+    const transition = await advanceJourney(row.workspaceId, target, skuId);
     if (!transition.ok) {
       return { ok: false, error: "transition_failed", transition };
     }
@@ -243,12 +298,13 @@ export type GuardedAdvanceResult =
 export async function guardedAdvanceJourney(
   workspaceId: string,
   to: PrimaryJourneyState,
+  skuId?: string,
 ): Promise<GuardedAdvanceResult> {
   ensureMigrated();
   const guard = await assertCanTransition(workspaceId, to);
   if (!guard.ok) return guard;
 
-  const transition = await advanceJourney(workspaceId, to);
+  const transition = await advanceJourney(workspaceId, to, skuId);
   return { ok: true, transition };
 }
 

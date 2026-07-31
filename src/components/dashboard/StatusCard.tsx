@@ -6,13 +6,18 @@ import type {
   SupplierStatusRow,
 } from "@/lib/dashboard/status";
 
+type TFn = Awaited<ReturnType<typeof getTranslations>>;
+
 /**
- * Compact right-rail Status card: supplier facts + marketing phase focus.
+ * Hub Status: supplier facts + Open. Stacked separately from Marketing.
  * Facts only — no coaching, hero CTAs, store %, or money.
  */
-export async function StatusCard({ view }: { view: DashboardStatusView }) {
+export async function SupplierStatusBlock({
+  view,
+}: {
+  view: DashboardStatusView;
+}) {
   const t = await getTranslations("Dashboard.status");
-
   const supplierTitle = view.supplier.supplierName
     ? view.supplier.supplierName
     : titleForSupplierKind(view.supplier.kind, t);
@@ -20,19 +25,43 @@ export async function StatusCard({ view }: { view: DashboardStatusView }) {
 
   return (
     <div className="surface-card p-5">
-      <h2 className="font-display text-base text-ink">{t("title")}</h2>
+      <StatusBlockHeader
+        label={t("supplierLabel")}
+        skuName={view.skuName}
+        forSku={t("forSku", { name: view.skuName })}
+      />
       <div className="mt-4">
-        <StatusRow
-          label={t("supplierLabel")}
+        <StatusFacts
           title={supplierTitle}
           titleDirAuto={Boolean(view.supplier.supplierName)}
           hint={supplierHint}
           href={view.supplier.href}
           openLabel={t("open")}
         />
-        <div className="my-3 border-t border-stone" role="separator" />
-        <StatusRow
-          label={t("marketingLabel")}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Hub Status: marketing focus + Open. Stacked after Supplier, before Journey.
+ */
+export async function MarketingStatusBlock({
+  view,
+}: {
+  view: DashboardStatusView;
+}) {
+  const t = await getTranslations("Dashboard.status");
+
+  return (
+    <div className="surface-card p-5">
+      <StatusBlockHeader
+        label={t("marketingLabel")}
+        skuName={view.skuName}
+        forSku={t("forSku", { name: view.skuName })}
+      />
+      <div className="mt-4">
+        <StatusFacts
           title={titleForMarketing(view.marketing, t)}
           hint={hintForMarketing(view.marketing, t)}
           href={view.marketing.href}
@@ -43,15 +72,48 @@ export async function StatusCard({ view }: { view: DashboardStatusView }) {
   );
 }
 
-function StatusRow({
+/** @deprecated Prefer SupplierStatusBlock + MarketingStatusBlock stacked. */
+export async function StatusCard({ view }: { view: DashboardStatusView }) {
+  return (
+    <>
+      <SupplierStatusBlock view={view} />
+      <MarketingStatusBlock view={view} />
+    </>
+  );
+}
+
+function StatusBlockHeader({
   label,
+  skuName,
+  forSku,
+}: {
+  label: string;
+  skuName?: string | null;
+  forSku: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 className="font-display text-base text-ink">{label}</h2>
+      {skuName ? (
+        <p
+          className="truncate text-xs font-medium text-stone-dark"
+          dir="auto"
+          title={skuName}
+        >
+          {forSku}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function StatusFacts({
   title,
   titleDirAuto,
   hint,
   href,
   openLabel,
 }: {
-  label: string;
   title: string;
   titleDirAuto?: boolean;
   hint: string;
@@ -61,11 +123,8 @@ function StatusRow({
   return (
     <div className="flex items-start gap-3">
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-dark">
-          {label}
-        </p>
         <p
-          className="mt-0.5 truncate text-sm font-semibold text-ink"
+          className="truncate text-sm font-semibold text-ink"
           dir={titleDirAuto ? "auto" : undefined}
           title={title}
         >
@@ -82,8 +141,6 @@ function StatusRow({
     </div>
   );
 }
-
-type TFn = Awaited<ReturnType<typeof getTranslations>>;
 
 function titleForSupplierKind(
   kind: SupplierStatusRow["kind"],

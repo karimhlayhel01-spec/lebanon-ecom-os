@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { getLocale } from "next-intl/server";
+import { redirect } from "@/i18n/navigation";
 import { db, ensureMigrated, schema } from "@/db";
 import { requireUser } from "@/lib/auth";
 import { getWorkspaceForUser } from "@/lib/memory/repos";
@@ -157,6 +158,11 @@ export async function acceptProductAction(
   if (!workspace) return { ok: false, error: "not_found" };
 
   const result = await acceptProduct(workspace.id, candidateId, riskReadAck);
+  if (!result.ok) return result;
+
   revalidatePath("/", "layout");
+  // Leave hub/?addSku=1 discovery behind — land on the new product spine.
+  const locale = await getLocale();
+  redirect({ href: `/sku/${result.skuId}`, locale });
   return result;
 }

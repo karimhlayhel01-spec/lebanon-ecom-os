@@ -61,13 +61,21 @@ export type MoneySnapshotSection = {
 /** Founder-quoted unit costs after sample approval — separate from Discovery planning. */
 export type QuotedCostsSection = {
   productCost: number;
+  /** Import freight OR mapped local supplierDelivery (Margin skill slot). */
   intlShip: number;
+  /** Import clearance OR mapped local packaging (Margin skill slot). */
   clearanceTaxes: number;
+  /** Customer last-mile COD — NEVER batch cash / Finance COGS. */
   localCourier: number;
   sellPrice: number;
   landedCost: number;
   expectedMarginBefore: number;
   savedAt: string;
+  /** Wave 2. Legacy quotes without source parse as import. */
+  source?: "import" | "local";
+  /** Explicit local legs when source=local (UI); mirrored into intlShip/clearanceTaxes. */
+  supplierDelivery?: number;
+  packaging?: number;
 };
 
 /**
@@ -252,12 +260,9 @@ export async function getActiveSku(workspaceId: string) {
     .get();
 }
 
-export async function getSkuView(
-  workspaceId: string,
-): Promise<SkuCardView | null> {
-  const row = await getActiveSku(workspaceId);
-  if (!row) return null;
-
+function rowToSkuView(
+  row: typeof schema.skuCards.$inferSelect,
+): SkuCardView {
   const basics = parseJson<SkuBasics>(row.basics, {
     name: row.name,
     category: "",
@@ -325,6 +330,30 @@ export async function getSkuView(
   };
 }
 
+export async function getSkuView(
+  workspaceId: string,
+): Promise<SkuCardView | null> {
+  const row = await getActiveSku(workspaceId);
+  if (!row) return null;
+  return rowToSkuView(row);
+}
+
+/** Load a SKU card by id (live or archived — wiped names are still readable). */
+export async function getSkuViewById(
+  workspaceId: string,
+  skuId: string,
+): Promise<SkuCardView | null> {
+  ensureMigrated();
+  const row = await db
+    .select()
+    .from(schema.skuCards)
+    .where(eq(schema.skuCards.id, skuId))
+    .get();
+  if (!row || row.workspaceId !== workspaceId) return null;
+  if (row.lifecycleStatus === "wiped") return null;
+  return rowToSkuView(row);
+}
+
 /** @deprecated Kept only to read the legacy `reported_margin` column; not used by UI. */
 export function parseReportedMargin(
   raw: string | null | undefined,
@@ -374,7 +403,13 @@ export function parseQuotedCosts(
     ) {
       return null;
     }
-    return {
+    const source =
+      parsed.source === "local"
+        ? ("local" as const)
+        : parsed.source === "import"
+          ? ("import" as const)
+          : undefined;
+    const out: QuotedCostsSection = {
       productCost: parsed.productCost,
       intlShip: parsed.intlShip,
       clearanceTaxes: parsed.clearanceTaxes,
@@ -390,6 +425,14 @@ export function parseQuotedCosts(
       expectedMarginBefore: parsed.expectedMarginBefore,
       savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : "",
     };
+    if (source) out.source = source;
+    if (typeof parsed.supplierDelivery === "number") {
+      out.supplierDelivery = parsed.supplierDelivery;
+    }
+    if (typeof parsed.packaging === "number") {
+      out.packaging = parsed.packaging;
+    }
+    return out;
   } catch {
     return null;
   }

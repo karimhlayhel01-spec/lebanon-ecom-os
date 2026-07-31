@@ -1,32 +1,23 @@
-import { getTranslations, setRequestLocale } from "next-intl/server";
+import { setRequestLocale } from "next-intl/server";
+import { redirect } from "@/i18n/navigation";
 import { requireOnboardedContext } from "@/lib/workspace";
-import { getSkuView } from "@/lib/sku/service";
-import { getCurrentActual } from "@/lib/finance/service";
-import { SkuCard } from "@/components/sku/SkuCard";
-import { DeepPageLayout, EmptyState } from "@/components/dashboard/DeepPageLayout";
+import { listLiveSkus, resolveActiveSkuId } from "@/lib/sku/journey";
 
 type Props = { params: Promise<{ locale: string }> };
 
-export default async function SkuPage({ params }: Props) {
+/** Legacy /sku → active or sole live SKU page, else shop hub. */
+export default async function SkuIndexPage({ params }: Props) {
   const { locale } = await params;
   setRequestLocale(locale);
 
   const ctx = await requireOnboardedContext(locale);
-  const t = await getTranslations("Dashboard");
-  const isPaused = (ctx.journey?.primaryState ?? "") === "paused";
-
-  const sku = ctx.side?.productAccepted
-    ? await getSkuView(ctx.workspace.id)
-    : null;
-  const actual = sku ? await getCurrentActual(ctx.workspace.id) : null;
-
-  return (
-    <DeepPageLayout isPaused={isPaused} title={t("pageSku")}>
-      {sku ? (
-        <SkuCard sku={sku} actual={actual} />
-      ) : (
-        <EmptyState message={t("emptySku")} />
-      )}
-    </DeepPageLayout>
-  );
+  const active = await resolveActiveSkuId(ctx.workspace.id);
+  if (active) {
+    redirect({ href: `/sku/${active}`, locale });
+  }
+  const live = await listLiveSkus(ctx.workspace.id);
+  if (live[0]) {
+    redirect({ href: `/sku/${live[0].id}`, locale });
+  }
+  redirect({ href: "/dashboard", locale });
 }

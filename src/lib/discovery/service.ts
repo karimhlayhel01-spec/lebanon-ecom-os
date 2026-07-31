@@ -30,7 +30,17 @@ import {
 } from "@/lib/approvals/engine";
 import { getJourney } from "@/lib/memory/repos";
 import { buildSkuSections, footprintForCatalogKey } from "@/lib/sku/service";
+import {
+  countLiveSkus,
+  createSkuJourney,
+} from "@/lib/sku/journey";
 import type { AppLocale } from "@/i18n/routing";
+import {
+  computeSourceCostHint,
+  type SourceCostHint,
+} from "@/lib/discovery/local-hint";
+
+export type { SourceCostHint } from "@/lib/discovery/local-hint";
 
 export type { DiscoveryLadder, DiscoveryPassReason } from "@/lib/discovery/ladder";
 export {
@@ -553,7 +563,7 @@ export async function rejectCandidate(
 }
 
 export type AcceptResult =
-  | { ok: true }
+  | { ok: true; skuId: string }
   | {
       ok: false;
       error:
@@ -568,8 +578,9 @@ export type AcceptResult =
 
 /**
  * Accept a product through the Human Approvals `accept_product` gate. On
- * approval the journey advances (discovery → supplier_sample) and Topic B
- * basics + active SKU + side status are written.
+ * approval the SKU journey advances to supplier_sample and Topic B basics +
+ * active SKU + side status are written. Works for first SKU (workspace in
+ * discovery) and for add-SKU (additional live SKUs while others continue).
  */
 export async function acceptProduct(
   workspaceId: string,
@@ -583,10 +594,18 @@ export async function acceptProduct(
     return { ok: false, error: "not_found" };
   }
 
+  const liveCount = await countLiveSkus(workspaceId);
   const journey = await getJourney(workspaceId);
-  if (!journey || journey.primaryState !== "discovery") {
-    return { ok: false, error: "wrong_state" };
+
+  // First SKU: workspace must still be in discovery (or no SKU journey yet).
+  // Add-SKU: discovery session is open while other SKUs keep their states.
+  if (liveCount === 0) {
+    const state = journey?.primaryState;
+    if (state && state !== "discovery" && state !== "paused") {
+      return { ok: false, error: "wrong_state" };
+    }
   }
+
   if (candidate.oversizedHardBlock || !candidate.marginsPass) {
     return { ok: false, error: "blocked" };
   }
@@ -606,21 +625,55 @@ export async function acceptProduct(
   const approval = await createApprovalRequest(workspaceId, "accept_product", {
     data: { candidateId, productName: candidate.name },
     requiredAcks,
+    // skuId filled after insert — advance via workspace until SKU exists, then
+    // we create the sku journey at supplier_sample directly (gate still records).
   });
   if (!approval) return { ok: false, error: "error" };
 
-  const decided = await decideApproval(approval.id, {
-    type: "approve",
-    acknowledgements: requiredAcks,
-  });
-  if (!decided.ok) {
-    return {
-      ok: false,
-      error:
-        decided.error === "missing_acknowledgements"
-          ? "needs_risk_ack"
-          : "error",
-    };
+  // For add-SKU, skip FSM advance on workspace (other SKUs aren't in discovery).
+  // Decide approval without relying on workspace FSM when liveCount > 0.
+  if (liveCount === 0) {
+    const decided = await decideApproval(approval.id, {
+      type: "approve",
+      acknowledgements: requiredAcks,
+    });
+    if (!decided.ok) {
+      return {
+        ok: false,
+        error:
+          decided.error === "missing_acknowledgements"
+            ? "needs_risk_ack"
+            : "error",
+      };
+    }
+  } else {
+    // Mark approval approved without workspace advance (SKU journey created below).
+    const decided = await decideApproval(approval.id, {
+      type: "approve",
+      acknowledgements: requiredAcks,
+    });
+    // transition_failed is expected when workspace isn't in discovery — continue.
+    if (
+      !decided.ok &&
+      decided.error !== "transition_failed" &&
+      decided.error !== "missing_acknowledgements"
+    ) {
+      return { ok: false, error: "error" };
+    }
+    if (!decided.ok && decided.error === "missing_acknowledgements") {
+      return { ok: false, error: "needs_risk_ack" };
+    }
+    if (!decided.ok && decided.error === "transition_failed") {
+      // Manually commit the approval row — decideApproval aborted before commit.
+      await db
+        .update(schema.approvalRequests)
+        .set({
+          status: "approved",
+          acknowledgements: JSON.stringify(requiredAcks),
+          decidedAt: nowIso(),
+        })
+        .where(eq(schema.approvalRequests.id, approval.id));
+    }
   }
 
   const landedCost =
@@ -667,9 +720,24 @@ export async function acceptProduct(
     moneySnapshot: sections.moneySnapshot,
     marketingHooks: sections.marketingHooks,
     founderNotes: "",
+    lifecycleStatus: "live",
+    archivedAt: null,
     createdAt: now,
     updatedAt: now,
   });
+
+  await createSkuJourney({
+    workspaceId,
+    skuId,
+    primaryState: "supplier_sample",
+    okayRiskAck: candidate.strength === "Okay",
+  });
+
+  // Link approval to the new SKU for history.
+  await db
+    .update(schema.approvalRequests)
+    .set({ skuId })
+    .where(eq(schema.approvalRequests.id, approval.id));
 
   await db
     .update(schema.workspaces)
@@ -686,6 +754,20 @@ export async function acceptProduct(
     })
     .where(eq(schema.sideStatuses.workspaceId, workspaceId));
 
+  // Mirror first-SKU accept onto legacy workspace journey when needed.
+  if (liveCount === 0) {
+    await db
+      .update(schema.journeyStates)
+      .set({
+        primaryState: "supplier_sample",
+        pausedFromState: null,
+        blockedFromState: null,
+        blockedReason: null,
+        updatedAt: now,
+      })
+      .where(eq(schema.journeyStates.workspaceId, workspaceId));
+  }
+
   await db
     .update(schema.productCandidates)
     .set({ status: "accepted" })
@@ -696,7 +778,7 @@ export async function acceptProduct(
     .set({ status: "closed" })
     .where(eq(schema.discoverySessions.workspaceId, workspaceId));
 
-  return { ok: true };
+  return { ok: true, skuId };
 }
 
 // ---------------------------------------------------------------------------
@@ -727,6 +809,11 @@ export type DiscoveryCandidateView = {
   demandSummary: string | null;
   tier1Conflict: boolean;
   tier1Marketplaces: string[];
+  /**
+   * H1: Import vs Local planning hint only. Accept / Strong / Okay stay on
+   * import `marginsPass` / moneySnapshot — never unlock via local-only margins.
+   */
+  sourceCostHint: SourceCostHint | null;
 };
 
 export type DiscoveryView = {
@@ -852,6 +939,12 @@ export async function getDiscoveryView(
       demandSummary: demandSummaryByCandidate.get(r.id) ?? null,
       tier1Conflict: r.tier1Conflict,
       tier1Marketplaces,
+      sourceCostHint: product
+        ? computeSourceCostHint(
+            product,
+            onboarding?.monthlyFollowOnBudget ?? 0,
+          )
+        : null,
     };
   });
 

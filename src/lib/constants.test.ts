@@ -9,6 +9,6 @@ describe("M0 smoke", () => {
   it("seeds delivery-company options and clearance placeholder", () => {
     expect(COURIERS_TBD).toHaveLength(5);
     expect(COURIERS_TBD).toContain("confirm_later");
-    expect(CLEARANCE_PARTNER_TBD).toContain("TBD");
+    expect(CLEARANCE_PARTNER_TBD).toBe("placeholder");
   });
 });

@@ -25,6 +25,13 @@ export const DISCOVERY_EXHAUSTED_ROUNDS_BEFORE_WHY = 3;
  */
 export const MAX_LANDED_SOFT_OVERAGE = 1.2;
 export const INVEST_NEXT_MIN_WEEKS = 4;
+/**
+ * Shop Topic A weeks shown on the main Finance panel (newest).
+ * Older weeks live on `/finance/history` — UI split only; DB keeps all rows.
+ */
+export const TOPIC_A_RECENT_WEEKS = 20;
+/** Soft next-batch nudge when SKU runway weeks ≤ this (Topic A left ÷ sell-through). */
+export const REORDER_RUNWAY_WEEKS = 4;
 export const PRE_LAUNCH_MAX_DAILY_AD_SPEND = 5;
 /** Soft warning when an estimated batch order crosses this USD threshold. */
 export const BATCH_SOFT_WARNING_USD = 10000;
@@ -68,6 +75,12 @@ export const APPROVAL_GATES = [
   "store_ready",
   "start_launch_marketing",
   "mark_selling",
+  /** Side-only: next-batch marked ordered while primary stays selling. */
+  "reorder_ordered",
+  /** Side-only: next-batch arrived; primary stays selling. */
+  "reorder_arrived",
+  /** Side-only: crisis sample skip on cold backup (some/experienced). */
+  "reorder_crisis_skip",
 ] as const;
 
 export type ApprovalGateId = (typeof APPROVAL_GATES)[number];
@@ -93,7 +106,11 @@ export const COURIERS_TBD = [
   "partner_d",
 ] as const;
 
-export const CLEARANCE_PARTNER_TBD = "Clearance partner TBD";
+/**
+ * Stable clearance-partner id until a real partner is confirmed.
+ * Founder-facing copy lives in i18n (Supplier / Onboarding) — never show this id raw.
+ */
+export const CLEARANCE_PARTNER_TBD = "placeholder";
 
 /** Stable industry IDs for onboarding category likes (JSON array). Labels live in i18n. */
 export const INDUSTRY_OPTIONS = [

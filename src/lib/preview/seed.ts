@@ -21,15 +21,18 @@
  */
 
 import bcrypt from "bcryptjs";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import { MIN_BUDGET_USD } from "@/lib/constants";
 import {
   PREVIEW_EMAIL,
   PREVIEW_PASSWORD,
+  type ClassicPreviewStage,
   type PreviewStage,
-  PREVIEW_STAGES,
+  type Wave1PreviewStage,
+  CLASSIC_PREVIEW_STAGES,
+  isWave1PreviewStage,
 } from "@/lib/preview/config";
 import {
   resolvePreviewIdentity,
@@ -62,6 +65,8 @@ import {
 import { generateKit } from "@/lib/marketing/service";
 import { startSelling, addWeeklyEntry } from "@/lib/finance/service";
 import { STORE_CHECKLIST_KEYS } from "@/lib/constants";
+import { archiveSku } from "@/lib/sku/lifecycle";
+import { ADD_SKU_HEALTHY_WEEKS_MIN } from "@/lib/sku/add-sku-gate";
 
 export type SeedResult = {
   ok: boolean;
@@ -73,42 +78,33 @@ export type SeedResult = {
   notes: string[];
 };
 
-function stageIndex(stage: PreviewStage): number {
-  return PREVIEW_STAGES.indexOf(stage);
+function classicStageIndex(stage: ClassicPreviewStage): number {
+  return CLASSIC_PREVIEW_STAGES.indexOf(stage);
 }
 
 /**
  * Fixed preview ids. Safe because `resetPreviewData()` wipes any prior preview
- * rows before every seed, so there is only ever one preview user/workspace/SKU.
- * `PREVIEW_SKU_ID` is the important one: the supplier RNG is seeded from the SKU
- * id, so pinning it makes supplier prices/MOQs identical on every re-seed.
+ * rows before every seed. `PREVIEW_SKU_ID*` pin supplier RNG across re-seeds.
  */
 const PREVIEW_USER_ID = "preview-user-0001";
 const PREVIEW_WORKSPACE_ID = "preview-workspace-0001";
 const PREVIEW_SKU_ID = "preview-sku-0001";
+const PREVIEW_SKU_ID_2 = "preview-sku-0002";
+const PREVIEW_SKU_ID_3 = "preview-sku-0003";
 
-/**
- * Fixed, easy-to-audit founder cost quote for the selling fixture. `productCost`
- * is NOT fixed here — it is read at runtime from the approved supplier's unit
- * price via the real Supplier service view. The freight/clearance values are set
- * intentionally higher than the Discovery planning estimate ($2 / $1) so the
- * batch estimate and Topic A actual margins visibly use the quoted numbers.
- */
 const PREVIEW_COST_QUOTE = {
-  intlShip: 2.5, // real post-sample freight quote (Discovery planning est: $2)
-  clearanceTaxes: 1.5, // real clearance quote (Discovery planning est: $1)
-  localCourier: 2.5, // Lebanon COD courier, per order
-  sellPrice: 30, // founder's final retail price
+  intlShip: 2.5,
+  clearanceTaxes: 1.5,
+  localCourier: 2.5,
+  sellPrice: 30,
 } as const;
 
+type ExperienceLevel = "beginner" | "some" | "experienced";
+
 // ---------------------------------------------------------------------------
-// Reset: remove any existing preview workspace + user (FK-safe order)
+// Reset / foundation
 // ---------------------------------------------------------------------------
 
-/**
- * Snapshot founder/store identity BEFORE wipe. Stage jumps reset journey data
- * but keep first/last name, workspace name, and language across re-seeds.
- */
 async function readPreviewIdentity(): Promise<PreviewIdentity | null> {
   ensureMigrated();
   const user = await db
@@ -151,12 +147,9 @@ async function resetPreviewData(): Promise<void> {
   await deleteUserAndWorkspace(user.id);
 }
 
-// ---------------------------------------------------------------------------
-// Foundation: user + workspace + journey + side + completed onboarding
-// ---------------------------------------------------------------------------
-
 async function createFoundation(
   identity: PreviewIdentity,
+  experience: ExperienceLevel = "some",
 ): Promise<{ userId: string; workspaceId: string }> {
   ensureMigrated();
   const now = nowIso();
@@ -213,14 +206,13 @@ async function createFoundation(
     updatedAt: now,
   });
 
-  // Valid v1 onboarding values (budget ≥ $2000, Lebanon + COD acknowledged).
   await db.insert(schema.onboardingProfiles).values({
     id: newId(),
     workspaceId,
     budgetUsd: Math.max(MIN_BUDGET_USD, 3500),
     monthlyFollowOnBudget: 600,
     hoursPerWeek: 12,
-    experience: "some",
+    experience,
     uiLanguage: identity.uiLanguage,
     storageDescription: "A dry spare room at home, roughly 2 shelves free.",
     storageLimits: "No space for oversized boxes; small parcels only.",
@@ -243,11 +235,79 @@ async function createFoundation(
   return { userId, workspaceId };
 }
 
+async function setActiveSku(
+  workspaceId: string,
+  skuId: string,
+): Promise<void> {
+  await db
+    .update(schema.workspaces)
+    .set({ activeSkuId: skuId })
+    .where(eq(schema.workspaces.id, workspaceId));
+}
+
+/**
+ * Pin a freshly accepted SKU to a fixed id (before suppliers/samples exist).
+ */
+async function pinSkuId(
+  workspaceId: string,
+  oldId: string,
+  fixedId: string,
+): Promise<void> {
+  if (oldId === fixedId) {
+    await setActiveSku(workspaceId, fixedId);
+    return;
+  }
+
+  const journey = await db
+    .select()
+    .from(schema.skuJourneys)
+    .where(eq(schema.skuJourneys.skuId, oldId))
+    .get();
+
+  const approvalIds = (
+    await db
+      .select({ id: schema.approvalRequests.id })
+      .from(schema.approvalRequests)
+      .where(eq(schema.approvalRequests.skuId, oldId))
+      .all()
+  ).map((r) => r.id);
+
+  await db.delete(schema.skuJourneys).where(eq(schema.skuJourneys.skuId, oldId));
+  await db
+    .update(schema.approvalRequests)
+    .set({ skuId: null })
+    .where(eq(schema.approvalRequests.skuId, oldId));
+
+  await db
+    .update(schema.skuCards)
+    .set({ id: fixedId })
+    .where(eq(schema.skuCards.id, oldId));
+  await setActiveSku(workspaceId, fixedId);
+
+  for (const id of approvalIds) {
+    await db
+      .update(schema.approvalRequests)
+      .set({ skuId: fixedId })
+      .where(eq(schema.approvalRequests.id, id));
+  }
+
+  if (journey) {
+    await db.insert(schema.skuJourneys).values({
+      ...journey,
+      id: journey.id,
+      skuId: fixedId,
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Stage drivers (each uses the real services / approval gates)
+// Stage drivers (real services / approval gates)
 // ---------------------------------------------------------------------------
 
-async function driveDiscovery(workspaceId: string, notes: string[]): Promise<void> {
+async function driveDiscovery(
+  workspaceId: string,
+  notes: string[],
+): Promise<void> {
   const onboarding = await db
     .select()
     .from(schema.onboardingProfiles)
@@ -258,8 +318,10 @@ async function driveDiscovery(workspaceId: string, notes: string[]): Promise<voi
   notes.push("Started a discovery session (5 products revealed).");
 }
 
-/** Accept the first acceptable candidate through the real approval gate. */
-async function driveAccept(workspaceId: string, notes: string[]): Promise<void> {
+async function pickAcceptableCandidate(
+  workspaceId: string,
+  excludeCatalogKeys: ReadonlySet<string> = new Set(),
+) {
   const session = await db
     .select()
     .from(schema.discoverySessions)
@@ -272,8 +334,6 @@ async function driveAccept(workspaceId: string, notes: string[]): Promise<void> 
     .get();
   if (!session) throw new Error("preview: no active discovery session");
 
-  // Order by rank so the picked candidate is deterministic (not dependent on
-  // arbitrary row order) — the top-ranked acceptable product every re-seed.
   const candidates = await db
     .select()
     .from(schema.productCandidates)
@@ -281,10 +341,30 @@ async function driveAccept(workspaceId: string, notes: string[]): Promise<void> 
     .orderBy(asc(schema.productCandidates.rank))
     .all();
 
-  const pick = candidates.find(
-    (c) => c.status === "shown" && c.marginsPass && !c.oversizedHardBlock,
-  );
+  const pick = candidates.find((c) => {
+    if (c.status !== "shown" || !c.marginsPass || c.oversizedHardBlock) {
+      return false;
+    }
+    let key = "";
+    try {
+      key = String(JSON.parse(c.fitBreakdown).catalogKey ?? "");
+    } catch {
+      key = "";
+    }
+    if (key && excludeCatalogKeys.has(key)) return false;
+    return true;
+  });
   if (!pick) throw new Error("preview: no acceptable candidate found");
+  return pick;
+}
+
+async function acceptAndPin(
+  workspaceId: string,
+  fixedSkuId: string,
+  notes: string[],
+  excludeCatalogKeys: ReadonlySet<string> = new Set(),
+): Promise<string> {
+  const pick = await pickAcceptableCandidate(workspaceId, excludeCatalogKeys);
 
   if (pick.tier1Conflict) {
     await resolveTier1(workspaceId, pick.id, "customize");
@@ -301,42 +381,123 @@ async function driveAccept(workspaceId: string, notes: string[]): Promise<void> 
     },
     "en",
   );
-  if (!demand.ok) throw new Error(`preview: confirmDemand failed (${demand.error})`);
+  if (!demand.ok) {
+    throw new Error(`preview: confirmDemand failed (${demand.error})`);
+  }
 
   const accepted = await acceptProduct(workspaceId, pick.id, true);
-  if (!accepted.ok) throw new Error(`preview: acceptProduct failed (${accepted.error})`);
+  if (!accepted.ok) {
+    throw new Error(`preview: acceptProduct failed (${accepted.error})`);
+  }
   notes.push(`Accepted "${pick.name}" (${pick.strength}) — Topic B SKU created.`);
 
-  // Pin the freshly created SKU id to a fixed value so the supplier RNG (seeded
-  // from skuId in generateSuppliers) is identical on every re-seed. Safe here:
-  // this runs right after accept, before getSupplierPanel/ensureSuppliers, so no
-  // supplier/sample rows reference the SKU yet. workspaces.activeSkuId is a plain
-  // text pointer (no FK), so we update it to match.
   const created = await db
     .select({ id: schema.skuCards.id })
     .from(schema.skuCards)
-    .where(eq(schema.skuCards.workspaceId, workspaceId))
+    .where(
+      and(
+        eq(schema.skuCards.workspaceId, workspaceId),
+        ne(schema.skuCards.id, PREVIEW_SKU_ID),
+        ne(schema.skuCards.id, PREVIEW_SKU_ID_2),
+        ne(schema.skuCards.id, PREVIEW_SKU_ID_3),
+      ),
+    )
+    .orderBy(desc(schema.skuCards.createdAt))
     .get();
-  if (created && created.id !== PREVIEW_SKU_ID) {
-    await db
-      .update(schema.skuCards)
-      .set({ id: PREVIEW_SKU_ID })
-      .where(eq(schema.skuCards.id, created.id));
-    await db
-      .update(schema.workspaces)
-      .set({ activeSkuId: PREVIEW_SKU_ID })
-      .where(eq(schema.workspaces.id, workspaceId));
-  }
+
+  // First pin: card may already be the only one and not match exclusions if
+  // somehow already pinned — fall back to newest live card.
+  const target =
+    created ??
+    (
+      await db
+        .select({ id: schema.skuCards.id })
+        .from(schema.skuCards)
+        .where(eq(schema.skuCards.workspaceId, workspaceId))
+        .orderBy(desc(schema.skuCards.createdAt))
+        .get()
+    );
+
+  if (!target) throw new Error("preview: SKU card missing after accept");
+  await pinSkuId(workspaceId, target.id, fixedSkuId);
+  return fixedSkuId;
 }
 
-async function seedStore(workspaceId: string, markReady: boolean, notes: string[]): Promise<void> {
-  await getStorePanel(workspaceId); // ensures the store row + starter drafts
+/** Accept the first acceptable candidate (classic path SKU #1). */
+async function driveAccept(
+  workspaceId: string,
+  notes: string[],
+): Promise<void> {
+  await acceptAndPin(workspaceId, PREVIEW_SKU_ID, notes);
+}
+
+/** Catalog keys already accepted in this workspace (for multi-SKU pick). */
+async function getAcceptedCatalogKeys(
+  workspaceId: string,
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ fitBreakdown: schema.productCandidates.fitBreakdown })
+    .from(schema.productCandidates)
+    .where(
+      and(
+        eq(schema.productCandidates.workspaceId, workspaceId),
+        eq(schema.productCandidates.status, "accepted"),
+      ),
+    )
+    .all();
+  const keys = new Set<string>();
+  for (const row of rows) {
+    try {
+      const key = JSON.parse(row.fitBreakdown).catalogKey;
+      if (key) keys.add(String(key));
+    } catch {
+      /* ignore */
+    }
+  }
+  return keys;
+}
+
+/**
+ * Open a fresh discovery session and accept a different catalog product as
+ * another live SKU (Wave 1). Matches production add-SKU (startDiscoverySession)
+ * but skips already-accepted catalog keys so fixtures get distinct products.
+ */
+async function driveAcceptAnother(
+  workspaceId: string,
+  fixedSkuId: string,
+  notes: string[],
+): Promise<string> {
+  const onboarding = await db
+    .select()
+    .from(schema.onboardingProfiles)
+    .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
+    .get();
+  if (!onboarding) throw new Error("preview: onboarding missing");
+
+  // Close any leftover session so startDiscoverySession opens a fresh pool.
+  await db
+    .update(schema.discoverySessions)
+    .set({ status: "closed" })
+    .where(eq(schema.discoverySessions.workspaceId, workspaceId));
+
+  const acceptedKeys = await getAcceptedCatalogKeys(workspaceId);
+  await startDiscoverySession(workspaceId, onboarding);
+  notes.push("Opened add-SKU discovery.");
+
+  return acceptAndPin(workspaceId, fixedSkuId, notes, acceptedKeys);
+}
+
+async function seedStore(
+  workspaceId: string,
+  markReady: boolean,
+  notes: string[],
+): Promise<void> {
+  await getStorePanel(workspaceId);
   await saveStoreFields(workspaceId, {
     whatsappNumber: "+961 3 000 000",
     storeUrl: "https://preview-store.myshopify.com",
     courierChoice: "partner_a",
   });
-  // Tick most of the checklist so the panel looks realistic.
   for (const key of STORE_CHECKLIST_KEYS) {
     if (!markReady && key === "whatsappConnected") continue;
     await toggleChecklistItem(workspaceId, key, true);
@@ -349,14 +510,21 @@ async function seedStore(workspaceId: string, markReady: boolean, notes: string[
   }
 }
 
-async function driveSampleApproved(workspaceId: string, notes: string[]): Promise<void> {
+async function driveSampleApproved(
+  workspaceId: string,
+  notes: string[],
+  opts: { seedStoreSide?: boolean; skuId?: string } = {},
+): Promise<void> {
+  const seedStoreSide = opts.seedStoreSide !== false;
   const panel = await getSupplierPanel(workspaceId);
   if (!panel) throw new Error("preview: supplier panel unavailable");
   const primary = panel.groups.find((g) => g.primary)?.primary;
   if (!primary) throw new Error("preview: no primary supplier generated");
 
   const reqd = await requestSample(workspaceId, primary.id);
-  if (!reqd.ok) throw new Error(`preview: requestSample failed (${reqd.error})`);
+  if (!reqd.ok) {
+    throw new Error(`preview: requestSample failed (${reqd.error})`);
+  }
 
   const afterReq = await getSupplierPanel(workspaceId);
   const sampleId = afterReq?.sample?.id;
@@ -381,36 +549,37 @@ async function driveSampleApproved(workspaceId: string, notes: string[]): Promis
   );
 
   const decided = await decideSample(workspaceId, sampleId, "approve");
-  if (!decided.ok) throw new Error(`preview: decideSample failed (${decided.error})`);
+  if (!decided.ok) {
+    throw new Error(`preview: decideSample failed (${decided.error})`);
+  }
   notes.push(`Sample requested from ${primary.name}, received, and approved.`);
 
-  // Intro marketing unlocks at sample approved; store setup opens in parallel.
-  await generateKit(workspaceId, "intro_pdf", false);
+  await generateKit(workspaceId, "intro_pdf", false, opts.skuId);
   notes.push("Generated intro marketing lesson.");
-  await seedStore(workspaceId, false, notes);
+  if (seedStoreSide) {
+    await seedStore(workspaceId, false, notes);
+  }
 }
 
-/**
- * Selling fixture only: save post-sample founder cost quotes through the REAL
- * `saveCostQuotes` service (never a raw `quotedCosts` / `costQuotesSaved` write).
- * Runs after sample approval and BEFORE batch ordering so the batch estimate and
- * every Topic A actual-margin surface use the founder-quoted costs.
- */
-async function driveCostQuotes(workspaceId: string, notes: string[]): Promise<void> {
+async function driveCostQuotes(
+  workspaceId: string,
+  notes: string[],
+): Promise<void> {
   const panel = await getSupplierPanel(workspaceId);
   if (!panel) throw new Error("preview: supplier panel unavailable for cost quotes");
-  // Working supplier = the approved sample's supplier; its unit price is exposed
-  // by the Supplier view as the cost-quote prefill product cost.
   const productCost = panel.costQuotes.prefill.productCost;
 
   const saved = await saveCostQuotes(workspaceId, {
+    source: "import",
     productCost,
     intlShip: PREVIEW_COST_QUOTE.intlShip,
     clearanceTaxes: PREVIEW_COST_QUOTE.clearanceTaxes,
     localCourier: PREVIEW_COST_QUOTE.localCourier,
     sellPrice: PREVIEW_COST_QUOTE.sellPrice,
   });
-  if (!saved.ok) throw new Error(`preview: saveCostQuotes failed (${saved.error})`);
+  if (!saved.ok) {
+    throw new Error(`preview: saveCostQuotes failed (${saved.error})`);
+  }
   notes.push(
     `Saved founder cost quotes (unit $${productCost} + freight $${PREVIEW_COST_QUOTE.intlShip} + clearance $${PREVIEW_COST_QUOTE.clearanceTaxes}) — expected margin before ads ${Math.round(
       saved.expectedMarginBefore * 100,
@@ -418,7 +587,17 @@ async function driveCostQuotes(workspaceId: string, notes: string[]): Promise<vo
   );
 }
 
-async function driveBatchArrived(workspaceId: string, notes: string[]): Promise<void> {
+async function driveBatchArrived(
+  workspaceId: string,
+  notes: string[],
+  opts: {
+    seedStoreSide?: boolean;
+    /** Stop after order + pre-launch kit (do not mark arrived / launch). */
+    stopAfterOrdered?: boolean;
+    skuId?: string;
+  } = {},
+): Promise<void> {
+  const seedStoreSide = opts.seedStoreSide !== false;
   const panel = await getSupplierPanel(workspaceId);
   if (!panel) throw new Error("preview: supplier panel unavailable");
   const primary = panel.groups.find((g) => g.primary)?.primary;
@@ -427,50 +606,109 @@ async function driveBatchArrived(workspaceId: string, notes: string[]): Promise<
   const qty = primary.moq;
   let ordered = await orderBatch(workspaceId, primary.id, qty, false);
   if (!ordered.ok && ordered.error === "needs_stuck_acks") {
-    // Batch estimate crossed the $10k soft limit — acknowledge and proceed.
     ordered = await orderBatch(workspaceId, primary.id, qty, true);
     notes.push("Batch over $10k soft limit — acknowledged stuck-ladder acks.");
   }
-  if (!ordered.ok) throw new Error(`preview: orderBatch failed (${ordered.error})`);
+  if (!ordered.ok) {
+    throw new Error(`preview: orderBatch failed (${ordered.error})`);
+  }
   notes.push(`Ordered a batch of ${qty} units from ${primary.name}.`);
 
-  // Default ETA so pre-launch week plan is founder-set (not silent default).
-  const eta = await setBatchArrivalEta(workspaceId, { preset: "1m" });
-  if (!eta.ok) throw new Error(`preview: setBatchArrivalEta failed (${eta.error})`);
+  const skuId = opts.skuId ?? panel.skuId;
+  const eta = await setBatchArrivalEta(workspaceId, skuId, { preset: "1m" });
+  if (!eta.ok) {
+    throw new Error(`preview: setBatchArrivalEta failed (${eta.error})`);
+  }
   notes.push("Set batch arrival ETA to ~1 month.");
 
-  // Pre-launch marketing unlocks once the batch is ordered.
-  await generateKit(workspaceId, "pre_launch", false);
+  await generateKit(workspaceId, "pre_launch", false, skuId);
 
-  const arrived = await markBatchArrived(workspaceId, true);
-  if (!arrived.ok) throw new Error(`preview: markBatchArrived failed (${arrived.error})`);
+  if (opts.stopAfterOrdered) {
+    notes.push("Stopped at batch ordered — pre-launch kit only (not arrived).");
+    return;
+  }
+
+  const arrived = await markBatchArrived(workspaceId, skuId, true);
+  if (!arrived.ok) {
+    throw new Error(`preview: markBatchArrived failed (${arrived.error})`);
+  }
   notes.push("Marked batch arrived + inventory checked.");
 
-  // Launch marketing (first launch kit needs the budget-rules ack).
-  await generateKit(workspaceId, "launch", true);
+  await generateKit(workspaceId, "launch", true, skuId);
   notes.push("Generated pre-launch + launch marketing kits.");
 
-  // Finish the store side so QA can see a ready store next to the batch.
-  await seedStore(workspaceId, true, notes);
+  if (seedStoreSide) {
+    await seedStore(workspaceId, true, notes);
+  }
 }
 
-async function driveSelling(workspaceId: string, notes: string[]): Promise<void> {
-  const started = await startSelling(workspaceId);
-  if (!started.ok) throw new Error(`preview: startSelling failed (${started.error})`);
-  notes.push("Marked selling — Topic A advice is now live.");
+async function driveMarkSelling(
+  workspaceId: string,
+  skuId: string,
+  notes: string[],
+): Promise<void> {
+  await setActiveSku(workspaceId, skuId);
+  const started = await startSelling(workspaceId, skuId);
+  if (!started.ok) {
+    throw new Error(`preview: startSelling failed (${started.error})`);
+  }
+  notes.push(`Marked selling for ${skuId} — Topic A advice is now live.`);
+}
 
-  // 4 consecutive weekly Topic A starts (exactly +7 days). Raw weekly values
-  // only — the Finance service computes every margin. Per unit the fixture holds
-  // sell $30, import COGS (product + freight + clearance) and $2.50 courier
-  // constant, so healthy weeks land well above the 35% after-ads guardrail.
-  // Week 3 is an intentional WARNING: a Meta/TikTok spend spike pushes actual
-  // after-ads below 35% while before-ads stays healthy. Units sold stay within
-  // the 150-unit batch.
+/** Classic selling fixture weeks (includes one intentional watch week). */
+async function driveClassicTopicAWeeks(
+  workspaceId: string,
+  notes: string[],
+): Promise<void> {
   const weeks = [
-    { weekStart: "2026-03-17", sales: 720, orders: 24, meta: 90, tiktok: 54, collected: 610, outstanding: 110, courier: 60, sold: 24, left: 126 },
-    { weekStart: "2026-03-24", sales: 900, orders: 30, meta: 110, tiktok: 70, collected: 760, outstanding: 140, courier: 75, sold: 30, left: 96 },
-    { weekStart: "2026-03-31", sales: 1080, orders: 36, meta: 350, tiktok: 210, collected: 900, outstanding: 180, courier: 90, sold: 36, left: 60 },
-    { weekStart: "2026-04-07", sales: 1200, orders: 40, meta: 150, tiktok: 90, collected: 1010, outstanding: 190, courier: 100, sold: 40, left: 20 },
+    {
+      weekStart: "2026-03-17",
+      sales: 720,
+      orders: 24,
+      meta: 90,
+      tiktok: 54,
+      collected: 610,
+      outstanding: 110,
+      courier: 60,
+      sold: 24,
+      left: 126,
+    },
+    {
+      weekStart: "2026-03-24",
+      sales: 900,
+      orders: 30,
+      meta: 110,
+      tiktok: 70,
+      collected: 760,
+      outstanding: 140,
+      courier: 75,
+      sold: 30,
+      left: 96,
+    },
+    {
+      weekStart: "2026-03-31",
+      sales: 1080,
+      orders: 36,
+      meta: 350,
+      tiktok: 210,
+      collected: 900,
+      outstanding: 180,
+      courier: 90,
+      sold: 36,
+      left: 60,
+    },
+    {
+      weekStart: "2026-04-07",
+      sales: 1200,
+      orders: 40,
+      meta: 150,
+      tiktok: 90,
+      collected: 1010,
+      outstanding: 190,
+      courier: 100,
+      sold: 40,
+      left: 20,
+    },
   ];
   for (const w of weeks) {
     const arrived = await addWeeklyEntry(workspaceId, {
@@ -485,14 +723,322 @@ async function driveSelling(workspaceId: string, notes: string[]): Promise<void>
       skuSold: w.sold,
       skuLeft: w.left,
     });
-    if (!arrived.ok) throw new Error(`preview: addWeeklyEntry failed (${arrived.error})`);
+    if (!arrived.ok) {
+      throw new Error(`preview: addWeeklyEntry failed (${arrived.error})`);
+    }
   }
   notes.push(
     "Added 4 weekly Topic A entries (1 intentional <35% after-ads warning week; invest-next unlocked).",
   );
-
-  // A monthly-refresh kit rounds out the marketing panel.
   await generateKit(workspaceId, "monthly_refresh", true);
+}
+
+async function driveSelling(
+  workspaceId: string,
+  notes: string[],
+): Promise<void> {
+  await driveMarkSelling(workspaceId, PREVIEW_SKU_ID, notes);
+  await driveClassicTopicAWeeks(workspaceId, notes);
+}
+
+/**
+ * Seed N weeks that the Finance service scores as `healthy` (same computeHealth
+ * path as production). Used for Wave 1 add-SKU bar QA.
+ */
+async function driveHealthyTopicAWeeks(
+  workspaceId: string,
+  count: number,
+  notes: string[],
+  opts: {
+    startDate?: string;
+    skuLines?: Array<{
+      skuId: string;
+      sold: number;
+      left: number;
+      sales: number;
+    }>;
+  } = {},
+): Promise<void> {
+  const start = opts.startDate ?? "2025-12-01";
+  const startMs = Date.parse(`${start}T12:00:00Z`);
+  if (Number.isNaN(startMs)) {
+    throw new Error(`preview: bad week start ${start}`);
+  }
+
+  for (let i = 0; i < count; i++) {
+    const d = new Date(startMs + i * 7 * 24 * 60 * 60 * 1000);
+    const weekStart = d.toISOString().slice(0, 10);
+    // Conservative healthy shape: strong ROAS, low COD outstanding, positive net.
+    const sold = 8;
+    const sales = sold * PREVIEW_COST_QUOTE.sellPrice; // 240
+    const meta = 24;
+    const tiktok = 12; // ads 36 → ROAS 240/36 ≈ 6.7
+    const collected = 200;
+    const outstanding = 40; // ratio 40/240 ≈ 0.17
+    const courier = sold * PREVIEW_COST_QUOTE.localCourier; // 20
+    const left = Math.max(0, 120 - sold * (i + 1));
+
+    const payload =
+      opts.skuLines && opts.skuLines.length > 0
+        ? {
+            weekStart,
+            sales,
+            orders: sold,
+            metaSpend: meta,
+            tiktokSpend: tiktok,
+            codCollected: collected,
+            codOutstanding: outstanding,
+            courierFees: courier,
+            skuSold: sold,
+            skuLeft: left,
+            skuLines: opts.skuLines.map((l) => ({
+              ...l,
+              // Keep per-SKU lines stable; shop roll-up still healthy.
+              sold: Math.max(1, Math.floor(l.sold)),
+              left: l.left,
+              sales: l.sales,
+            })),
+          }
+        : {
+            weekStart,
+            sales,
+            orders: sold,
+            metaSpend: meta,
+            tiktokSpend: tiktok,
+            codCollected: collected,
+            codOutstanding: outstanding,
+            courierFees: courier,
+            skuSold: sold,
+            skuLeft: left,
+          };
+
+    const arrived = await addWeeklyEntry(workspaceId, payload);
+    if (!arrived.ok) {
+      throw new Error(`preview: healthy addWeeklyEntry failed (${arrived.error})`);
+    }
+  }
+  notes.push(
+    `Added ${count} healthy Topic A weeks (Finance verdict healthy; add-SKU bar path).`,
+  );
+}
+
+type SkuPipelineTarget =
+  | "sample_approved"
+  | "batch_ordered"
+  | "batch_arrived_ready"
+  | "selling";
+
+async function driveSkuPipeline(
+  workspaceId: string,
+  skuId: string,
+  target: SkuPipelineTarget,
+  notes: string[],
+  opts: { seedStoreSide?: boolean } = {},
+): Promise<void> {
+  await setActiveSku(workspaceId, skuId);
+  const seedStoreSide = opts.seedStoreSide !== false;
+
+  await driveSampleApproved(workspaceId, notes, { seedStoreSide, skuId });
+  if (target === "sample_approved") return;
+
+  await driveCostQuotes(workspaceId, notes);
+
+  if (target === "batch_ordered") {
+    await driveBatchArrived(workspaceId, notes, {
+      seedStoreSide: false,
+      stopAfterOrdered: true,
+      skuId,
+    });
+    return;
+  }
+
+  await driveBatchArrived(workspaceId, notes, { seedStoreSide, skuId });
+  if (target === "batch_arrived_ready") return;
+
+  await driveMarkSelling(workspaceId, skuId, notes);
+}
+
+async function seedClassicPath(
+  workspaceId: string,
+  stage: ClassicPreviewStage,
+  notes: string[],
+): Promise<void> {
+  const target = classicStageIndex(stage);
+
+  await driveDiscovery(workspaceId, notes);
+
+  if (target >= classicStageIndex("accepted")) {
+    await driveAccept(workspaceId, notes);
+  }
+  if (target >= classicStageIndex("sample_approved")) {
+    await driveSampleApproved(workspaceId, notes);
+  }
+  if (target >= classicStageIndex("selling")) {
+    await driveCostQuotes(workspaceId, notes);
+  }
+  if (target >= classicStageIndex("batch_arrived_ready")) {
+    await driveBatchArrived(workspaceId, notes);
+  }
+  if (target >= classicStageIndex("selling")) {
+    await driveSelling(workspaceId, notes);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wave 1 multi-SKU fixtures
+// ---------------------------------------------------------------------------
+
+async function seedWave1(
+  workspaceId: string,
+  stage: Wave1PreviewStage,
+  notes: string[],
+): Promise<void> {
+  switch (stage) {
+    case "wave1_two_sku": {
+      // 2 live selling SKUs + Mode C Topic A roll-up.
+      await driveDiscovery(workspaceId, notes);
+      await driveAccept(workspaceId, notes);
+      await driveSkuPipeline(workspaceId, PREVIEW_SKU_ID, "selling", notes, {
+        seedStoreSide: true,
+      });
+      await driveAcceptAnother(workspaceId, PREVIEW_SKU_ID_2, notes);
+      await driveSkuPipeline(workspaceId, PREVIEW_SKU_ID_2, "selling", notes, {
+        seedStoreSide: false,
+      });
+      await driveHealthyTopicAWeeks(workspaceId, 4, notes, {
+        startDate: "2026-03-17",
+        skuLines: [
+          {
+            skuId: PREVIEW_SKU_ID,
+            sold: 5,
+            left: 80,
+            sales: 5 * PREVIEW_COST_QUOTE.sellPrice,
+          },
+          {
+            skuId: PREVIEW_SKU_ID_2,
+            sold: 4,
+            left: 70,
+            sales: 4 * PREVIEW_COST_QUOTE.sellPrice,
+          },
+        ],
+      });
+      await generateKit(workspaceId, "monthly_refresh", true);
+      await setActiveSku(workspaceId, PREVIEW_SKU_ID);
+      notes.push(
+        "Wave 1 two-SKU: hub + Mode C; both selling → Marketing Current = weekly refresh by design (use wave1_marketing_paths for per-SKU stage diffs).",
+      );
+      break;
+    }
+    case "wave1_beginner_blocked": {
+      // Experience set at foundation; classic selling has only 4 weeks (<15).
+      await seedClassicPath(workspaceId, "selling", notes);
+      notes.push(
+        "Wave 1 beginner blocked: experience=beginner, <15 healthy weeks — Add SKU hard-blocked.",
+      );
+      break;
+    }
+    case "wave1_ready_add": {
+      await driveDiscovery(workspaceId, notes);
+      await driveAccept(workspaceId, notes);
+      await driveSkuPipeline(workspaceId, PREVIEW_SKU_ID, "selling", notes, {
+        seedStoreSide: true,
+      });
+      await driveHealthyTopicAWeeks(
+        workspaceId,
+        ADD_SKU_HEALTHY_WEEKS_MIN,
+        notes,
+        { startDate: "2025-12-01" },
+      );
+      await generateKit(workspaceId, "monthly_refresh", true);
+      notes.push(
+        "Wave 1 ready-add: seeds 15 healthy Topic A weeks for add-SKU gate QA — re-seed another stage before clean path tests (weeks remain until wipe).",
+      );
+      break;
+    }
+    case "wave1_archived": {
+      await driveDiscovery(workspaceId, notes);
+      await driveAccept(workspaceId, notes);
+      await driveSkuPipeline(workspaceId, PREVIEW_SKU_ID, "selling", notes, {
+        seedStoreSide: true,
+      });
+      await driveClassicTopicAWeeks(workspaceId, notes);
+      await driveAcceptAnother(workspaceId, PREVIEW_SKU_ID_2, notes);
+      await driveSkuPipeline(
+        workspaceId,
+        PREVIEW_SKU_ID_2,
+        "sample_approved",
+        notes,
+        { seedStoreSide: false },
+      );
+      const archived = await archiveSku(workspaceId, PREVIEW_SKU_ID_2);
+      if (!archived.ok) {
+        throw new Error(`preview: archiveSku failed (${archived.error})`);
+      }
+      await setActiveSku(workspaceId, PREVIEW_SKU_ID);
+      notes.push(
+        "Wave 1 archived: 1 live + 1 archived — restore visible on hub.",
+      );
+      break;
+    }
+    case "wave1_marketing_paths": {
+      // Per-SKU Marketing QA: A selling (weekly refresh), B sample (intro),
+      // C batch_ordered (pre-launch). Journeys must differ — no shop bleed.
+      await driveDiscovery(workspaceId, notes);
+      await driveAccept(workspaceId, notes);
+
+      await driveSkuPipeline(workspaceId, PREVIEW_SKU_ID, "selling", notes, {
+        seedStoreSide: true,
+      });
+      const refreshA = await generateKit(
+        workspaceId,
+        "monthly_refresh",
+        true,
+        PREVIEW_SKU_ID,
+      );
+      if (!refreshA.ok) {
+        throw new Error(
+          `preview: monthly_refresh for SKU A failed (${refreshA.error})`,
+        );
+      }
+      notes.push(
+        "SKU A (preview-sku-0001): selling + full kit path — Current = weekly refresh.",
+      );
+
+      await driveAcceptAnother(workspaceId, PREVIEW_SKU_ID_2, notes);
+      await driveSkuPipeline(
+        workspaceId,
+        PREVIEW_SKU_ID_2,
+        "sample_approved",
+        notes,
+        { seedStoreSide: false },
+      );
+      notes.push(
+        "SKU B (preview-sku-0002): sample_approved + intro only — later stages locked.",
+      );
+
+      await driveAcceptAnother(workspaceId, PREVIEW_SKU_ID_3, notes);
+      await driveSkuPipeline(
+        workspaceId,
+        PREVIEW_SKU_ID_3,
+        "batch_ordered",
+        notes,
+        { seedStoreSide: false },
+      );
+      notes.push(
+        "SKU C (preview-sku-0003): batch_ordered + pre-launch — Current = pre_launch.",
+      );
+
+      await setActiveSku(workspaceId, PREVIEW_SKU_ID);
+      notes.push(
+        "Wave 1 marketing paths: on Marketing, switch A→B→C — each SKU’s own Current/unlocks.",
+      );
+      break;
+    }
+    default: {
+      const _exhaustive: never = stage;
+      throw new Error(`preview: unknown wave1 stage ${_exhaustive}`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -503,33 +1049,23 @@ export async function seedPreview(stage: PreviewStage): Promise<SeedResult> {
   ensureMigrated();
   const notes: string[] = [];
 
-  // Identity + store name persist across re-seeds; journey/SKU data does not.
   const identity = resolvePreviewIdentity(await readPreviewIdentity());
   await resetPreviewData();
-  const { userId, workspaceId } = await createFoundation(identity);
-  notes.push(`Created demo founder ${PREVIEW_EMAIL} with completed onboarding.`);
 
-  const target = stageIndex(stage);
+  const experience: ExperienceLevel =
+    stage === "wave1_beginner_blocked" || stage === "wave1_ready_add"
+      ? "beginner"
+      : "some";
 
-  // Discovery is always seeded so the board isn't empty at stage A.
-  await driveDiscovery(workspaceId, notes);
+  const { userId, workspaceId } = await createFoundation(identity, experience);
+  notes.push(
+    `Created demo founder ${PREVIEW_EMAIL} with completed onboarding (experience=${experience}).`,
+  );
 
-  if (target >= stageIndex("accepted")) {
-    await driveAccept(workspaceId, notes);
-  }
-  if (target >= stageIndex("sample_approved")) {
-    await driveSampleApproved(workspaceId, notes);
-  }
-  // Selling fixture only: save founder cost quotes BEFORE batch ordering so the
-  // batch estimate + Topic A actual margins exercise the founder-quoted path.
-  if (target >= stageIndex("selling")) {
-    await driveCostQuotes(workspaceId, notes);
-  }
-  if (target >= stageIndex("batch_arrived_ready")) {
-    await driveBatchArrived(workspaceId, notes);
-  }
-  if (target >= stageIndex("selling")) {
-    await driveSelling(workspaceId, notes);
+  if (isWave1PreviewStage(stage)) {
+    await seedWave1(workspaceId, stage, notes);
+  } else {
+    await seedClassicPath(workspaceId, stage, notes);
   }
 
   return {

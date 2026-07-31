@@ -172,6 +172,14 @@ export async function loginAction(
     return {};
   }
 
+  const { listLiveSkus } = await import("@/lib/sku/journey");
+  const { resolvePostLoginLanding } = await import("@/lib/sku/add-sku-gate");
+  const live = await listLiveSkus(workspace.id);
+  const landing = resolvePostLoginLanding(live.map((s) => ({ id: s.id })));
+  if (landing.kind === "sku") {
+    redirect({ href: `/sku/${landing.skuId}`, locale });
+    return {};
+  }
   redirect({ href: "/dashboard", locale });
   return {};
 }

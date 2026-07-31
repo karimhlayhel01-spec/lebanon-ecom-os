@@ -70,18 +70,35 @@ function translateMarginBlock(
 
 const passFeedbackInitial: PassFeedbackState = {};
 
-export function DiscoveryBoard({ view }: { view: DiscoveryView }) {
+export function DiscoveryBoard({
+  view,
+  mode = "first",
+}: {
+  view: DiscoveryView;
+  /** `addSku` = another product while live SKUs continue (not a shop reset). */
+  mode?: "first" | "addSku";
+}) {
   const t = useTranslations("Discovery");
   const empty = view.candidates.length === 0;
+  const isAdd = mode === "addSku";
 
   return (
     <div className="space-y-5">
       <div className="surface-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="font-display text-lg text-ink">{t("title")}</h2>
+            {isAdd ? (
+              <p className="text-xs font-medium uppercase tracking-wide text-stone-dark">
+                {t("addSkuKicker")}
+              </p>
+            ) : null}
+            <h2
+              className={`font-display text-lg text-ink ${isAdd ? "mt-0.5" : ""}`}
+            >
+              {isAdd ? t("addSkuTitle") : t("title")}
+            </h2>
             <p className="mt-1 max-w-2xl text-sm text-stone-dark">
-              {t("intro")}
+              {isAdd ? t("addSkuIntro") : t("intro")}
             </p>
           </div>
           <span className="whitespace-nowrap rounded-full border border-stone bg-sand px-3 py-1 text-xs font-medium text-stone-dark">
@@ -398,6 +415,21 @@ function ProductCard({ c }: { c: DiscoveryCandidateView }) {
         <MarginPill label={t("marginAfter")} value={c.marginAfter} pass={c.marginsPass} />
       </div>
       <p className="text-[11px] text-stone-dark">{t("estimateNote")}</p>
+
+      {c.sourceCostHint && (
+        <div className="rounded-md border border-stone bg-surface-subtle px-3 py-2 text-[11px] text-stone-dark">
+          <p className="font-medium text-ink">{t("sourceCostHintTitle")}</p>
+          <p className="mt-1">
+            {t("sourceCostHintBody", {
+              importLanded: c.sourceCostHint.importLanded.toFixed(2),
+              localLanded: c.sourceCostHint.localLanded.toFixed(2),
+              importMargin: Math.round(c.sourceCostHint.importMarginBefore * 100),
+              localMargin: Math.round(c.sourceCostHint.localMarginBefore * 100),
+            })}
+          </p>
+          <p className="mt-1 text-[10px]">{t("sourceCostHintNote")}</p>
+        </div>
+      )}
 
       {blocked && (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">

@@ -12,6 +12,20 @@ export function canEditBatchArrivalEta(flags: {
   return flags.batchOrdered && !flags.batchArrivedReady;
 }
 
+/**
+ * First-batch arrived / ETA must target the Supplier panel's skuId.
+ * Never fall back to workspace `activeSkuId` when they differ (multi-SKU footgun).
+ */
+export function resolvePanelScopedSkuId(args: {
+  panelSkuId: string | null | undefined;
+  /** Present only to document that active must not win — intentionally unused. */
+  activeSkuId?: string | null;
+}): string | null {
+  if (typeof args.panelSkuId !== "string") return null;
+  const id = args.panelSkuId.trim();
+  return id.length > 0 ? id : null;
+}
+
 export const DEFAULT_ETA_WEEKS = 4;
 export const MAX_ETA_WEEKS = 8;
 export const MIN_ETA_WEEKS = 1;

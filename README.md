@@ -128,8 +128,10 @@ Once a product is accepted the dashboard composes the full operator journey. Eve
 
 ```bash
 # 1) Seed the demo founder to a stage (writes to the local SQLite DB)
-npm run db:seed:preview -- selling      # full path (default if omitted)
-#   stages: discovery | accepted | sample_approved | batch_arrived_ready | selling
+npm run db:seed:preview -- selling      # classic full path (default if omitted)
+#   classic: discovery | accepted | sample_approved | batch_arrived_ready | selling
+#   wave 1:  wave1_two_sku | wave1_beginner_blocked | wave1_ready_add |
+#            wave1_archived | wave1_marketing_paths
 
 # 2) Run the app with the flag ON
 PREVIEW_MODE=1 npm run dev -- -p 3005
@@ -145,7 +147,7 @@ Demo credentials:
 - **Email:** `preview@local.dev`
 - **Password:** `preview1234`
 
-When the flag is on, the dashboard shows a **"Preview data — local QA only"** banner. Each stage is cumulative and re-seeds the demo workspace from scratch (only the `preview@local.dev` user is touched; real accounts are untouched).
+When the flag is on, the dashboard (and deep pages) show a **"Preview data — local QA only"** banner. Classic stages are cumulative; Wave 1 fixtures each re-seed the demo workspace from scratch to a multi-SKU shape (only the `preview@local.dev` user is touched; real accounts are untouched).
 
 ### Stages
 
@@ -156,17 +158,24 @@ When the flag is on, the dashboard shows a **"Preview data — local QA only"** 
 | `sample_approved` | Supplier sample approved; store + marketing intro unlocked |
 | `batch_arrived_ready` | Batch ordered + arrived; store ready; launch marketing |
 | `selling` | Selling; saved founder cost quotes (batch + margins use the quoted path), 4 weekly Topic A entries incl. one intentional <35% after-ads warning week, automatic actual margins, and **invest-next** unlocked |
+| `wave1_two_sku` | 2 live selling SKUs — hub landing, attention chips, multi-select pause, Finance Mode C + Topic A roll-up. **Both SKUs Marketing Current = weekly refresh by design** (both are selling); use `wave1_marketing_paths` to QA per-SKU stage differences |
+| `wave1_beginner_blocked` | Beginner experience, <15 healthy weeks, 1 live SKU — Add SKU hard-blocked on hub |
+| `wave1_ready_add` | Beginner + ≥15 healthy weeks (Finance `healthy`) and last 5 consecutive healthy — Add SKU allowed. **Leaves 15 Topic A weeks in the DB** for gate QA; re-seed another stage before clean path tests |
+| `wave1_archived` | 1 live + 1 archived — restore visible on hub |
+| `wave1_marketing_paths` | 3 live SKUs at different Marketing stages (A selling/weekly refresh, B sample/intro, C batch_ordered/pre-launch) — switch picker to verify per-SKU Current/unlocks |
 
 ### Delete preview later (one pass)
 
 Remove all of the following, then this README section:
 
-- `src/lib/preview/` (folder: `config.ts`, `seed.ts`, `actions.ts`)
+- `src/lib/preview/` (folder: `config.ts`, `seed.ts`, `actions.ts`, `identity.ts`, …)
 - `src/components/preview/` (folder: `PreviewBanner.tsx`, `PreviewControls.tsx`)
 - `src/app/[locale]/preview/` (folder: `page.tsx`)
 - `scripts/seed-preview.ts`
 - The `db:seed:preview` script line in `package.json`
 - The `"Preview"` namespace in `messages/en.json` and `messages/ar.json`
-- In `src/app/[locale]/dashboard/page.tsx`: the two `// PREVIEW (removable)` imports and the `{isPreviewMode() && <PreviewBanner />}` line
+- In `src/app/[locale]/dashboard/page.tsx`: the `isPreviewMode` / `PreviewBanner` imports and the `{isPreviewMode() && <PreviewBanner />}` line
+- In `src/components/dashboard/DeepPageLayout.tsx`: the two `// PREVIEW (removable)` imports and the `{isPreviewMode() && <PreviewBanner />}` line
+- In `src/app/[locale]/sku/[id]/page.tsx`: the `isPreviewMode` / `PreviewBanner` imports and the banner render (if present)
 
-Nothing in the core OS imports the preview module, so removal leaves the app unchanged (`PREVIEW_MODE` simply stops mattering).
+Nothing in the core OS imports the preview module beyond those banner hooks, so removal leaves the app unchanged (`PREVIEW_MODE` simply stops mattering).
