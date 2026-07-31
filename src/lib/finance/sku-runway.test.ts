@@ -4,7 +4,13 @@ import {
   extractSkuTopicASeries,
   resolveUnitsLeftGlance,
   shouldShowUnitsLeftOnHub,
+  batchInventoryUnitsFromImportBatch,
+  resolveSkuLeftWithBatchBootstrap,
+  resolvePriorLeftForReorderArrive,
+  bumpTopicALeftAfterReorder,
+  findTopicARowIndexToBumpLeft,
 } from "@/lib/finance/sku-runway";
+import { parsePerSkuSoldLeft } from "@/lib/finance/service";
 
 describe("extractSkuTopicASeries", () => {
   it("reads Mode C per-SKU lines only for that skuId", () => {
@@ -118,6 +124,204 @@ describe("extractSkuTopicASeries", () => {
     });
     expect(seriesA).toEqual({ skuLeft: 90, recentWeeklySold: [10] });
     expect(seriesB).toEqual({ skuLeft: 0, recentWeeklySold: [0] });
+  });
+});
+
+describe("batch inventory bootstrap for hub units-left", () => {
+  it("uses ordered qty when Topic A has no left yet", () => {
+    expect(
+      resolveSkuLeftWithBatchBootstrap({
+        topicALeft: null,
+        batchInventoryUnits: 150,
+      }),
+    ).toBe(150);
+    expect(
+      batchInventoryUnitsFromImportBatch(
+        { suggestedFirstBatch: 150, unitsLeft: null },
+        { batchArrivedReady: true },
+      ),
+    ).toBe(150);
+    expect(
+      batchInventoryUnitsFromImportBatch(
+        { suggestedFirstBatch: 150, unitsLeft: null },
+        { batchArrivedReady: false },
+      ),
+    ).toBeNull();
+  });
+
+  it("prefers importBatch.unitsLeft over suggestedFirstBatch", () => {
+    expect(
+      batchInventoryUnitsFromImportBatch(
+        { suggestedFirstBatch: 100, unitsLeft: 150 },
+        { batchArrivedReady: true },
+      ),
+    ).toBe(150);
+  });
+
+  it("Topic A left wins over batch bootstrap once weeks exist", () => {
+    expect(
+      resolveSkuLeftWithBatchBootstrap({
+        topicALeft: 70,
+        batchInventoryUnits: 150,
+      }),
+    ).toBe(70);
+  });
+
+  it("order 150 → runway left 150 with empty Topic A; multi-SKU only that skuId", () => {
+    const empty: { perSkuSoldLeft: string }[] = [];
+    const runway = computeRunwayForSkuFromEntries(empty, "sku-a", {
+      liveSkuCount: 2,
+      batchInventoryUnits: 150,
+    });
+    expect(runway.skuLeft).toBe(150);
+    const glance = resolveUnitsLeftGlance(runway);
+    expect(glance).toEqual({ kind: "known", unitsLeft: 150, weeks: null });
+
+    const other = computeRunwayForSkuFromEntries(empty, "sku-b", {
+      liveSkuCount: 2,
+      batchInventoryUnits: null,
+    });
+    expect(other.skuLeft).toBeNull();
+    expect(resolveUnitsLeftGlance(other)).toEqual({ kind: "unknown" });
+  });
+
+  it("after Topic A log week, left follows Topic A not batch qty", () => {
+    const entries = [
+      {
+        perSkuSoldLeft: JSON.stringify({
+          orders: 10,
+          skus: { "sku-a": { sold: 10, left: 140, sales: 300 } },
+        }),
+      },
+    ];
+    const runway = computeRunwayForSkuFromEntries(entries, "sku-a", {
+      liveSkuCount: 1,
+      batchInventoryUnits: 150,
+    });
+    expect(runway.skuLeft).toBe(140);
+  });
+});
+
+describe("reorder arrive Topic A left bump", () => {
+  it("Topic A left 70 + reorder qty 150 → glance 220 (Mode C, other SKU unchanged)", () => {
+    const latest = JSON.stringify({
+      orders: 20,
+      skus: {
+        "sku-a": { sold: 30, left: 70, sales: 900 },
+        "sku-b": { sold: 5, left: 40, sales: 150 },
+      },
+    });
+    const priorLeft = resolvePriorLeftForReorderArrive({
+      topicALeft: 70,
+      batchInventoryUnits: 70,
+    });
+    expect(priorLeft).toBe(70);
+
+    const bumped = bumpTopicALeftAfterReorder({
+      perSkuSoldLeft: latest,
+      skuId: "sku-a",
+      addQty: 150,
+      priorLeft,
+      liveSkuCount: 2,
+    });
+    expect(bumped).not.toBeNull();
+    if (!bumped) return;
+    expect(bumped.newLeft).toBe(220);
+
+    const parsed = parsePerSkuSoldLeft(bumped.perSkuSoldLeft);
+    expect(parsed.skus["sku-a"]).toEqual({
+      sold: 30,
+      left: 220,
+      sales: 900,
+    });
+    expect(parsed.skus["sku-b"]).toEqual({ sold: 5, left: 40, sales: 150 });
+
+    const runway = computeRunwayForSkuFromEntries(
+      [{ perSkuSoldLeft: bumped.perSkuSoldLeft }],
+      "sku-a",
+      { liveSkuCount: 2, batchInventoryUnits: 220 },
+    );
+    expect(resolveUnitsLeftGlance(runway)).toEqual({
+      kind: "known",
+      unitsLeft: 220,
+      weeks: runway.weeks,
+    });
+
+    const other = computeRunwayForSkuFromEntries(
+      [{ perSkuSoldLeft: bumped.perSkuSoldLeft }],
+      "sku-b",
+      { liveSkuCount: 2 },
+    );
+    expect(other.skuLeft).toBe(40);
+  });
+
+  it("bumps the week that owns this skuId’s left, not a later Mode C week missing it", () => {
+    const entries = [
+      {
+        id: "w1",
+        perSkuSoldLeft: JSON.stringify({
+          orders: 10,
+          skus: { "sku-a": { sold: 10, left: 70, sales: 300 } },
+        }),
+      },
+      {
+        id: "w2",
+        perSkuSoldLeft: JSON.stringify({
+          orders: 8,
+          skus: { "sku-b": { sold: 8, left: 40, sales: 240 } },
+        }),
+      },
+    ];
+    expect(findTopicARowIndexToBumpLeft(entries, "sku-a", 2)).toBe(0);
+    const idx = findTopicARowIndexToBumpLeft(entries, "sku-a", 2);
+    const bumped = bumpTopicALeftAfterReorder({
+      perSkuSoldLeft: entries[idx]!.perSkuSoldLeft,
+      skuId: "sku-a",
+      addQty: 150,
+      priorLeft: 70,
+      liveSkuCount: 2,
+    });
+    expect(bumped?.newLeft).toBe(220);
+    const after = [
+      { perSkuSoldLeft: bumped!.perSkuSoldLeft },
+      { perSkuSoldLeft: entries[1]!.perSkuSoldLeft },
+    ];
+    expect(
+      computeRunwayForSkuFromEntries(after, "sku-a", { liveSkuCount: 2 })
+        .skuLeft,
+    ).toBe(220);
+  });
+
+  it("legacy sole-SKU Topic A bump keeps sold, only raises left", () => {
+    const bumped = bumpTopicALeftAfterReorder({
+      perSkuSoldLeft: JSON.stringify({
+        orders: 24,
+        sku: { sold: 24, left: 70 },
+      }),
+      skuId: "only",
+      addQty: 150,
+      priorLeft: 70,
+      liveSkuCount: 1,
+    });
+    expect(bumped?.newLeft).toBe(220);
+    const parsed = parsePerSkuSoldLeft(bumped!.perSkuSoldLeft);
+    expect(parsed.skuSold).toBe(24);
+    expect(parsed.skuLeft).toBe(220);
+  });
+
+  it("does not rewrite multi-live legacy weeks (no cross-SKU bleed)", () => {
+    expect(
+      bumpTopicALeftAfterReorder({
+        perSkuSoldLeft: JSON.stringify({
+          orders: 24,
+          sku: { sold: 24, left: 70 },
+        }),
+        skuId: "sku-a",
+        addQty: 150,
+        priorLeft: 70,
+        liveSkuCount: 2,
+      }),
+    ).toBeNull();
   });
 });
 

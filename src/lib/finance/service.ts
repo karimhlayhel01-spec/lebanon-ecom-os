@@ -585,7 +585,7 @@ function basisForEntry(
 export async function getFinancePanel(
   workspaceId: string,
 ): Promise<FinancePanelView | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const live = await listLiveSkus(workspaceId);
   if (live.length === 0) return null;
 
@@ -598,18 +598,16 @@ export async function getFinancePanel(
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     db
       .select()
       .from(schema.topicAEntries)
       .where(eq(schema.topicAEntries.workspaceId, workspaceId))
-      .orderBy(asc(schema.topicAEntries.weekStart))
-      .all(),
+      .orderBy(asc(schema.topicAEntries.weekStart)),
     db
       .select()
       .from(schema.skuJourneys)
-      .where(eq(schema.skuJourneys.workspaceId, workspaceId))
-      .all(),
+      .where(eq(schema.skuJourneys.workspaceId, workspaceId)),
   ]);
 
   const journeyBySku = new Map(journeys.map((j) => [j.skuId, j]));
@@ -748,7 +746,7 @@ export async function getTopicAHistoryEntries(
   totalWeekCount: number;
   recentLimit: number;
 } | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const live = await listLiveSkus(workspaceId);
   if (live.length === 0) return null;
   const sku = await getSkuView(workspaceId);
@@ -759,7 +757,7 @@ export async function getTopicAHistoryEntries(
     .from(schema.topicAEntries)
     .where(eq(schema.topicAEntries.workspaceId, workspaceId))
     .orderBy(asc(schema.topicAEntries.weekStart))
-    .all();
+    ;
 
   const fallbackBasis = costBasisForSku(sku);
   const allSkuIds = new Set<string>([sku.id]);
@@ -805,7 +803,7 @@ export async function getTopicAHistoryEntries(
 export async function getCurrentActual(
   workspaceId: string,
 ): Promise<CurrentActualView | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const panel = await getFinancePanel(workspaceId);
   return panel?.currentActual ?? null;
 }
@@ -858,7 +856,7 @@ export async function canStartSellingForSku(
   workspaceId: string,
   skuId: string,
 ): Promise<boolean> {
-  ensureMigrated();
+  await ensureMigrated();
   const journey = await getSkuJourney(skuId);
   if (!journey || journey.workspaceId !== workspaceId) return false;
   return (
@@ -870,7 +868,7 @@ export async function startSelling(
   workspaceId: string,
   skuId?: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const resolvedSkuId = skuId ?? (await resolveActiveSkuId(workspaceId));
   if (!resolvedSkuId) return { ok: false, error: "not_found" };
 
@@ -918,7 +916,7 @@ export async function addWeeklyEntry(
   workspaceId: string,
   input: AddWeeklyEntryInput,
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const panel = await getFinancePanel(workspaceId);
   if (!panel || panel.mode !== "live") {
     return { ok: false, error: "not_selling" };
@@ -1035,7 +1033,7 @@ export async function addWeeklyEntry(
     .select({ topicAWeekCount: schema.sideStatuses.topicAWeekCount })
     .from(schema.sideStatuses)
     .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   await db
     .update(schema.sideStatuses)
     .set({

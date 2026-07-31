@@ -7,7 +7,7 @@ import {
 } from "@/lib/sku/journey";
 import { effectiveJourneyState } from "@/lib/sku/page-sections";
 import { costBasisForSku } from "@/lib/finance/service";
-import { computeRunwayForSkuFromEntries } from "@/lib/finance/sku-runway";
+import { computeRunwayForSkuFromEntries, batchInventoryUnitsFromImportBatch } from "@/lib/finance/sku-runway";
 import { getSkuViewById } from "@/lib/sku/service";
 import { reorderInvestNextTone } from "@/lib/supplier/reorder";
 import {
@@ -313,13 +313,13 @@ export async function getOrchestration(
 export async function getShopOrchestration(
   workspaceId: string,
 ): Promise<Orchestration | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const [side, live] = await Promise.all([
     db
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     listLiveSkus(workspaceId),
   ]);
 
@@ -347,7 +347,7 @@ export async function getSkuOrchestration(
   workspaceId: string,
   skuId: string,
 ): Promise<Orchestration | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const [skuJourney, side, suppliers, topicRows, sku, samples, live] =
     await Promise.all([
     getSkuJourney(skuId),
@@ -355,7 +355,7 @@ export async function getSkuOrchestration(
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     db
       .select({
         id: schema.supplierOptions.id,
@@ -366,8 +366,7 @@ export async function getSkuOrchestration(
         skuId: schema.supplierOptions.skuId,
       })
       .from(schema.supplierOptions)
-      .where(eq(schema.supplierOptions.skuId, skuId))
-      .all(),
+      .where(eq(schema.supplierOptions.skuId, skuId)),
     db
       .select({
         weekStart: schema.topicAEntries.weekStart,
@@ -379,8 +378,7 @@ export async function getSkuOrchestration(
       })
       .from(schema.topicAEntries)
       .where(eq(schema.topicAEntries.workspaceId, workspaceId))
-      .orderBy(asc(schema.topicAEntries.weekStart))
-      .all(),
+      .orderBy(asc(schema.topicAEntries.weekStart)),
     getSkuViewById(workspaceId, skuId),
     db
       .select({
@@ -388,8 +386,7 @@ export async function getSkuOrchestration(
         status: schema.sampleRecords.status,
       })
       .from(schema.sampleRecords)
-      .where(eq(schema.sampleRecords.skuId, skuId))
-      .all(),
+      .where(eq(schema.sampleRecords.skuId, skuId)),
     listLiveSkus(workspaceId),
   ]);
 
@@ -427,6 +424,15 @@ export async function getSkuOrchestration(
     primaryState === "selling"
       ? computeRunwayForSkuFromEntries(topicRows, skuId, {
           liveSkuCount: live.length,
+          batchInventoryUnits: batchInventoryUnitsFromImportBatch(
+            sku?.importBatch,
+            {
+              batchArrivedReady:
+                !!skuJourney?.batchArrivedReady ||
+                primaryState === "selling" ||
+                primaryState === "batch_arrived_ready",
+            },
+          ),
         })
       : { nudge: false };
   // Same per-SKU economics as Supplier reorder (not shop Finance invest-next).

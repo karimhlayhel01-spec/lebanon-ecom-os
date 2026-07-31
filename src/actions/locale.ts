@@ -14,7 +14,7 @@ import type { AppLocale } from "@/i18n/routing";
 export async function setUiLanguageAction(locale: AppLocale) {
   if (locale !== "en" && locale !== "ar") return;
 
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return;

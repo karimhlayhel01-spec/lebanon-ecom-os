@@ -5,6 +5,7 @@ import { requireOnboardedContext } from "@/lib/workspace";
 import { getDiscoveryView } from "@/lib/discovery/service";
 import { getFinancePanel } from "@/lib/finance/service";
 import {
+  batchInventoryUnitsFromImportBatch,
   computeRunwayForSkuFromEntries,
   resolveUnitsLeftGlance,
   shouldShowUnitsLeftOnHub,
@@ -52,8 +53,6 @@ import { primaryStateToJourneyStep } from "@/lib/dashboard/journey-step";
 import {
   resolveHubVocabHighlightPhase,
 } from "@/lib/vocabulary/glossary";
-import { isPreviewMode } from "@/lib/preview/config";
-import { PreviewBanner } from "@/components/preview/PreviewBanner";
 import type { AppLocale } from "@/i18n/routing";
 
 type Props = {
@@ -218,7 +217,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           .from(schema.topicAEntries)
           .where(eq(schema.topicAEntries.workspaceId, workspace.id))
           .orderBy(asc(schema.topicAEntries.weekStart))
-          .all()
+          
       : [];
 
   const skuChips: ShopSkuChip[] = [];
@@ -253,8 +252,23 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         financeUnlockedOnHub = true;
       }
       const reorderStatus = normalizeReorderStatus(j?.reorderStatus);
+      let importBatch: {
+        unitsLeft?: number | null;
+        suggestedFirstBatch?: number | null;
+      } | null = null;
+      try {
+        importBatch = JSON.parse(s.importBatch) as {
+          unitsLeft?: number | null;
+          suggestedFirstBatch?: number | null;
+        };
+      } catch {
+        importBatch = null;
+      }
       const runway = computeRunwayForSkuFromEntries(topicRowsForRunway, s.id, {
         liveSkuCount: live.length,
+        batchInventoryUnits: batchInventoryUnitsFromImportBatch(importBatch, {
+          batchArrivedReady: !!j?.batchArrivedReady,
+        }),
       });
       const unitsLeftGlance = resolveUnitsLeftGlance(runway);
       const reorderNudge =
@@ -537,7 +551,6 @@ export default async function DashboardPage({ params, searchParams }: Props) {
       />
 
       <main id="top" className="app-shell py-8">
-        {isPreviewMode() && <PreviewBanner />}
         {hubBody}
       </main>
     </div>

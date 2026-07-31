@@ -40,7 +40,7 @@ export async function getArchiveWarnings(
   workspaceId: string,
   skuId: string,
 ): Promise<ArchiveWarning | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const card = await db
     .select()
     .from(schema.skuCards)
@@ -50,13 +50,13 @@ export async function getArchiveWarnings(
         eq(schema.skuCards.workspaceId, workspaceId),
       ),
     )
-    .get();
+    .then((rows) => rows[0]);
   if (!card || card.lifecycleStatus !== "live") return null;
   const journey = await db
     .select()
     .from(schema.skuJourneys)
     .where(eq(schema.skuJourneys.skuId, skuId))
-    .get();
+    .then((rows) => rows[0]);
   return warningsFor(journey ?? null);
 }
 
@@ -68,7 +68,7 @@ export async function archiveSku(
   workspaceId: string,
   skuId: string,
 ): Promise<ArchiveResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const card = await db
     .select()
     .from(schema.skuCards)
@@ -78,7 +78,7 @@ export async function archiveSku(
         eq(schema.skuCards.workspaceId, workspaceId),
       ),
     )
-    .get();
+    .then((rows) => rows[0]);
   if (!card) return { ok: false, error: "not_found" };
   if (card.lifecycleStatus === "wiped") return { ok: false, error: "wiped" };
   if (card.lifecycleStatus === "archived") {
@@ -89,7 +89,7 @@ export async function archiveSku(
     .select()
     .from(schema.skuJourneys)
     .where(eq(schema.skuJourneys.skuId, skuId))
-    .get();
+    .then((rows) => rows[0]);
 
   const warnings = warningsFor(journey ?? null);
   const now = nowIso();
@@ -108,7 +108,7 @@ export async function archiveSku(
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   if (workspace?.activeSkuId === skuId) {
     const live = await listLiveSkus(workspaceId);
     await db
@@ -135,7 +135,7 @@ export async function restoreSku(
   workspaceId: string,
   skuId: string,
 ): Promise<RestoreResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const card = await db
     .select()
     .from(schema.skuCards)
@@ -145,7 +145,7 @@ export async function restoreSku(
         eq(schema.skuCards.workspaceId, workspaceId),
       ),
     )
-    .get();
+    .then((rows) => rows[0]);
   if (!card) return { ok: false, error: "not_found" };
   if (card.lifecycleStatus === "wiped") return { ok: false, error: "wiped" };
   if (card.lifecycleStatus !== "archived") {
@@ -171,7 +171,7 @@ export async function restoreSku(
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   if (!workspace?.activeSkuId) {
     await db
       .update(schema.workspaces)
@@ -190,7 +190,7 @@ export async function wipeSku(
   workspaceId: string,
   skuId: string,
 ): Promise<WipeResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const card = await db
     .select()
     .from(schema.skuCards)
@@ -200,7 +200,7 @@ export async function wipeSku(
         eq(schema.skuCards.workspaceId, workspaceId),
       ),
     )
-    .get();
+    .then((rows) => rows[0]);
   if (!card) return { ok: false, error: "not_found" };
   if (card.lifecycleStatus === "live") {
     return { ok: false, error: "must_archive_first" };

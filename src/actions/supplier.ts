@@ -36,7 +36,7 @@ async function workspaceForRequest() {
 }
 
 export async function requestSampleAction(supplierId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await requestSample(workspace.id, supplierId);
@@ -49,7 +49,7 @@ export async function markSampleReceivedAction(
   checklist: Record<string, boolean>,
   photoNotes: string,
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await markSampleReceived(
@@ -66,7 +66,7 @@ export async function decideSampleAction(
   sampleId: string,
   decision: SampleDecision,
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await decideSample(workspace.id, sampleId, decision);
@@ -79,7 +79,7 @@ export async function orderBatchAction(
   quantity: number,
   stuckAcks: boolean,
 ): Promise<OrderBatchResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await orderBatch(workspace.id, supplierId, quantity, stuckAcks);
@@ -91,7 +91,7 @@ export async function markBatchArrivedAction(
   skuId: string,
   inventoryAck: boolean,
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await markBatchArrived(workspace.id, skuId, inventoryAck);
@@ -103,7 +103,7 @@ export async function saveCostQuotesAction(
   input: CostQuoteInput,
   skuId?: string,
 ): Promise<SaveCostQuotesResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await saveCostQuotes(workspace.id, input, skuId);
@@ -115,7 +115,7 @@ export async function setBatchArrivalEtaAction(
   skuId: string,
   input: SetBatchArrivalEtaInput,
 ): Promise<SetBatchArrivalEtaResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await setBatchArrivalEta(workspace.id, skuId, input);
@@ -128,7 +128,7 @@ export async function orderNextBatchAction(
   quantity: number,
   opts: { economicsAck?: boolean; stuckAcks?: boolean } = {},
 ): Promise<OrderNextBatchResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await orderNextBatch(workspace.id, skuId, quantity, opts);
@@ -140,7 +140,7 @@ export async function markReorderArrivedAction(
   skuId: string,
   inventoryAck: boolean,
 ): Promise<MarkReorderArrivedResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await markReorderArrived(workspace.id, skuId, inventoryAck);
@@ -152,7 +152,7 @@ export async function setReorderArrivalEtaAction(
   skuId: string,
   input: SetBatchArrivalEtaInput,
 ): Promise<SetReorderArrivalEtaResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await setReorderArrivalEta(workspace.id, skuId, input);
@@ -164,7 +164,7 @@ export async function reportSupplierCantFulfillAction(
   skuId: string,
   reason?: string,
 ): Promise<ReportCantFulfillResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await reportSupplierCantFulfill(workspace.id, skuId, { reason });
@@ -177,7 +177,7 @@ export async function switchReorderBackupAction(
   backupSupplierId: string,
   opts: { skipSampleAck?: boolean } = {},
 ): Promise<SwitchReorderBackupResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await switchReorderBackup(

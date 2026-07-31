@@ -56,7 +56,7 @@ export async function completeOnboardingAction(
   _prev: OnboardingActionState,
   formData: FormData,
 ): Promise<OnboardingActionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) {
@@ -67,7 +67,7 @@ export async function completeOnboardingAction(
     .select()
     .from(schema.users)
     .where(eq(schema.users.id, user.id))
-    .get();
+    .then((rows) => rows[0]);
   if (!dbUser) {
     return { error: "errorGeneric" };
   }
@@ -125,13 +125,13 @@ export async function completeOnboardingAction(
     .select()
     .from(schema.onboardingProfiles)
     .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
-    .get();
+    .then((rows) => rows[0]);
 
   const priorSide = await db
     .select()
     .from(schema.sideStatuses)
     .where(eq(schema.sideStatuses.workspaceId, workspace.id))
-    .get();
+    .then((rows) => rows[0]);
   const isFirstCompletion = !priorSide?.onboardingComplete;
 
   const locale = await getLocale();

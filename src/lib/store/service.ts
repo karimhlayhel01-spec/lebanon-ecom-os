@@ -76,12 +76,12 @@ function policiesDraft(): string {
 }
 
 async function ensureStoreRow(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   const existing = await db
     .select()
     .from(schema.storeReadiness)
     .where(eq(schema.storeReadiness.workspaceId, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   if (existing) return existing;
 
   const sku = await getSkuView(workspaceId);
@@ -103,7 +103,7 @@ async function ensureStoreRow(workspaceId: string) {
     .select()
     .from(schema.storeReadiness)
     .where(eq(schema.storeReadiness.workspaceId, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
 }
 
 export type StorePanelView = {
@@ -136,7 +136,7 @@ export async function getStorePanel(
     .select()
     .from(schema.sideStatuses)
     .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
 
   const checklist = parseChecklist(row.checklist);
   return {
@@ -169,7 +169,7 @@ export async function toggleChecklistItem(
   key: StoreChecklistKey,
   value: boolean,
 ): Promise<{ ok: boolean; percent: number }> {
-  ensureMigrated();
+  await ensureMigrated();
   const row = await ensureStoreRow(workspaceId);
   if (!row) return { ok: false, percent: 0 };
   if (!STORE_CHECKLIST_KEYS.includes(key)) return { ok: false, percent: 0 };
@@ -195,7 +195,7 @@ export async function saveStoreFields(
     courierChoice?: string | null;
   },
 ): Promise<{ ok: boolean }> {
-  ensureMigrated();
+  await ensureMigrated();
   await ensureStoreRow(workspaceId);
   await founderEditStoreReadiness(workspaceId, fields);
   return { ok: true };
@@ -204,7 +204,7 @@ export async function saveStoreFields(
 export async function markStoreReady(
   workspaceId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await getWorkspace(workspaceId);
   if (!workspace) return { ok: false, error: "not_found" };
 

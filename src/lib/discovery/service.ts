@@ -93,7 +93,7 @@ export function selectLandedCostPool(
 }
 
 export async function getActiveSession(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   return db
     .select()
     .from(schema.discoverySessions)
@@ -103,7 +103,7 @@ export async function getActiveSession(workspaceId: string) {
         eq(schema.discoverySessions.status, "active"),
       ),
     )
-    .get();
+    .then((rows) => rows[0]);
 }
 
 /** Number of candidates generated for a session (the reveal pool size). */
@@ -112,7 +112,7 @@ async function poolSize(sessionId: string): Promise<number> {
     .select({ id: schema.productCandidates.id })
     .from(schema.productCandidates)
     .where(eq(schema.productCandidates.sessionId, sessionId))
-    .all();
+    ;
   return rows.length;
 }
 
@@ -131,12 +131,12 @@ function catalogKeyFromCandidate(row: {
 export async function getSeenCatalogKeys(
   workspaceId: string,
 ): Promise<Set<string>> {
-  ensureMigrated();
+  await ensureMigrated();
   const rows = await db
     .select({ fitBreakdown: schema.productCandidates.fitBreakdown })
     .from(schema.productCandidates)
     .where(eq(schema.productCandidates.workspaceId, workspaceId))
-    .all();
+    ;
   const keys = new Set<string>();
   for (const row of rows) {
     const key = catalogKeyFromCandidate(row);
@@ -216,14 +216,14 @@ async function getExhaustedRounds(workspaceId: string): Promise<number> {
     })
     .from(schema.sideStatuses)
     .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   return side?.discoveryExhaustedRounds ?? 0;
 }
 
 export async function resetDiscoveryExhaustedRounds(
   workspaceId: string,
 ): Promise<void> {
-  ensureMigrated();
+  await ensureMigrated();
   await db
     .update(schema.sideStatuses)
     .set({ discoveryExhaustedRounds: 0, updatedAt: nowIso() })
@@ -256,7 +256,7 @@ async function maybeCountExhaustion(workspaceId: string): Promise<void> {
         eq(schema.productCandidates.status, "shown"),
       ),
     )
-    .all();
+    ;
   const visibleCount = shownRows.filter(
     (r) => r.rank < session.productsShown,
   ).length;
@@ -341,7 +341,7 @@ export async function startDiscoverySession(
   workspaceId: string,
   onboarding: OnboardingRow,
 ) {
-  ensureMigrated();
+  await ensureMigrated();
 
   const existing = await getActiveSession(workspaceId);
   if (existing) return existing;
@@ -358,7 +358,7 @@ export async function continueDiscoverySession(
   workspaceId: string,
   onboarding: OnboardingRow,
 ): Promise<{ ok: true } | { ok: false; error: "no_session" | "catalog_exhausted" }> {
-  ensureMigrated();
+  await ensureMigrated();
 
   const existing = await getActiveSession(workspaceId);
   if (!existing) return { ok: false, error: "no_session" };
@@ -384,7 +384,7 @@ export async function submitDiscoveryPassFeedback(
   workspaceId: string,
   input: { reasons: DiscoveryPassReason[]; otherNote?: string },
 ): Promise<{ ok: true } | { ok: false; error: "empty" }> {
-  ensureMigrated();
+  await ensureMigrated();
   if (input.reasons.length === 0 && !input.otherNote?.trim()) {
     return { ok: false, error: "empty" };
   }
@@ -406,7 +406,7 @@ export async function submitDiscoveryPassFeedback(
 
 /** Reveal the next batch (5). Cap is productsShown; click max is a secondary guard. */
 export async function showMore(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   const session = await getActiveSession(workspaceId);
   if (!session) return;
 
@@ -434,12 +434,12 @@ export async function getCandidateOwned(
   workspaceId: string,
   candidateId: string,
 ): Promise<CandidateRow | undefined> {
-  ensureMigrated();
+  await ensureMigrated();
   const row = await db
     .select()
     .from(schema.productCandidates)
     .where(eq(schema.productCandidates.id, candidateId))
-    .get();
+    .then((rows) => rows[0]);
   if (!row || row.workspaceId !== workspaceId) return undefined;
   return row;
 }
@@ -451,7 +451,7 @@ export async function confirmDemand(
   locale: AppLocale,
   provider: DemandProvider = curatedDemandProvider,
 ): Promise<{ ok: boolean; error?: string; summary?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const candidate = await getCandidateOwned(workspaceId, candidateId);
   if (!candidate) return { ok: false, error: "not_found" };
 
@@ -493,7 +493,7 @@ export async function resolveTier1(
   candidateId: string,
   choice: "customize" | "drop",
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const candidate = await getCandidateOwned(workspaceId, candidateId);
   if (!candidate) return { ok: false, error: "not_found" };
   if (!candidate.tier1Conflict) return { ok: true };
@@ -551,7 +551,7 @@ export async function rejectCandidate(
   workspaceId: string,
   candidateId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const candidate = await getCandidateOwned(workspaceId, candidateId);
   if (!candidate) return { ok: false, error: "not_found" };
   await db
@@ -587,7 +587,7 @@ export async function acceptProduct(
   candidateId: string,
   riskReadAck: boolean,
 ): Promise<AcceptResult> {
-  ensureMigrated();
+  await ensureMigrated();
 
   const candidate = await getCandidateOwned(workspaceId, candidateId);
   if (!candidate || candidate.status !== "shown") {
@@ -833,7 +833,7 @@ export async function getDiscoveryView(
   workspaceId: string,
   locale: AppLocale,
 ): Promise<DiscoveryView | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const session = await getActiveSession(workspaceId);
   if (!session) return null;
 
@@ -851,7 +851,7 @@ export async function getDiscoveryView(
       ),
     )
     .orderBy(asc(schema.productCandidates.rank))
-    .all();
+    ;
 
   const visible = rows.filter((r) => r.rank < freshSession.productsShown);
   const cap = Math.min(DISCOVERY_SESSION_CAP, await poolSize(freshSession.id));
@@ -863,7 +863,7 @@ export async function getDiscoveryView(
     .select()
     .from(schema.onboardingProfiles)
     .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   const remainingEligible = onboarding
     ? await countRemainingEligible(workspaceId, onboarding)
     : 0;
@@ -889,7 +889,7 @@ export async function getDiscoveryView(
       .from(schema.demandSignals)
       .where(inArray(schema.demandSignals.productCandidateId, confirmedIds))
       .orderBy(desc(schema.demandSignals.createdAt))
-      .all();
+      ;
     for (const s of signals) {
       if (!demandSummaryByCandidate.has(s.productCandidateId)) {
         demandSummaryByCandidate.set(s.productCandidateId, s.aiSummary);

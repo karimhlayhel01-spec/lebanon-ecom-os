@@ -31,12 +31,12 @@ export default async function OnboardingPage({ params, searchParams }: Props) {
     redirect({ href: "/dashboard", locale });
   }
 
-  ensureMigrated();
+  await ensureMigrated();
   const dbUser = await db
     .select()
     .from(schema.users)
     .where(eq(schema.users.id, user!.id))
-    .get();
+    .then((rows) => rows[0]);
 
   let initialValues: OnboardingInitialValues = {
     firstName: dbUser?.firstName ?? "",

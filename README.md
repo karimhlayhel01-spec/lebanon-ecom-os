@@ -15,15 +15,18 @@ Founder operating system for importing and selling **one SKU** in Lebanon — bi
 
 - **Next.js 16.2** (App Router) + TypeScript + Tailwind CSS
 - **next-intl** — English / Arabic (RTL)
-- **Drizzle ORM** + **better-sqlite3** for local zero-config DB
+- **Drizzle ORM** + **Postgres** (`postgres.js` driver) via `DATABASE_URL`
 - Cookie **session auth** (bcryptjs) — no Clerk
-- Production DB target remains **Postgres**; local dev uses a SQLite file under `data/`
+- Production and local/dev both target **Postgres** (Neon-compatible connection strings work)
 
 ## Setup
 
 ```bash
+cp .env.example .env
+# Edit DATABASE_URL (local Postgres or Neon — see Database below)
+
 npm install
-npm run db:push          # optional; app also auto-creates tables on first use
+npm run db:migrate       # apply Drizzle migrations (or db:push while iterating on schema)
 npm run dev -- -p 3005   # dev server on port 3005
 ```
 
@@ -37,14 +40,42 @@ Open [http://localhost:3005](http://localhost:3005) — you will be redirected t
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run test` | Vitest tests |
-| `npm run db:push` | Push Drizzle schema to SQLite |
+| `npm run db:generate` | Generate SQL migrations from `src/db/schema.ts` |
+| `npm run db:migrate` | Apply pending migrations to `DATABASE_URL` |
+| `npm run db:push` | Push schema directly (handy early-stage; prefer migrate for shared DBs) |
 
-## Local database
+## Database (Postgres)
 
-- File: `data/lebanon-ecom.sqlite` (gitignored `*.db` / `*.sqlite`)
-- Schema in `src/db/schema.ts` is SQLite today but modeled for a later Postgres move
-- Couriers ×5 and clearance partner are TBD placeholders in `src/lib/constants.ts`
+The app requires **`DATABASE_URL`** — a standard Postgres connection string (Neon, local Docker, RDS, etc.).
 
+```bash
+# .env
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
+```
+
+### Local Postgres (Docker example)
+
+```bash
+docker run --name lebanon-ecom-pg -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=lebanon_ecom -p 5432:5432 -d postgres:16
+
+# .env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lebanon_ecom
+```
+
+### Neon (free tier)
+
+1. Create a project at [neon.tech](https://neon.tech)
+2. Copy the connection string into `DATABASE_URL` (pooled URL is fine; the app uses `prepare: false`)
+3. `npm run db:migrate`
+
+### Schema changes
+
+1. Edit `src/db/schema.ts`
+2. `npm run db:generate` → SQL under `drizzle/`
+3. `npm run db:migrate` (or rely on first-request `ensureMigrated()` in the app process)
+
+Legacy SQLite files under `data/*.sqlite` are unused and can be deleted.
 ## Onboarding flow
 
 1. Sign up → creates user + single workspace (1 founder, 1 Shopify store slot) + journey/side status rows  
@@ -119,63 +150,3 @@ Once a product is accepted the dashboard composes the full operator journey. Eve
 - Computes the **next CTA(s)** and **coaching cards** from journey + side statuses
 - **Parallel CTAs after `sample_approved`** (store setup vs. batch order)
 - Coaching respects priority: **safety → margins → budget/experience → risk → likes**
-
-## Preview (local QA) — REMOVABLE
-
-> Temporary local-only QA harness for walking the full guided path without hand-filling every form. **Off by default**, gated by the `PREVIEW_MODE` env flag. Delete this whole section (and the files listed below) before shipping a clean v1. It uses no real Shopify / Meta / courier / Demand APIs — everything routes through the existing services, repos, and approval gates.
-
-### Enable + seed
-
-```bash
-# 1) Seed the demo founder to a stage (writes to the local SQLite DB)
-npm run db:seed:preview -- selling      # classic full path (default if omitted)
-#   classic: discovery | accepted | sample_approved | batch_arrived_ready | selling
-#   wave 1:  wave1_two_sku | wave1_beginner_blocked | wave1_ready_add |
-#            wave1_archived | wave1_marketing_paths
-
-# 2) Run the app with the flag ON
-PREVIEW_MODE=1 npm run dev -- -p 3005
-```
-
-Then either:
-
-- **Log in** at `/en/auth/login` (or `/ar/...`) with the demo credentials below, **or**
-- Open **`/en/preview`** (only visible when `PREVIEW_MODE=1`) and click a stage to seed + jump straight into the dashboard.
-
-Demo credentials:
-
-- **Email:** `preview@local.dev`
-- **Password:** `preview1234`
-
-When the flag is on, the dashboard (and deep pages) show a **"Preview data — local QA only"** banner. Classic stages are cumulative; Wave 1 fixtures each re-seed the demo workspace from scratch to a multi-SKU shape (only the `preview@local.dev` user is touched; real accounts are untouched).
-
-### Stages
-
-| Stage | What you can verify |
-| --- | --- |
-| `discovery` | Onboarding complete, discovery board with 5 products |
-| `accepted` | Topic B SKU card visible |
-| `sample_approved` | Supplier sample approved; store + marketing intro unlocked |
-| `batch_arrived_ready` | Batch ordered + arrived; store ready; launch marketing |
-| `selling` | Selling; saved founder cost quotes (batch + margins use the quoted path), 4 weekly Topic A entries incl. one intentional <35% after-ads warning week, automatic actual margins, and **invest-next** unlocked |
-| `wave1_two_sku` | 2 live selling SKUs — hub landing, attention chips, multi-select pause, Finance Mode C + Topic A roll-up. **Both SKUs Marketing Current = weekly refresh by design** (both are selling); use `wave1_marketing_paths` to QA per-SKU stage differences |
-| `wave1_beginner_blocked` | Beginner experience, <15 healthy weeks, 1 live SKU — Add SKU hard-blocked on hub |
-| `wave1_ready_add` | Beginner + ≥15 healthy weeks (Finance `healthy`) and last 5 consecutive healthy — Add SKU allowed. **Leaves 15 Topic A weeks in the DB** for gate QA; re-seed another stage before clean path tests |
-| `wave1_archived` | 1 live + 1 archived — restore visible on hub |
-| `wave1_marketing_paths` | 3 live SKUs at different Marketing stages (A selling/weekly refresh, B sample/intro, C batch_ordered/pre-launch) — switch picker to verify per-SKU Current/unlocks |
-
-### Delete preview later (one pass)
-
-Remove all of the following, then this README section:
-
-- `src/lib/preview/` (folder: `config.ts`, `seed.ts`, `actions.ts`, `identity.ts`, …)
-- `src/components/preview/` (folder: `PreviewBanner.tsx`, `PreviewControls.tsx`)
-- `src/app/[locale]/preview/` (folder: `page.tsx`)
-- `scripts/seed-preview.ts`
-- The `db:seed:preview` script line in `package.json`
-- The `"Preview"` namespace in `messages/en.json` and `messages/ar.json`
-- In `src/app/[locale]/dashboard/page.tsx`: the `isPreviewMode` / `PreviewBanner` imports and the `{isPreviewMode() && <PreviewBanner />}` line
-- In `src/components/dashboard/DeepPageLayout.tsx`: the two `// PREVIEW (removable)` imports and the `{isPreviewMode() && <PreviewBanner />}` line
-- In `src/app/[locale]/sku/[id]/page.tsx`: the `isPreviewMode` / `PreviewBanner` imports and the banner render (if present)
-
-Nothing in the core OS imports the preview module beyond those banner hooks, so removal leaves the app unchanged (`PREVIEW_MODE` simply stops mattering).

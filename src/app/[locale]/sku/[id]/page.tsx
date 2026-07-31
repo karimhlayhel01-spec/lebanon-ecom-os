@@ -31,8 +31,6 @@ import { SupplierPanel } from "@/components/supplier/SupplierPanel";
 import { MarketingPanel } from "@/components/marketing/MarketingPanel";
 import { FinancePanel } from "@/components/finance/FinancePanel";
 import { resolveVocabHighlightPhase } from "@/lib/vocabulary/glossary";
-import { isPreviewMode } from "@/lib/preview/config";
-import { PreviewBanner } from "@/components/preview/PreviewBanner";
 
 type Props = {
   params: Promise<{ locale: string; id: string }>;
@@ -60,7 +58,7 @@ export default async function SkuDetailPage({ params }: Props) {
     .select()
     .from(schema.skuCards)
     .where(eq(schema.skuCards.id, id))
-    .get();
+    .then((rows) => rows[0]);
   if (!card || card.workspaceId !== ctx.workspace.id) notFound();
   if (card.lifecycleStatus === "wiped") notFound();
 
@@ -240,8 +238,6 @@ export default async function SkuDetailPage({ params }: Props) {
         highlightPhase={highlightPhase}
       />
       <main className="app-shell py-8">
-        {isPreviewMode() && <PreviewBanner />}
-
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-3">
             <Link

@@ -1,8 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { AppHeader } from "@/components/dashboard/AppHeader";
-import { isPreviewMode } from "@/lib/preview/config"; // PREVIEW (removable)
-import { PreviewBanner } from "@/components/preview/PreviewBanner"; // PREVIEW (removable)
 import type { ToolsSection } from "@/lib/sku/tools";
 import { skuToolHref } from "@/lib/sku/tools";
 
@@ -38,7 +36,6 @@ export async function DeepPageLayout({
     <div className="min-h-screen">
       <AppHeader isPaused={isPaused} />
       <main className="app-shell py-8">
-        {isPreviewMode() && <PreviewBanner />}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="font-display text-2xl text-ink">{title}</h1>
         </div>

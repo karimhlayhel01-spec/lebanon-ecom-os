@@ -12,7 +12,7 @@ async function workspaceForRequest() {
 }
 
 export async function startSellingAction(skuId?: string) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await startSelling(workspace.id, skuId || undefined);
@@ -31,7 +31,7 @@ export async function addWeeklyEntryAction(
   _prev: WeeklyEntryState,
   formData: FormData,
 ): Promise<WeeklyEntryState> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { error: "not_found" };
 

@@ -17,12 +17,12 @@ export default async function HomePage({ params }: Props) {
   if (user) {
     const workspace = await getWorkspaceForUser(user.id);
     if (workspace) {
-      ensureMigrated();
+      await ensureMigrated();
       const side = await db
         .select()
         .from(schema.sideStatuses)
         .where(eq(schema.sideStatuses.workspaceId, workspace.id))
-        .get();
+        .then((rows) => rows[0]);
       redirect({
         href: side?.onboardingComplete ? "/dashboard" : "/onboarding",
         locale,

@@ -31,7 +31,7 @@ export async function resolveWorkingSupplierNamesBySku(
     }
   >,
 ): Promise<Map<string, string | null>> {
-  ensureMigrated();
+  await ensureMigrated();
   const out = new Map<string, string | null>();
   for (const id of skuIds) out.set(id, null);
   if (skuIds.length === 0) return out;
@@ -47,8 +47,7 @@ export async function resolveWorkingSupplierNamesBySku(
       })
       .from(schema.sampleRecords)
       .where(inArray(schema.sampleRecords.skuId, ids))
-      .orderBy(asc(schema.sampleRecords.createdAt))
-      .all(),
+      .orderBy(asc(schema.sampleRecords.createdAt)),
     db
       .select({
         id: schema.supplierOptions.id,
@@ -56,8 +55,7 @@ export async function resolveWorkingSupplierNamesBySku(
         name: schema.supplierOptions.name,
       })
       .from(schema.supplierOptions)
-      .where(inArray(schema.supplierOptions.skuId, ids))
-      .all(),
+      .where(inArray(schema.supplierOptions.skuId, ids)),
   ]);
 
   const samplesBySku = new Map<string, typeof sampleRows>();
@@ -153,7 +151,7 @@ export async function resolveWarmedSparesBySku(
     }
   >,
 ): Promise<Map<string, HubWarmedSpares>> {
-  ensureMigrated();
+  await ensureMigrated();
   const empty: HubWarmedSpares = {
     insuranceAvailable: false,
     warmedSpareNames: [],
@@ -173,8 +171,7 @@ export async function resolveWarmedSparesBySku(
       })
       .from(schema.sampleRecords)
       .where(inArray(schema.sampleRecords.skuId, ids))
-      .orderBy(asc(schema.sampleRecords.createdAt))
-      .all(),
+      .orderBy(asc(schema.sampleRecords.createdAt)),
     db
       .select({
         id: schema.supplierOptions.id,
@@ -186,8 +183,7 @@ export async function resolveWarmedSparesBySku(
         unitPrice: schema.supplierOptions.unitPrice,
       })
       .from(schema.supplierOptions)
-      .where(inArray(schema.supplierOptions.skuId, ids))
-      .all(),
+      .where(inArray(schema.supplierOptions.skuId, ids)),
   ]);
 
   const samplesBySku = new Map<string, typeof sampleRows>();

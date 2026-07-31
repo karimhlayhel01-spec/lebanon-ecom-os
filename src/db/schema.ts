@@ -1,6 +1,12 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import {
+  boolean,
+  doublePrecision,
+  integer,
+  pgTable,
+  text,
+} from "drizzle-orm/pg-core";
 
-export const users = sqliteTable("users", {
+export const users = pgTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
@@ -10,7 +16,7 @@ export const users = sqliteTable("users", {
   createdAt: text("created_at").notNull(),
 });
 
-export const workspaces = sqliteTable("workspaces", {
+export const workspaces = pgTable("workspaces", {
   id: text("id").primaryKey(),
   founderUserId: text("founder_user_id")
     .notNull()
@@ -19,21 +25,19 @@ export const workspaces = sqliteTable("workspaces", {
   language: text("language").notNull().default("en"), // en | ar | both
   activeSkuId: text("active_sku_id"),
   /** Shop-wide pause — overlays all SKU journeys until resumed. */
-  shopPaused: integer("shop_paused", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  shopPaused: boolean("shop_paused").notNull().default(false),
   shopifyStatus: text("shopify_status").notNull().default("not_started"),
   createdAt: text("created_at").notNull(),
 });
 
-export const onboardingProfiles = sqliteTable("onboarding_profiles", {
+export const onboardingProfiles = pgTable("onboarding_profiles", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
     .unique()
     .references(() => workspaces.id),
-  budgetUsd: real("budget_usd").notNull(),
-  monthlyFollowOnBudget: real("monthly_follow_on_budget").notNull(),
+  budgetUsd: doublePrecision("budget_usd").notNull(),
+  monthlyFollowOnBudget: doublePrecision("monthly_follow_on_budget").notNull(),
   hoursPerWeek: integer("hours_per_week").notNull(),
   experience: text("experience").notNull(), // beginner | some | experienced
   uiLanguage: text("ui_language").notNull(), // en | ar | both
@@ -42,21 +46,21 @@ export const onboardingProfiles = sqliteTable("onboarding_profiles", {
   storageLimits: text("storage_limits").notNull().default(""),
   riskTolerance: text("risk_tolerance").notNull(), // low | medium | high
   categoryLikes: text("category_likes").notNull(), // JSON array
-  lebanonSellabilityAck: integer("lebanon_sellability_ack", { mode: "boolean" })
+  lebanonSellabilityAck: boolean("lebanon_sellability_ack")
     .notNull()
     .default(false),
   codComfort: text("cod_comfort").notNull(),
   shopifyStatus: text("shopify_status").notNull(),
-  maxLandedCost: real("max_landed_cost").notNull(),
+  maxLandedCost: doublePrecision("max_landed_cost").notNull(),
   deliveryBandDays: text("delivery_band_days").notNull().default("7-10"),
-  sampleClearanceReady: integer("sample_clearance_ready", { mode: "boolean" })
+  sampleClearanceReady: boolean("sample_clearance_ready")
     .notNull()
     .default(false),
   completedAt: text("completed_at"),
   updatedAt: text("updated_at").notNull(),
 });
 
-export const journeyStates = sqliteTable("journey_states", {
+export const journeyStates = pgTable("journey_states", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -69,41 +73,31 @@ export const journeyStates = sqliteTable("journey_states", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const sideStatuses = sqliteTable("side_statuses", {
+export const sideStatuses = pgTable("side_statuses", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
     .unique()
     .references(() => workspaces.id),
-  onboardingComplete: integer("onboarding_complete", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  productAccepted: integer("product_accepted", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  okayRiskAck: integer("okay_risk_ack", { mode: "boolean" }).notNull().default(false),
-  tier1Resolved: integer("tier1_resolved", { mode: "boolean" }).notNull().default(false),
+  onboardingComplete: boolean("onboarding_complete").notNull().default(false),
+  productAccepted: boolean("product_accepted").notNull().default(false),
+  okayRiskAck: boolean("okay_risk_ack").notNull().default(false),
+  tier1Resolved: boolean("tier1_resolved").notNull().default(false),
   sampleStatus: text("sample_status").notNull().default("none"), // none | in_flight | approved | rejected
   storeReadyPercent: integer("store_ready_percent").notNull().default(0),
-  storeReady: integer("store_ready", { mode: "boolean" }).notNull().default(false),
+  storeReady: boolean("store_ready").notNull().default(false),
   marketingStage: text("marketing_stage").notNull().default("none"),
-  batchOrdered: integer("batch_ordered", { mode: "boolean" }).notNull().default(false),
-  batchArrivedReady: integer("batch_arrived_ready", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  batchOrdered: boolean("batch_ordered").notNull().default(false),
+  batchArrivedReady: boolean("batch_arrived_ready").notNull().default(false),
   /**
    * Expected batch arrival ETA (JSON: { preset, weeks, date?, label? }).
    * Null = founder has not set; Marketing uses default 1 month (4 weeks).
    */
   batchArrivalEta: text("batch_arrival_eta"),
   topicAWeekCount: integer("topic_a_week_count").notNull().default(0),
-  cashLockAck: integer("cash_lock_ack", { mode: "boolean" }).notNull().default(false),
-  stuckOver10kAck: integer("stuck_over_10k_ack", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  costQuotesSaved: integer("cost_quotes_saved", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  cashLockAck: boolean("cash_lock_ack").notNull().default(false),
+  stuckOver10kAck: boolean("stuck_over_10k_ack").notNull().default(false),
+  costQuotesSaved: boolean("cost_quotes_saved").notNull().default(false),
   /** Fully exhausted Discovery session pools (reject-all ladder). Reset on accept / onboarding edit. */
   discoveryExhaustedRounds: integer("discovery_exhausted_rounds")
     .notNull()
@@ -112,15 +106,13 @@ export const sideStatuses = sqliteTable("side_statuses", {
    * Set when founder edits onboarding experience TO `experienced` from a lower
    * level. Cleared after they acknowledge seriousness on Add SKU.
    */
-  experienceRaisedPendingAck: integer("experience_raised_pending_ack", {
-    mode: "boolean",
-  })
+  experienceRaisedPendingAck: boolean("experience_raised_pending_ack")
     .notNull()
     .default(false),
   updatedAt: text("updated_at").notNull(),
 });
 
-export const discoverySessions = sqliteTable("discovery_sessions", {
+export const discoverySessions = pgTable("discovery_sessions", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -129,13 +121,11 @@ export const discoverySessions = sqliteTable("discovery_sessions", {
   productsShown: integer("products_shown").notNull().default(0),
   status: text("status").notNull().default("active"), // active | closed
   /** True once this session's pool was counted toward discoveryExhaustedRounds. */
-  exhaustionCounted: integer("exhaustion_counted", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  exhaustionCounted: boolean("exhaustion_counted").notNull().default(false),
   createdAt: text("created_at").notNull(),
 });
 
-export const productCandidates = sqliteTable("product_candidates", {
+export const productCandidates = pgTable("product_candidates", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -146,33 +136,31 @@ export const productCandidates = sqliteTable("product_candidates", {
   name: text("name").notNull(),
   category: text("category").notNull(),
   summary: text("summary").notNull(),
-  sellPrice: real("sell_price").notNull(),
-  productCost: real("product_cost").notNull(),
-  intlShip: real("intl_ship").notNull(),
-  clearanceTaxes: real("clearance_taxes").notNull(),
-  localCourier: real("local_courier").notNull(),
-  marginBefore: real("margin_before").notNull(),
-  marginAfter: real("margin_after").notNull(),
-  marginsPass: integer("margins_pass", { mode: "boolean" }).notNull(),
+  sellPrice: doublePrecision("sell_price").notNull(),
+  productCost: doublePrecision("product_cost").notNull(),
+  intlShip: doublePrecision("intl_ship").notNull(),
+  clearanceTaxes: doublePrecision("clearance_taxes").notNull(),
+  localCourier: doublePrecision("local_courier").notNull(),
+  marginBefore: doublePrecision("margin_before").notNull(),
+  marginAfter: doublePrecision("margin_after").notNull(),
+  marginsPass: boolean("margins_pass").notNull(),
   marginBlockReason: text("margin_block_reason"),
-  fitScore: real("fit_score").notNull(),
+  fitScore: doublePrecision("fit_score").notNull(),
   fitBreakdown: text("fit_breakdown").notNull(), // JSON
   strength: text("strength").notNull(), // Strong | Okay
   riskRead: text("risk_read"),
   differentiation: text("differentiation").notNull(),
-  tier1Conflict: integer("tier1_conflict", { mode: "boolean" }).notNull().default(false),
+  tier1Conflict: boolean("tier1_conflict").notNull().default(false),
   tier1Marketplaces: text("tier1_marketplaces"), // JSON
-  oversizedHardBlock: integer("oversized_hard_block", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  notRecommended: integer("not_recommended", { mode: "boolean" }).notNull().default(false),
-  demandConfirmed: integer("demand_confirmed", { mode: "boolean" }).notNull().default(false),
+  oversizedHardBlock: boolean("oversized_hard_block").notNull().default(false),
+  notRecommended: boolean("not_recommended").notNull().default(false),
+  demandConfirmed: boolean("demand_confirmed").notNull().default(false),
   status: text("status").notNull().default("shown"), // shown | accepted | rejected
   rank: integer("rank").notNull().default(0),
   createdAt: text("created_at").notNull(),
 });
 
-export const demandSignals = sqliteTable("demand_signals", {
+export const demandSignals = pgTable("demand_signals", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -184,18 +172,18 @@ export const demandSignals = sqliteTable("demand_signals", {
   note: text("note"),
   screenshotNote: text("screenshot_note"),
   aiSummary: text("ai_summary").notNull(),
-  founderConfirmed: integer("founder_confirmed", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  founderConfirmed: boolean("founder_confirmed").notNull().default(false),
   createdAt: text("created_at").notNull(),
 });
 
-export const skuCards = sqliteTable("sku_cards", {
+export const skuCards = pgTable("sku_cards", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
     .references(() => workspaces.id),
-  productCandidateId: text("product_candidate_id").references(() => productCandidates.id),
+  productCandidateId: text("product_candidate_id").references(
+    () => productCandidates.id,
+  ),
   name: text("name").notNull(),
   basics: text("basics").notNull(), // JSON
   shipFitness: text("ship_fitness").notNull(),
@@ -218,7 +206,7 @@ export const skuCards = sqliteTable("sku_cards", {
  * Per-SKU journey spine + SKU-scoped side flags (Wave 1 multi-SKU).
  * Shop-level store readiness stays on side_statuses / store_readiness.
  */
-export const skuJourneys = sqliteTable("sku_journeys", {
+export const skuJourneys = pgTable("sku_journeys", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -232,29 +220,15 @@ export const skuJourneys = sqliteTable("sku_journeys", {
   blockedFromState: text("blocked_from_state"),
   blockedReason: text("blocked_reason"),
   sampleStatus: text("sample_status").notNull().default("none"),
-  batchOrdered: integer("batch_ordered", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  batchArrivedReady: integer("batch_arrived_ready", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  batchOrdered: boolean("batch_ordered").notNull().default(false),
+  batchArrivedReady: boolean("batch_arrived_ready").notNull().default(false),
   batchArrivalEta: text("batch_arrival_eta"),
   marketingStage: text("marketing_stage").notNull().default("none"),
-  costQuotesSaved: integer("cost_quotes_saved", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  cashLockAck: integer("cash_lock_ack", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  stuckOver10kAck: integer("stuck_over_10k_ack", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  okayRiskAck: integer("okay_risk_ack", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  tier1Resolved: integer("tier1_resolved", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  costQuotesSaved: boolean("cost_quotes_saved").notNull().default(false),
+  cashLockAck: boolean("cash_lock_ack").notNull().default(false),
+  stuckOver10kAck: boolean("stuck_over_10k_ack").notNull().default(false),
+  okayRiskAck: boolean("okay_risk_ack").notNull().default(false),
+  tier1Resolved: boolean("tier1_resolved").notNull().default(false),
   /**
    * Next-batch side-flow while primary stays selling.
    * idle | ordered (in transit). Arrived resets to idle.
@@ -263,7 +237,7 @@ export const skuJourneys = sqliteTable("sku_journeys", {
   reorderArrivalEta: text("reorder_arrival_eta"),
   reorderSupplierId: text("reorder_supplier_id"),
   reorderQty: integer("reorder_qty"),
-  reorderEstCost: real("reorder_est_cost"),
+  reorderEstCost: doublePrecision("reorder_est_cost"),
   /**
    * Working supplier for next-batch path (may diverge after can’t-fulfill switch).
    * Null → derive from first-batch / approved sample.
@@ -276,7 +250,7 @@ export const skuJourneys = sqliteTable("sku_journeys", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const supplierOptions = sqliteTable("supplier_options", {
+export const supplierOptions = pgTable("supplier_options", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -290,11 +264,11 @@ export const supplierOptions = sqliteTable("supplier_options", {
   /** Wave 2: import (China) | local (Lebanon). Legacy rows default import. */
   source: text("source").notNull().default("import"),
   years: integer("years").notNull(),
-  rating: real("rating").notNull(),
-  verified: integer("verified", { mode: "boolean" }).notNull().default(true),
+  rating: doublePrecision("rating").notNull(),
+  verified: boolean("verified").notNull().default(true),
   moq: integer("moq").notNull(),
-  unitPrice: real("unit_price").notNull(),
-  sampleReplies: integer("sample_replies", { mode: "boolean" }).notNull().default(true),
+  unitPrice: doublePrecision("unit_price").notNull(),
+  sampleReplies: boolean("sample_replies").notNull().default(true),
   negotiationDraft: text("negotiation_draft").notNull(),
   paymentMapEstimate: text("payment_map_estimate").notNull(),
   redFlags: text("red_flags"), // JSON
@@ -302,7 +276,7 @@ export const supplierOptions = sqliteTable("supplier_options", {
   createdAt: text("created_at").notNull(),
 });
 
-export const sampleRecords = sqliteTable("sample_records", {
+export const sampleRecords = pgTable("sample_records", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -321,7 +295,7 @@ export const sampleRecords = sqliteTable("sample_records", {
   createdAt: text("created_at").notNull(),
 });
 
-export const storeReadiness = sqliteTable("store_readiness", {
+export const storeReadiness = pgTable("store_readiness", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -337,7 +311,7 @@ export const storeReadiness = sqliteTable("store_readiness", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const marketingKits = sqliteTable("marketing_kits", {
+export const marketingKits = pgTable("marketing_kits", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -351,34 +325,34 @@ export const marketingKits = sqliteTable("marketing_kits", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const topicAEntries = sqliteTable("topic_a_entries", {
+export const topicAEntries = pgTable("topic_a_entries", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
     .references(() => workspaces.id),
   weekStart: text("week_start").notNull(),
-  storeTotalsUsd: real("store_totals_usd").notNull(),
+  storeTotalsUsd: doublePrecision("store_totals_usd").notNull(),
   perSkuSoldLeft: text("per_sku_sold_left").notNull(), // JSON
-  metaSpend: real("meta_spend").notNull().default(0),
-  tiktokSpend: real("tiktok_spend").notNull().default(0),
-  codCollected: real("cod_collected").notNull().default(0),
-  codOutstanding: real("cod_outstanding").notNull().default(0),
-  courierFees: real("courier_fees").notNull().default(0),
+  metaSpend: doublePrecision("meta_spend").notNull().default(0),
+  tiktokSpend: doublePrecision("tiktok_spend").notNull().default(0),
+  codCollected: doublePrecision("cod_collected").notNull().default(0),
+  codOutstanding: doublePrecision("cod_outstanding").notNull().default(0),
+  courierFees: doublePrecision("courier_fees").notNull().default(0),
   createdAt: text("created_at").notNull(),
 });
 
-export const financeVerdicts = sqliteTable("finance_verdicts", {
+export const financeVerdicts = pgTable("finance_verdicts", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
     .references(() => workspaces.id),
   kind: text("kind").notNull(), // estimate | weekly_health | invest_next
   payload: text("payload").notNull(), // JSON
-  confidence: real("confidence").notNull().default(0.5),
+  confidence: doublePrecision("confidence").notNull().default(0.5),
   createdAt: text("created_at").notNull(),
 });
 
-export const approvalRequests = sqliteTable("approval_requests", {
+export const approvalRequests = pgTable("approval_requests", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -394,7 +368,7 @@ export const approvalRequests = sqliteTable("approval_requests", {
   createdAt: text("created_at").notNull(),
 });
 
-export const orchestratorEvents = sqliteTable("orchestrator_events", {
+export const orchestratorEvents = pgTable("orchestrator_events", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -405,7 +379,7 @@ export const orchestratorEvents = sqliteTable("orchestrator_events", {
   createdAt: text("created_at").notNull(),
 });
 
-export const sessions = sqliteTable("sessions", {
+export const sessions = pgTable("sessions", {
   id: text("id").primaryKey(),
   userId: text("user_id")
     .notNull()

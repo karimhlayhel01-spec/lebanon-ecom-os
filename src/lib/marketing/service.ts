@@ -177,7 +177,7 @@ export async function getMarketingPanel(
   workspaceId: string,
   skuId?: string | null,
 ): Promise<MarketingPanelView | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const live = await listLiveSkus(workspaceId);
   if (live.length === 0) return null;
 
@@ -210,18 +210,18 @@ export async function getMarketingPanel(
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     getJourney(workspaceId),
     db
       .select()
       .from(schema.onboardingProfiles)
       .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     db
       .select()
       .from(schema.storeReadiness)
       .where(eq(schema.storeReadiness.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     isShopKit
       ? db
           .select()
@@ -233,13 +233,12 @@ export async function getMarketingPanel(
             ),
           )
           .orderBy(asc(schema.marketingKits.createdAt))
-          .all()
+          
       : db
           .select()
           .from(schema.marketingKits)
           .where(eq(schema.marketingKits.skuId, selectedSkuId!))
-          .orderBy(asc(schema.marketingKits.createdAt))
-          .all(),
+          .orderBy(asc(schema.marketingKits.createdAt)),
   ]);
 
   const journeyFlags = resolveMarketingJourneyFlags({
@@ -358,7 +357,7 @@ export async function generateKit(
   launchBudgetAck: boolean,
   skuId?: string | null,
 ): Promise<GenerateKitResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const panel = await getMarketingPanel(workspaceId, skuId);
   if (!panel) return { ok: false, error: "not_found" };
 
@@ -412,7 +411,7 @@ export async function generateKit(
     .from(schema.marketingKits)
     .where(existingQuery)
     .orderBy(asc(schema.marketingKits.createdAt))
-    .all();
+    ;
 
   if (stage === "intro_pdf" && existing.length > 0) {
     const keep = existing[existing.length - 1]!;
@@ -561,12 +560,12 @@ export async function saveKitCreatives(
   kitId: string,
   creatives: Creative[],
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const kit = await db
     .select()
     .from(schema.marketingKits)
     .where(eq(schema.marketingKits.id, kitId))
-    .get();
+    .then((rows) => rows[0]);
   if (!kit || kit.workspaceId !== workspaceId) {
     return { ok: false, error: "not_found" };
   }

@@ -36,7 +36,7 @@ export async function signupAction(
   _prev: AuthActionState,
   formData: FormData,
 ): Promise<AuthActionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const parsed = signupSchema.safeParse({
     firstName: formData.get("firstName"),
     lastName: formData.get("lastName"),
@@ -52,7 +52,7 @@ export async function signupAction(
     .select()
     .from(schema.users)
     .where(eq(schema.users.email, email))
-    .get();
+    .then((rows) => rows[0]);
   if (existing) {
     return { error: "errorEmailTaken" };
   }
@@ -123,7 +123,7 @@ export async function loginAction(
   _prev: AuthActionState,
   formData: FormData,
 ): Promise<AuthActionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
@@ -137,7 +137,7 @@ export async function loginAction(
     .select()
     .from(schema.users)
     .where(eq(schema.users.email, email))
-    .get();
+    .then((rows) => rows[0]);
   if (!user) {
     return { error: "errorCredentials" };
   }
@@ -154,7 +154,7 @@ export async function loginAction(
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.founderUserId, user.id))
-    .get();
+    .then((rows) => rows[0]);
 
   if (!workspace) {
     redirect({ href: "/onboarding", locale });
@@ -165,7 +165,7 @@ export async function loginAction(
     .select()
     .from(schema.sideStatuses)
     .where(eq(schema.sideStatuses.workspaceId, workspace.id))
-    .get();
+    .then((rows) => rows[0]);
 
   if (!side?.onboardingComplete) {
     redirect({ href: "/onboarding", locale });

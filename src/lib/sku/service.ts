@@ -44,6 +44,11 @@ export type ImportBatchSection = {
   moq: number | null;
   status: string;
   suggestedFirstBatch: number | null;
+  /**
+   * Units on hand after batch arrive (ordered qty). Hub/runway bootstrap when
+   * Topic A has no left for this SKU yet. Topic A log-week left wins once set.
+   */
+  unitsLeft: number | null;
   notes: string[];
 };
 
@@ -209,6 +214,7 @@ export function buildSkuSections(input: SkuSectionInput) {
     moq: null,
     status: "not_ordered",
     suggestedFirstBatch: null,
+    unitsLeft: null,
     notes: ["@import.sampleFirst", "@import.startSmall"],
   };
 
@@ -246,18 +252,18 @@ export function footprintForCatalogKey(key: string): StorageFootprint {
 }
 
 export async function getActiveSku(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await db
     .select({ activeSkuId: schema.workspaces.activeSkuId })
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   if (!workspace?.activeSkuId) return undefined;
   return db
     .select()
     .from(schema.skuCards)
     .where(eq(schema.skuCards.id, workspace.activeSkuId))
-    .get();
+    .then((rows) => rows[0]);
 }
 
 function rowToSkuView(
@@ -288,12 +294,20 @@ function rowToSkuView(
     battery: false,
     notes: ["handling.qcOnArrival"],
   });
-  const importBatch = parseJson<ImportBatchSection>(row.importBatch, {
+  const importBatchRaw = parseJson<ImportBatchSection>(row.importBatch, {
     moq: null,
     status: "not_ordered",
     suggestedFirstBatch: null,
+    unitsLeft: null,
     notes: ["import.sampleFirst"],
   });
+  const importBatch: ImportBatchSection = {
+    ...importBatchRaw,
+    unitsLeft:
+      importBatchRaw.unitsLeft != null && Number.isFinite(importBatchRaw.unitsLeft)
+        ? Math.max(0, Math.floor(importBatchRaw.unitsLeft))
+        : null,
+  };
   const moneySnapshot = parseJson<MoneySnapshotSection>(row.moneySnapshot, {
     sellPrice: basics.sellPrice,
     landedCost: basics.landedCost,
@@ -343,12 +357,12 @@ export async function getSkuViewById(
   workspaceId: string,
   skuId: string,
 ): Promise<SkuCardView | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const row = await db
     .select()
     .from(schema.skuCards)
     .where(eq(schema.skuCards.id, skuId))
-    .get();
+    .then((rows) => rows[0]);
   if (!row || row.workspaceId !== workspaceId) return null;
   if (row.lifecycleStatus === "wiped") return null;
   return rowToSkuView(row);

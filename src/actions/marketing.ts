@@ -22,7 +22,7 @@ export async function generateKitAction(
   launchBudgetAck: boolean,
   skuId?: string | null,
 ): Promise<GenerateKitResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await generateKit(workspace.id, stage, launchBudgetAck, skuId);
@@ -34,7 +34,7 @@ export async function saveKitCreativesAction(
   kitId: string,
   creatives: Creative[],
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await saveKitCreatives(workspace.id, kitId, creatives);

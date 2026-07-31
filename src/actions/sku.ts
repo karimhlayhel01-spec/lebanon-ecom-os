@@ -30,7 +30,7 @@ export async function saveSkuNotesAction(
   _prev: SkuNotesState,
   formData: FormData,
 ): Promise<SkuNotesState> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return { error: "not_found" };
@@ -52,7 +52,7 @@ export type AddSkuActionState = {
 };
 
 export async function evaluateAddSkuAction(): Promise<AddSkuActionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return { error: "not_found" };
@@ -70,7 +70,7 @@ export async function startAddSkuAction(
   _prev: AddSkuActionState,
   formData: FormData,
 ): Promise<AddSkuActionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return { error: "not_found" };
@@ -94,7 +94,7 @@ export async function startAddSkuAction(
     .select()
     .from(schema.onboardingProfiles)
     .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
-    .get();
+    .then((rows) => rows[0]);
   if (!onboarding) return { error: "not_found" };
 
   await startDiscoverySession(workspace.id, onboarding);
@@ -107,7 +107,7 @@ export async function startAddSkuAction(
 export async function archiveSkuAction(
   skuId: string,
 ): Promise<{ ok: boolean; error?: string; warnings?: string[] }> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return { ok: false, error: "not_found" };
@@ -126,7 +126,7 @@ export async function archiveSkuAction(
 export async function restoreSkuAction(
   skuId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return { ok: false, error: "not_found" };
@@ -138,7 +138,7 @@ export async function restoreSkuAction(
 export async function wipeSkuAction(
   skuId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return { ok: false, error: "not_found" };
@@ -148,7 +148,7 @@ export async function wipeSkuAction(
 }
 
 export async function pauseShopAction() {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return;
@@ -157,7 +157,7 @@ export async function pauseShopAction() {
 }
 
 export async function resumeShopAction() {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return;
@@ -166,7 +166,7 @@ export async function resumeShopAction() {
 }
 
 export async function pauseSkusAction(skuIds: string[]) {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return { ok: false, error: "not_found" };
@@ -177,7 +177,7 @@ export async function pauseSkusAction(skuIds: string[]) {
 }
 
 export async function resumeSkusAction(skuIds: string[]) {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return { ok: false, error: "not_found" };

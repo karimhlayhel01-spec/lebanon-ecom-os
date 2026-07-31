@@ -183,7 +183,7 @@ async function previousSkuLooksWeak(
     .from(schema.topicAEntries)
     .where(eq(schema.topicAEntries.workspaceId, workspaceId))
     .orderBy(asc(schema.topicAEntries.weekStart))
-    .all();
+    ;
   if (rows.length === 0) return false;
 
   const recent = rows.slice(-5);
@@ -202,7 +202,7 @@ async function weekVerdictsForShop(
     .select()
     .from(schema.financeVerdicts)
     .where(eq(schema.financeVerdicts.workspaceId, workspaceId))
-    .all();
+    ;
 
   return extractWeekVerdictsOrderedByWeekStart(verdicts);
 }
@@ -215,14 +215,14 @@ async function weekVerdictsForShop(
 export async function evaluateAddSku(
   workspaceId: string,
 ): Promise<AddSkuEvaluation> {
-  ensureMigrated();
+  await ensureMigrated();
   const [liveCount, onboarding, weekVerdicts, live, side] = await Promise.all([
     countLiveSkus(workspaceId),
     db
       .select({ experience: schema.onboardingProfiles.experience })
       .from(schema.onboardingProfiles)
       .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     weekVerdictsForShop(workspaceId),
     listLiveSkus(workspaceId),
     db
@@ -232,7 +232,7 @@ export async function evaluateAddSku(
       })
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
   ]);
 
   const experience = (onboarding?.experience ?? "beginner") as ExperienceLevel;
@@ -265,7 +265,7 @@ export async function evaluateAddSku(
 export async function clearExperienceRaisedAck(
   workspaceId: string,
 ): Promise<void> {
-  ensureMigrated();
+  await ensureMigrated();
   await db
     .update(schema.sideStatuses)
     .set({

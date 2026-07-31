@@ -13,7 +13,7 @@ export type SessionUser = {
 };
 
 export async function createSession(userId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   const id = newId();
   const createdAt = nowIso();
   const expiresAt = new Date(
@@ -40,7 +40,7 @@ export async function createSession(userId: string) {
 }
 
 export async function destroySession() {
-  ensureMigrated();
+  await ensureMigrated();
   const cookieStore = await cookies();
   const sessionId = cookieStore.get(SESSION_COOKIE)?.value;
   if (sessionId) {
@@ -53,14 +53,14 @@ export async function destroySession() {
 
 /** Invalidate every session for the user and clear the current cookie. */
 export async function destroyAllSessions(userId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   await db.delete(schema.sessions).where(eq(schema.sessions.userId, userId));
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE);
 }
 
 export async function getSessionUser(): Promise<SessionUser | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const cookieStore = await cookies();
   const sessionId = cookieStore.get(SESSION_COOKIE)?.value;
   if (!sessionId) return null;
@@ -76,7 +76,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     .from(schema.sessions)
     .innerJoin(schema.users, eq(schema.sessions.userId, schema.users.id))
     .where(eq(schema.sessions.id, sessionId))
-    .get();
+    .then((rows) => rows[0]);
 
   if (!row) return null;
   if (new Date(row.expiresAt).getTime() < Date.now()) {

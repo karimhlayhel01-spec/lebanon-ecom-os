@@ -27,7 +27,7 @@ export const WORKSPACE_CASCADE_DELETE_ORDER = [
 
 /** Delete one workspace and every workspace-scoped child row. */
 export async function deleteWorkspaceById(workspaceId: string): Promise<void> {
-  ensureMigrated();
+  await ensureMigrated();
   const id = workspaceId;
   await db.delete(schema.sampleRecords).where(eq(schema.sampleRecords.workspaceId, id));
   await db.delete(schema.supplierOptions).where(eq(schema.supplierOptions.workspaceId, id));
@@ -68,13 +68,13 @@ export async function deleteWorkspaceById(workspaceId: string): Promise<void> {
  * Leaves no orphan rows for that founder.
  */
 export async function deleteUserAndWorkspace(userId: string): Promise<void> {
-  ensureMigrated();
+  await ensureMigrated();
 
   const workspaces = await db
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.founderUserId, userId))
-    .all();
+    ;
 
   for (const ws of workspaces) {
     await deleteWorkspaceById(ws.id);

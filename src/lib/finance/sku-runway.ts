@@ -1,4 +1,7 @@
-import { parsePerSkuSoldLeft } from "@/lib/finance/service";
+import {
+  parsePerSkuSoldLeft,
+  serializePerSkuSoldLeft,
+} from "@/lib/finance/service";
 import {
   REORDER_RUNWAY_LOOKBACK_WEEKS,
   computeSkuRunway,
@@ -49,13 +52,172 @@ export function extractSkuTopicASeries(
   return { skuLeft, recentWeeklySold };
 }
 
+/**
+ * Inventory that became real on batch arrive (importBatch.unitsLeft, else
+ * ordered suggestedFirstBatch). Null while still in transit / not arrived.
+ * Topic A left still wins once weekly rows exist for this skuId.
+ */
+export function batchInventoryUnitsFromImportBatch(
+  importBatch:
+    | {
+        unitsLeft?: number | null;
+        suggestedFirstBatch?: number | null;
+      }
+    | null
+    | undefined,
+  opts: { batchArrivedReady: boolean },
+): number | null {
+  if (!opts.batchArrivedReady || !importBatch) return null;
+  const raw =
+    importBatch.unitsLeft != null && Number.isFinite(importBatch.unitsLeft)
+      ? importBatch.unitsLeft
+      : importBatch.suggestedFirstBatch != null &&
+          Number.isFinite(importBatch.suggestedFirstBatch)
+        ? importBatch.suggestedFirstBatch
+        : null;
+  if (raw == null) return null;
+  return Math.max(0, Math.floor(raw));
+}
+
+/** Topic A left when known; else batch-arrive inventory bootstrap. */
+export function resolveSkuLeftWithBatchBootstrap(args: {
+  topicALeft: number | null;
+  batchInventoryUnits: number | null;
+}): number | null {
+  if (args.topicALeft != null && Number.isFinite(args.topicALeft)) {
+    return Math.max(0, args.topicALeft);
+  }
+  if (
+    args.batchInventoryUnits != null &&
+    Number.isFinite(args.batchInventoryUnits)
+  ) {
+    return Math.max(0, Math.floor(args.batchInventoryUnits));
+  }
+  return null;
+}
+
+/**
+ * On-hand base for next-batch arrive: Topic A left for this skuId, else
+ * importBatch bootstrap, else 0.
+ */
+export function resolvePriorLeftForReorderArrive(args: {
+  topicALeft: number | null;
+  batchInventoryUnits: number | null;
+}): number {
+  if (args.topicALeft != null && Number.isFinite(args.topicALeft)) {
+    return Math.max(0, args.topicALeft);
+  }
+  if (
+    args.batchInventoryUnits != null &&
+    Number.isFinite(args.batchInventoryUnits)
+  ) {
+    return Math.max(0, Math.floor(args.batchInventoryUnits));
+  }
+  return 0;
+}
+
+/**
+ * Index of the Topic A week whose left the glance currently reads for this
+ * skuId — last Mode C line for skuId, else last sole-live legacy week.
+ * -1 when nothing bumpable (e.g. multi-live legacy-only).
+ */
+export function findTopicARowIndexToBumpLeft(
+  entries: readonly { perSkuSoldLeft: string }[],
+  skuId: string,
+  liveSkuCount: number = 1,
+): number {
+  const multiLive = liveSkuCount >= 2;
+  let lastModeCWithLine = -1;
+  let lastModeCAny = -1;
+  let lastSoleLegacy = -1;
+
+  for (let i = 0; i < entries.length; i++) {
+    const parsed = parsePerSkuSoldLeft(entries[i]!.perSkuSoldLeft);
+    const modeC = Object.keys(parsed.skus).length > 0;
+    if (modeC) {
+      lastModeCAny = i;
+      if (parsed.skus[skuId]) lastModeCWithLine = i;
+      continue;
+    }
+    if (!multiLive) lastSoleLegacy = i;
+  }
+
+  if (lastModeCWithLine >= 0) return lastModeCWithLine;
+  if (lastModeCAny >= 0) return lastModeCAny;
+  return lastSoleLegacy;
+}
+
+/**
+ * Bump one Topic A week’s left for a single skuId after reorder arrive.
+ * Mode C: only that skuId’s line (sold/sales unchanged; missing line seeds
+ * sold/sales 0 — not a new fake week). Uses that line’s left when present,
+ * else priorLeft (current glance left). Legacy sole-SKU: bump shop left.
+ * Multi-live legacy weeks are not rewritten (would bleed) — returns null;
+ * caller still updates importBatch bootstrap.
+ */
+export function bumpTopicALeftAfterReorder(args: {
+  perSkuSoldLeft: string;
+  skuId: string;
+  addQty: number;
+  priorLeft: number;
+  liveSkuCount?: number;
+}): { perSkuSoldLeft: string; newLeft: number } | null {
+  const addQty = Math.max(0, Math.floor(args.addQty));
+  if (addQty <= 0) return null;
+
+  const priorLeft = Math.max(0, Math.floor(args.priorLeft));
+  const parsed = parsePerSkuSoldLeft(args.perSkuSoldLeft);
+  const modeC = Object.keys(parsed.skus).length > 0;
+  const multiLive = (args.liveSkuCount ?? 1) >= 2;
+
+  if (modeC) {
+    const existing = parsed.skus[args.skuId];
+    const baseLeft =
+      existing != null && Number.isFinite(existing.left)
+        ? Math.max(0, existing.left)
+        : priorLeft;
+    const newLeft = baseLeft + addQty;
+    const skus = {
+      ...parsed.skus,
+      [args.skuId]: {
+        sold: existing?.sold ?? 0,
+        left: newLeft,
+        sales: existing?.sales ?? 0,
+      },
+    };
+    return {
+      perSkuSoldLeft: serializePerSkuSoldLeft({
+        orders: parsed.orders,
+        skus,
+      }),
+      newLeft,
+    };
+  }
+
+  if (multiLive) return null;
+
+  const newLeft = priorLeft + addQty;
+  return {
+    perSkuSoldLeft: serializePerSkuSoldLeft({
+      orders: parsed.orders,
+      skuSold: parsed.skuSold,
+      skuLeft: newLeft,
+    }),
+    newLeft,
+  };
+}
+
 export function computeRunwayForSkuFromEntries(
   entries: readonly { perSkuSoldLeft: string }[],
   skuId: string,
-  opts?: { liveSkuCount?: number },
+  opts?: { liveSkuCount?: number; batchInventoryUnits?: number | null },
 ): SkuRunwayView {
   const series = extractSkuTopicASeries(entries, skuId, undefined, opts);
-  return computeSkuRunway(series);
+  const skuLeft = resolveSkuLeftWithBatchBootstrap({
+    topicALeft: series.skuLeft,
+    batchInventoryUnits: opts?.batchInventoryUnits ?? null,
+  });
+  return computeSkuRunway({ ...series, skuLeft });
 }
 
 /**

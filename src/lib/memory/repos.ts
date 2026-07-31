@@ -34,26 +34,26 @@ import {
  */
 
 export async function getWorkspace(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   return db
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
 }
 
 export async function getWorkspaceForUser(userId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   return db
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.founderUserId, userId))
-    .get();
+    .then((rows) => rows[0]);
 }
 
 /** Full memory snapshot for a workspace — the shared source of truth read. */
 export async function loadBusinessMemory(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
 
   const [
     workspace,
@@ -74,53 +74,46 @@ export async function loadBusinessMemory(workspaceId: string) {
       .select()
       .from(schema.onboardingProfiles)
       .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     getJourney(workspaceId),
     db
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     db
       .select()
       .from(schema.skuCards)
-      .where(eq(schema.skuCards.workspaceId, workspaceId))
-      .all(),
+      .where(eq(schema.skuCards.workspaceId, workspaceId)),
     db
       .select()
       .from(schema.supplierOptions)
-      .where(eq(schema.supplierOptions.workspaceId, workspaceId))
-      .all(),
+      .where(eq(schema.supplierOptions.workspaceId, workspaceId)),
     db
       .select()
       .from(schema.sampleRecords)
-      .where(eq(schema.sampleRecords.workspaceId, workspaceId))
-      .all(),
+      .where(eq(schema.sampleRecords.workspaceId, workspaceId)),
     db
       .select()
       .from(schema.storeReadiness)
       .where(eq(schema.storeReadiness.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     db
       .select()
       .from(schema.marketingKits)
-      .where(eq(schema.marketingKits.workspaceId, workspaceId))
-      .all(),
+      .where(eq(schema.marketingKits.workspaceId, workspaceId)),
     db
       .select()
       .from(schema.topicAEntries)
-      .where(eq(schema.topicAEntries.workspaceId, workspaceId))
-      .all(),
+      .where(eq(schema.topicAEntries.workspaceId, workspaceId)),
     db
       .select()
       .from(schema.financeVerdicts)
-      .where(eq(schema.financeVerdicts.workspaceId, workspaceId))
-      .all(),
+      .where(eq(schema.financeVerdicts.workspaceId, workspaceId)),
     db
       .select()
       .from(schema.approvalRequests)
-      .where(eq(schema.approvalRequests.workspaceId, workspaceId))
-      .all(),
+      .where(eq(schema.approvalRequests.workspaceId, workspaceId)),
   ]);
 
   return {
@@ -144,7 +137,7 @@ export async function loadBusinessMemory(workspaceId: string) {
 // ---------------------------------------------------------------------------
 
 export async function getJourney(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await getWorkspace(workspaceId);
   if (workspace?.shopPaused) {
     const skuId = await resolveActiveSkuId(workspaceId);
@@ -183,11 +176,11 @@ export async function getJourney(workspaceId: string) {
     .select()
     .from(schema.journeyStates)
     .where(eq(schema.journeyStates.workspaceId, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
 }
 
 export async function getJourneyForSku(workspaceId: string, skuId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await getWorkspace(workspaceId);
   const skuJourney = await getSkuJourney(skuId);
   if (!skuJourney) return null;
@@ -222,12 +215,12 @@ async function runWorkspaceLegacyTransition(
   workspaceId: string,
   plan: (view: JourneyView) => FsmResult,
 ): Promise<FsmResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const row = await db
     .select()
     .from(schema.journeyStates)
     .where(eq(schema.journeyStates.workspaceId, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   if (!row) return { ok: false, error: "invalid_transition" };
 
   const result = plan(toJourneyView(row));
@@ -355,7 +348,7 @@ export async function founderEditWorkspace(
   workspaceId: string,
   patch: WorkspaceEdit,
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const clean = enforceFounderEdit("workspace", patch);
   if (Object.keys(clean).length === 0) return;
   await db
@@ -366,7 +359,7 @@ export async function founderEditWorkspace(
 
 /** Founder edit of a SKU card — only free-text founder notes are editable. */
 export async function founderEditSkuCard(skuId: string, patch: SkuCardEdit) {
-  ensureMigrated();
+  await ensureMigrated();
   const clean = enforceFounderEdit("skuCard", patch);
   if (Object.keys(clean).length === 0) return;
   await db
@@ -380,7 +373,7 @@ export async function founderEditMarketingKit(
   kitId: string,
   patch: MarketingKitEdit,
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const clean = enforceFounderEdit("marketingKit", patch);
   if (Object.keys(clean).length === 0) return;
   await db
@@ -394,7 +387,7 @@ export async function founderEditStoreReadiness(
   workspaceId: string,
   patch: StoreReadinessEdit,
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const clean = enforceFounderEdit("storeReadiness", patch);
   if (Object.keys(clean).length === 0) return;
   await db
@@ -408,7 +401,7 @@ export async function founderEditOnboardingProfile(
   workspaceId: string,
   patch: OnboardingEdit,
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const clean = enforceFounderEdit("onboardingProfile", patch);
   if (Object.keys(clean).length === 0) return;
   await db

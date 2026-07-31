@@ -30,7 +30,7 @@ async function workspaceForRequest() {
 }
 
 export async function startDiscoveryAction() {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return;
 
@@ -38,7 +38,7 @@ export async function startDiscoveryAction() {
     .select()
     .from(schema.onboardingProfiles)
     .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
-    .get();
+    .then((rows) => rows[0]);
   if (!onboarding) return;
 
   await startDiscoverySession(workspace.id, onboarding);
@@ -46,7 +46,7 @@ export async function startDiscoveryAction() {
 }
 
 export async function showMoreAction() {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return;
   await showMore(workspace.id);
@@ -54,7 +54,7 @@ export async function showMoreAction() {
 }
 
 export async function continueDiscoveryAction() {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false as const, error: "not_found" };
 
@@ -62,7 +62,7 @@ export async function continueDiscoveryAction() {
     .select()
     .from(schema.onboardingProfiles)
     .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
-    .get();
+    .then((rows) => rows[0]);
   if (!onboarding) return { ok: false as const, error: "not_found" };
 
   const result = await continueDiscoverySession(workspace.id, onboarding);
@@ -79,7 +79,7 @@ export async function submitDiscoveryPassFeedbackAction(
   _prev: PassFeedbackState,
   formData: FormData,
 ): Promise<PassFeedbackState> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { error: "not_found" };
 
@@ -105,7 +105,7 @@ export async function confirmDemandAction(
   _prev: DemandActionState,
   formData: FormData,
 ): Promise<DemandActionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { error: "not_found" };
 
@@ -134,7 +134,7 @@ export async function resolveTier1Action(
   candidateId: string,
   choice: "customize" | "drop",
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return;
   await resolveTier1(workspace.id, candidateId, choice);
@@ -142,7 +142,7 @@ export async function resolveTier1Action(
 }
 
 export async function rejectCandidateAction(candidateId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return;
   await rejectCandidate(workspace.id, candidateId);
@@ -153,7 +153,7 @@ export async function acceptProductAction(
   candidateId: string,
   riskReadAck: boolean,
 ): Promise<AcceptResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
 

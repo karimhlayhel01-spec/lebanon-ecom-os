@@ -31,25 +31,25 @@ function toJourneyView(row: {
 }
 
 export async function getSkuJourney(skuId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   return db
     .select()
     .from(schema.skuJourneys)
     .where(eq(schema.skuJourneys.skuId, skuId))
-    .get();
+    .then((rows) => rows[0]);
 }
 
 export async function listSkuJourneys(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   return db
     .select()
     .from(schema.skuJourneys)
     .where(eq(schema.skuJourneys.workspaceId, workspaceId))
-    .all();
+    ;
 }
 
 export async function listLiveSkus(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   return db
     .select()
     .from(schema.skuCards)
@@ -59,11 +59,11 @@ export async function listLiveSkus(workspaceId: string) {
         eq(schema.skuCards.lifecycleStatus, "live"),
       ),
     )
-    .all();
+    ;
 }
 
 export async function listArchivedSkus(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   return db
     .select()
     .from(schema.skuCards)
@@ -73,7 +73,7 @@ export async function listArchivedSkus(workspaceId: string) {
         eq(schema.skuCards.lifecycleStatus, "archived"),
       ),
     )
-    .all();
+    ;
 }
 
 export async function countLiveSkus(workspaceId: string): Promise<number> {
@@ -90,7 +90,7 @@ export async function createSkuJourney(args: {
   primaryState?: JourneyState;
   okayRiskAck?: boolean;
 }) {
-  ensureMigrated();
+  await ensureMigrated();
   const existing = await getSkuJourney(args.skuId);
   if (existing) return existing;
 
@@ -131,7 +131,7 @@ async function runSkuTransition(
   skuId: string,
   plan: (view: JourneyView) => FsmResult,
 ): Promise<FsmResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const row = await getSkuJourney(skuId);
   if (!row) return { ok: false, error: "invalid_transition" };
 
@@ -163,7 +163,7 @@ async function syncWorkspaceJourneyMirror(
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   if (!workspace || workspace.activeSkuId !== skuId) return;
   if (workspace.shopPaused) return;
 
@@ -216,7 +216,7 @@ export async function patchSkuJourneyFlags(
     reorderCrisisSkipJson: string | null;
   }>,
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   await db
     .update(schema.skuJourneys)
     .set({ ...patch, updatedAt: nowIso() })
@@ -233,13 +233,13 @@ export async function effectiveSkuPrimaryState(
   shopPaused: boolean;
   skuPaused: boolean;
 }> {
-  ensureMigrated();
+  await ensureMigrated();
   const [workspace, journey] = await Promise.all([
     db
       .select()
       .from(schema.workspaces)
       .where(eq(schema.workspaces.id, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     getSkuJourney(skuId),
   ]);
   const shopPaused = !!workspace?.shopPaused;
@@ -264,7 +264,7 @@ export async function effectiveSkuPrimaryState(
 }
 
 export async function setShopPaused(workspaceId: string, paused: boolean) {
-  ensureMigrated();
+  await ensureMigrated();
   await db
     .update(schema.workspaces)
     .set({ shopPaused: paused })
@@ -275,7 +275,7 @@ export async function setShopPaused(workspaceId: string, paused: boolean) {
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   if (!workspace?.activeSkuId) return;
 
   if (paused) {
@@ -331,12 +331,12 @@ export async function resumeSelectedSkus(skuIds: string[]) {
 export async function resolveActiveSkuId(
   workspaceId: string,
 ): Promise<string | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await db
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   if (workspace?.activeSkuId) {
     const card = await db
       .select()
@@ -347,7 +347,7 @@ export async function resolveActiveSkuId(
           ne(schema.skuCards.lifecycleStatus, "wiped"),
         ),
       )
-      .get();
+      .then((rows) => rows[0]);
     if (card && card.lifecycleStatus === "live") return card.id;
   }
   const live = await listLiveSkus(workspaceId);

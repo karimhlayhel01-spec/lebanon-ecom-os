@@ -39,7 +39,12 @@ import {
   type UnavailableSuppliersMap,
 } from "@/lib/supplier/reorder-escape";
 import {
+  batchInventoryUnitsFromImportBatch,
+  bumpTopicALeftAfterReorder,
   computeRunwayForSkuFromEntries,
+  extractSkuTopicASeries,
+  findTopicARowIndexToBumpLeft,
+  resolvePriorLeftForReorderArrive,
   resolveUnitsLeftGlance,
   type UnitsLeftGlance,
 } from "@/lib/finance/sku-runway";
@@ -110,7 +115,7 @@ async function patchSkuSideFlags(
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId))
-    .get();
+    .then((rows) => rows[0]);
   if (workspace?.activeSkuId !== skuId) return;
 
   const sidePatch: Record<string, unknown> = { updatedAt: nowIso() };
@@ -398,7 +403,7 @@ export async function ensureSuppliers(
   workspaceId: string,
   skuId?: string,
 ): Promise<void> {
-  ensureMigrated();
+  await ensureMigrated();
   const sku = skuId
     ? await getSkuViewById(workspaceId, skuId)
     : await getSkuView(workspaceId);
@@ -408,7 +413,7 @@ export async function ensureSuppliers(
     .select()
     .from(schema.supplierOptions)
     .where(eq(schema.supplierOptions.skuId, sku.id))
-    .all();
+    ;
 
   const sourcesPresent = [
     ...new Set(
@@ -709,7 +714,7 @@ export async function getSupplierPanel(
   workspaceId: string,
   skuId?: string,
 ): Promise<SupplierPanelView | null> {
-  ensureMigrated();
+  await ensureMigrated();
   const sku = skuId
     ? await getSkuViewById(workspaceId, skuId)
     : await getSkuView(workspaceId);
@@ -722,21 +727,19 @@ export async function getSupplierPanel(
         .select()
         .from(schema.supplierOptions)
         .where(eq(schema.supplierOptions.skuId, sku.id))
-        .orderBy(asc(schema.supplierOptions.rank))
-        .all(),
+        .orderBy(asc(schema.supplierOptions.rank)),
       db
         .select()
         .from(schema.sideStatuses)
         .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-        .get(),
+        .then((rows) => rows[0]),
       getJourney(workspaceId),
       getSkuJourney(sku.id),
       db
         .select()
         .from(schema.sampleRecords)
         .where(eq(schema.sampleRecords.skuId, sku.id))
-        .orderBy(asc(schema.sampleRecords.createdAt))
-        .all(),
+        .orderBy(asc(schema.sampleRecords.createdAt)),
       db
         .select({
           monthlyFollowOnBudget: schema.onboardingProfiles.monthlyFollowOnBudget,
@@ -744,7 +747,7 @@ export async function getSupplierPanel(
         })
         .from(schema.onboardingProfiles)
         .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
-        .get(),
+        .then((rows) => rows[0]),
       db
         .select({
           weekStart: schema.topicAEntries.weekStart,
@@ -756,13 +759,12 @@ export async function getSupplierPanel(
         })
         .from(schema.topicAEntries)
         .where(eq(schema.topicAEntries.workspaceId, workspaceId))
-        .orderBy(asc(schema.topicAEntries.weekStart))
-        .all(),
+        .orderBy(asc(schema.topicAEntries.weekStart)),
       db
         .select({ shopPaused: schema.workspaces.shopPaused })
         .from(schema.workspaces)
         .where(eq(schema.workspaces.id, workspaceId))
-        .get(),
+        .then((rows) => rows[0]),
       listLiveSkus(workspaceId),
     ]);
 
@@ -922,6 +924,9 @@ export async function getSupplierPanel(
   const experience = (onboarding?.experience ?? "beginner") as ExperienceLevel;
   const runway = computeRunwayForSkuFromEntries(topicRows, sku.id, {
     liveSkuCount: live.length,
+    batchInventoryUnits: batchInventoryUnitsFromImportBatch(sku.importBatch, {
+      batchArrivedReady: flags.batchArrivedReady,
+    }),
   });
   const economics = evaluateReorderEconomicsGate({
     experience,
@@ -1052,7 +1057,7 @@ async function ownedSupplier(workspaceId: string, supplierId: string) {
     .select()
     .from(schema.supplierOptions)
     .where(eq(schema.supplierOptions.id, supplierId))
-    .get();
+    .then((rows) => rows[0]);
   if (!row || row.workspaceId !== workspaceId) return undefined;
   return row;
 }
@@ -1065,7 +1070,7 @@ export async function requestSample(
   workspaceId: string,
   supplierId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const supplier = await ownedSupplier(workspaceId, supplierId);
   if (!supplier) return { ok: false, error: "not_found" };
 
@@ -1074,15 +1079,14 @@ export async function requestSample(
       .select()
       .from(schema.sampleRecords)
       .where(eq(schema.sampleRecords.skuId, supplier.skuId))
-      .orderBy(asc(schema.sampleRecords.createdAt))
-      .all(),
+      .orderBy(asc(schema.sampleRecords.createdAt)),
     getSkuJourney(supplier.skuId),
     getJourney(workspaceId),
     db
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
   ]);
 
   const flags = resolveSupplierJourneyFlags({
@@ -1117,7 +1121,7 @@ export async function requestSample(
       .select()
       .from(schema.supplierOptions)
       .where(eq(schema.supplierOptions.skuId, supplier.skuId))
-      .all();
+      ;
     const unavailable = parseUnavailableSuppliers(
       skuJourney?.reorderUnavailableJson,
     );
@@ -1202,12 +1206,12 @@ export async function markSampleReceived(
   checklist: Record<string, boolean>,
   photoNotes: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const row = await db
     .select()
     .from(schema.sampleRecords)
     .where(eq(schema.sampleRecords.id, sampleId))
-    .get();
+    .then((rows) => rows[0]);
   if (!row || row.workspaceId !== workspaceId) return { ok: false, error: "not_found" };
 
   await db
@@ -1228,12 +1232,12 @@ export async function decideSample(
   sampleId: string,
   decision: SampleDecision,
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   const row = await db
     .select()
     .from(schema.sampleRecords)
     .where(eq(schema.sampleRecords.id, sampleId))
-    .get();
+    .then((rows) => rows[0]);
   if (!row || row.workspaceId !== workspaceId) {
     return { ok: false, error: "not_found" };
   }
@@ -1245,7 +1249,7 @@ export async function decideSample(
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
   ]);
   const flags = resolveSupplierJourneyFlags({
     skuJourney: skuJourney
@@ -1334,7 +1338,7 @@ export async function saveCostQuotes(
   input: CostQuoteInput,
   skuId?: string,
 ): Promise<SaveCostQuotesResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const sku = skuId
     ? await getSkuViewById(workspaceId, skuId)
     : await getSkuView(workspaceId);
@@ -1347,12 +1351,12 @@ export async function saveCostQuotes(
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     db
       .select({ monthlyFollowOnBudget: schema.onboardingProfiles.monthlyFollowOnBudget })
       .from(schema.onboardingProfiles)
       .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
   ]);
 
   const flags = resolveSupplierJourneyFlags({
@@ -1442,7 +1446,7 @@ export async function orderBatch(
   quantity: number,
   stuckAcks: boolean,
 ): Promise<OrderBatchResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const supplier = await ownedSupplier(workspaceId, supplierId);
   if (!supplier) return { ok: false, error: "not_found" };
 
@@ -1458,7 +1462,7 @@ export async function orderBatch(
     })
     .from(schema.sampleRecords)
     .where(eq(schema.sampleRecords.skuId, supplier.skuId))
-    .all();
+    ;
   const approvedForSupplier = samples.some(
     (s) => s.supplierId === supplierId && s.status === "approved",
   );
@@ -1534,6 +1538,7 @@ export async function orderBatch(
         moq: supplier.moq,
         status: "ordered",
         suggestedFirstBatch: qty,
+        unitsLeft: null,
         estCost,
         supplierId,
         notes: ["@import.trackShipment", "@import.prepClearance"],
@@ -1559,7 +1564,7 @@ export async function markBatchArrived(
   skuId: string,
   inventoryAck: boolean,
 ): Promise<{ ok: boolean; error?: string }> {
-  ensureMigrated();
+  await ensureMigrated();
   if (!inventoryAck) return { ok: false, error: "needs_inventory_ack" };
 
   // Panel skuId only — never silent activeSkuId (multi-SKU footgun).
@@ -1583,20 +1588,20 @@ export async function markBatchArrived(
   const now = nowIso();
   await patchSkuSideFlags(workspaceId, sku.id, { batchArrivedReady: true });
 
+  // Inventory is real at arrive (inventory_ack): seed units-left from ordered qty.
+  // Topic A log-week left remains SoT once weekly rows exist for this skuId.
+  const orderedQty =
+    sku.importBatch.suggestedFirstBatch != null &&
+    Number.isFinite(sku.importBatch.suggestedFirstBatch)
+      ? Math.max(1, Math.floor(sku.importBatch.suggestedFirstBatch))
+      : null;
   await db
     .update(schema.skuCards)
     .set({
       importBatch: JSON.stringify({
-        ...JSON.parse(
-          (
-            await db
-              .select({ importBatch: schema.skuCards.importBatch })
-              .from(schema.skuCards)
-              .where(eq(schema.skuCards.id, sku.id))
-              .get()
-          )?.importBatch ?? "{}",
-        ),
+        ...sku.importBatch,
         status: "arrived",
+        unitsLeft: orderedQty,
       }),
       updatedAt: now,
     })
@@ -1607,7 +1612,7 @@ export async function markBatchArrived(
     workspaceId,
     kind: "batch_arrived_ready",
     message: "Batch arrived and inventory checked",
-    meta: JSON.stringify({ skuId: sku.id }),
+    meta: JSON.stringify({ skuId: sku.id, unitsLeft: orderedQty }),
     createdAt: now,
   });
 
@@ -1636,7 +1641,7 @@ export async function setBatchArrivalEta(
   skuId: string,
   input: SetBatchArrivalEtaInput,
 ): Promise<SetBatchArrivalEtaResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const panelSkuId = resolvePanelScopedSkuId({ panelSkuId: skuId });
   if (!panelSkuId) return { ok: false, error: "not_found" };
   const sku = await getSkuViewById(workspaceId, panelSkuId);
@@ -1648,7 +1653,7 @@ export async function setBatchArrivalEta(
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     getJourney(workspaceId),
   ]);
 
@@ -1714,7 +1719,7 @@ export async function setBatchArrivalEta(
         eq(schema.marketingKits.stage, "pre_launch"),
       ),
     )
-    .get();
+    .then((rows) => rows[0]);
 
   let preLaunchRegenerated = false;
   if (existingPre) {
@@ -1755,7 +1760,7 @@ export async function orderNextBatch(
   quantity: number,
   opts: { economicsAck?: boolean; stuckAcks?: boolean } = {},
 ): Promise<OrderNextBatchResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const sku = await getSkuViewById(workspaceId, skuId);
   if (!sku) return { ok: false, error: "not_found" };
 
@@ -1768,13 +1773,12 @@ export async function orderNextBatch(
         status: schema.sampleRecords.status,
       })
       .from(schema.sampleRecords)
-      .where(eq(schema.sampleRecords.skuId, skuId))
-      .all(),
+      .where(eq(schema.sampleRecords.skuId, skuId)),
     db
       .select({ experience: schema.onboardingProfiles.experience })
       .from(schema.onboardingProfiles)
       .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     db
       .select({
         weekStart: schema.topicAEntries.weekStart,
@@ -1786,13 +1790,12 @@ export async function orderNextBatch(
       })
       .from(schema.topicAEntries)
       .where(eq(schema.topicAEntries.workspaceId, workspaceId))
-      .orderBy(asc(schema.topicAEntries.weekStart))
-      .all(),
+      .orderBy(asc(schema.topicAEntries.weekStart)),
     db
       .select({ shopPaused: schema.workspaces.shopPaused })
       .from(schema.workspaces)
       .where(eq(schema.workspaces.id, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
     listLiveSkus(workspaceId),
   ]);
 
@@ -1953,6 +1956,9 @@ export async function orderNextBatch(
       source,
       runway: computeRunwayForSkuFromEntries(topicRows, skuId, {
         liveSkuCount: live.length,
+        batchInventoryUnits: batchInventoryUnitsFromImportBatch(sku.importBatch, {
+          batchArrivedReady: true, // selling/reorder path implies first batch arrived
+        }),
       }),
       investNextRecommendation,
     },
@@ -2006,7 +2012,7 @@ export async function markReorderArrived(
   skuId: string,
   inventoryAck: boolean,
 ): Promise<MarkReorderArrivedResult> {
-  ensureMigrated();
+  await ensureMigrated();
   if (!inventoryAck) return { ok: false, error: "needs_inventory_ack" };
 
   const skuJourney = await getSkuJourney(skuId);
@@ -2041,6 +2047,76 @@ export async function markReorderArrived(
   if (!decided.ok) return { ok: false, error: "error" };
 
   const now = nowIso();
+  const reorderQty =
+    skuJourney.reorderQty != null && Number.isFinite(skuJourney.reorderQty)
+      ? Math.max(0, Math.floor(skuJourney.reorderQty))
+      : 0;
+  const sku = await getSkuViewById(workspaceId, skuId);
+  const live = await listLiveSkus(workspaceId);
+  let newUnitsLeft: number | null = null;
+
+  if (sku && reorderQty > 0) {
+    const topicRows = await db
+      .select({
+        id: schema.topicAEntries.id,
+        perSkuSoldLeft: schema.topicAEntries.perSkuSoldLeft,
+      })
+      .from(schema.topicAEntries)
+      .where(eq(schema.topicAEntries.workspaceId, workspaceId))
+      .orderBy(asc(schema.topicAEntries.weekStart));
+
+    const series = extractSkuTopicASeries(topicRows, skuId, undefined, {
+      liveSkuCount: live.length,
+    });
+    const batchInventoryUnits = batchInventoryUnitsFromImportBatch(
+      sku.importBatch,
+      { batchArrivedReady: true },
+    );
+    const priorLeft = resolvePriorLeftForReorderArrive({
+      topicALeft: series.skuLeft,
+      batchInventoryUnits,
+    });
+    newUnitsLeft = priorLeft + reorderQty;
+
+    // Topic A is glance SoT — bump this skuId’s left (+reorderQty) on the week
+    // the runway reads. Do not leave the top-up only on importBatch (Topic A
+    // would keep winning with the stale left). No new fake sold week.
+    const bumpIdx = findTopicARowIndexToBumpLeft(
+      topicRows,
+      skuId,
+      live.length,
+    );
+    const target = bumpIdx >= 0 ? topicRows[bumpIdx] : undefined;
+    if (target) {
+      const bumped = bumpTopicALeftAfterReorder({
+        perSkuSoldLeft: target.perSkuSoldLeft,
+        skuId,
+        addQty: reorderQty,
+        priorLeft,
+        liveSkuCount: live.length,
+      });
+      if (bumped) {
+        await db
+          .update(schema.topicAEntries)
+          .set({ perSkuSoldLeft: bumped.perSkuSoldLeft })
+          .where(eq(schema.topicAEntries.id, target.id));
+        newUnitsLeft = bumped.newLeft;
+      }
+    }
+
+    await db
+      .update(schema.skuCards)
+      .set({
+        importBatch: JSON.stringify({
+          ...sku.importBatch,
+          status: "arrived",
+          unitsLeft: newUnitsLeft,
+        }),
+        updatedAt: now,
+      })
+      .where(eq(schema.skuCards.id, sku.id));
+  }
+
   // Complete side-flow → idle; primary stays selling.
   await patchSkuJourneyFlags(skuId, {
     reorderStatus: "idle",
@@ -2055,7 +2131,7 @@ export async function markReorderArrived(
     workspaceId,
     kind: "reorder_arrived",
     message: "Next batch arrived — stock topped up; still selling",
-    meta: JSON.stringify({ skuId }),
+    meta: JSON.stringify({ skuId, reorderQty, unitsLeft: newUnitsLeft }),
     createdAt: now,
   });
 
@@ -2074,7 +2150,7 @@ export async function setReorderArrivalEta(
   skuId: string,
   input: SetBatchArrivalEtaInput,
 ): Promise<SetReorderArrivalEtaResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const skuJourney = await getSkuJourney(skuId);
   if (!skuJourney || skuJourney.workspaceId !== workspaceId) {
     return { ok: false, error: "not_found" };
@@ -2128,7 +2204,7 @@ export async function reportSupplierCantFulfill(
   skuId: string,
   opts: { reason?: CantFulfillReason | string } = {},
 ): Promise<ReportCantFulfillResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const [skuJourney, sampleRows, suppliers, workspace] = await Promise.all([
     getSkuJourney(skuId),
     db
@@ -2138,18 +2214,16 @@ export async function reportSupplierCantFulfill(
       })
       .from(schema.sampleRecords)
       .where(eq(schema.sampleRecords.skuId, skuId))
-      .orderBy(asc(schema.sampleRecords.createdAt))
-      .all(),
+      .orderBy(asc(schema.sampleRecords.createdAt)),
     db
       .select()
       .from(schema.supplierOptions)
-      .where(eq(schema.supplierOptions.skuId, skuId))
-      .all(),
+      .where(eq(schema.supplierOptions.skuId, skuId)),
     db
       .select({ shopPaused: schema.workspaces.shopPaused })
       .from(schema.workspaces)
       .where(eq(schema.workspaces.id, workspaceId))
-      .get(),
+      .then((rows) => rows[0]),
   ]);
 
   if (!skuJourney || skuJourney.workspaceId !== workspaceId) {
@@ -2277,7 +2351,7 @@ export async function switchReorderBackup(
   backupSupplierId: string,
   opts: { skipSampleAck?: boolean } = {},
 ): Promise<SwitchReorderBackupResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const [skuJourney, sampleRows, onboarding, workspace, suppliers] =
     await Promise.all([
       getSkuJourney(skuId),
@@ -2287,23 +2361,21 @@ export async function switchReorderBackup(
           status: schema.sampleRecords.status,
         })
         .from(schema.sampleRecords)
-        .where(eq(schema.sampleRecords.skuId, skuId))
-        .all(),
+        .where(eq(schema.sampleRecords.skuId, skuId)),
       db
         .select({ experience: schema.onboardingProfiles.experience })
         .from(schema.onboardingProfiles)
         .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
-        .get(),
+        .then((rows) => rows[0]),
       db
         .select({ shopPaused: schema.workspaces.shopPaused })
         .from(schema.workspaces)
         .where(eq(schema.workspaces.id, workspaceId))
-        .get(),
+        .then((rows) => rows[0]),
       db
         .select()
         .from(schema.supplierOptions)
-        .where(eq(schema.supplierOptions.skuId, skuId))
-        .all(),
+        .where(eq(schema.supplierOptions.skuId, skuId)),
     ]);
 
   if (!skuJourney || skuJourney.workspaceId !== workspaceId) {

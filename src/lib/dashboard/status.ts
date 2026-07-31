@@ -192,7 +192,7 @@ async function workspaceHasLaunchKit(
         inArray(schema.marketingKits.stage, ["launch", "monthly_refresh"]),
       ),
     )
-    .get();
+    .then((rows) => rows[0]);
   return Boolean(row);
 }
 
@@ -214,7 +214,7 @@ export async function getDashboardStatus(args: {
   /** Per-SKU marketing stage from sku_journeys (not shop side_statuses). */
   sideMarketingStage: string;
 }): Promise<DashboardStatusView> {
-  ensureMigrated();
+  await ensureMigrated();
 
   const panel = args.productAccepted
     ? await getSupplierPanel(args.workspaceId, args.skuId)

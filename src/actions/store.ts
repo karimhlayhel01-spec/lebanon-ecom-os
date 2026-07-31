@@ -20,7 +20,7 @@ export async function toggleStoreChecklistAction(
   key: StoreChecklistKey,
   value: boolean,
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, percent: 0 };
   const res = await toggleChecklistItem(workspace.id, key, value);
@@ -34,7 +34,7 @@ export async function saveStoreFieldsAction(
   _prev: StoreFieldsState,
   formData: FormData,
 ): Promise<StoreFieldsState> {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { error: "not_found" };
 
@@ -52,7 +52,7 @@ export async function saveStoreFieldsAction(
 }
 
 export async function markStoreReadyAction() {
-  ensureMigrated();
+  await ensureMigrated();
   const workspace = await workspaceForRequest();
   if (!workspace) return { ok: false, error: "not_found" };
   const res = await markStoreReady(workspace.id);

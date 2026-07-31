@@ -11,16 +11,16 @@
     "test:watch": "vitest",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
-    "db:seed:preview": "tsx scripts/seed-preview.ts",
+    "db:migrate": "drizzle-kit migrate",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
     "nanoid": "^6.0.0",
     "next": "16.2.10",
     "next-intl": "^4.13.2",
+    "postgres": "^3.4.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "zod": "^4.4.3"
@@ -28,7 +28,6 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -36,11 +35,11 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
+    "tsx": "^4.23.1",
     "typescript": "^5",
     "vitest": "^4.1.10"
   },
   "allowScripts": {
-    "better-sqlite3@12.11.1": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.1": true,
     "esbuild@0.18.20": true,

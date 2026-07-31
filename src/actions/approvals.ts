@@ -32,7 +32,7 @@ export async function openApprovalGateAction(
   data?: Record<string, unknown>,
   requiredAcks?: string[],
 ) {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return;
@@ -46,7 +46,7 @@ export async function approveApprovalAction(
   acknowledgements: string[] = [],
   note?: string,
 ): Promise<ApprovalDecisionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const approval = await requireOwnedApproval(approvalId);
   if (!approval) return { ok: false, error: "not_found" };
 
@@ -65,7 +65,7 @@ export async function rejectApprovalAction(
   approvalId: string,
   note?: string,
 ): Promise<ApprovalDecisionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const approval = await requireOwnedApproval(approvalId);
   if (!approval) return { ok: false, error: "not_found" };
 

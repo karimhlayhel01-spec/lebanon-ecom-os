@@ -45,25 +45,25 @@ function parsePayload(raw: string): ApprovalPayload {
 }
 
 export async function getApproval(id: string) {
-  ensureMigrated();
+  await ensureMigrated();
   return db
     .select()
     .from(schema.approvalRequests)
     .where(eq(schema.approvalRequests.id, id))
-    .get();
+    .then((rows) => rows[0]);
 }
 
 export async function listApprovals(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   return db
     .select()
     .from(schema.approvalRequests)
     .where(eq(schema.approvalRequests.workspaceId, workspaceId))
-    .all();
+    ;
 }
 
 export async function listPendingApprovals(workspaceId: string) {
-  ensureMigrated();
+  await ensureMigrated();
   return db
     .select()
     .from(schema.approvalRequests)
@@ -73,7 +73,7 @@ export async function listPendingApprovals(workspaceId: string) {
         eq(schema.approvalRequests.status, "pending"),
       ),
     )
-    .all();
+    ;
 }
 
 /**
@@ -89,7 +89,7 @@ export async function createApprovalRequest(
     skuId?: string | null;
   } = {},
 ) {
-  ensureMigrated();
+  await ensureMigrated();
 
   const skuId = opts.skuId ?? null;
   const existingQuery = db
@@ -105,7 +105,7 @@ export async function createApprovalRequest(
           : isNull(schema.approvalRequests.skuId),
       ),
     );
-  const existing = await existingQuery.get();
+  const existing = await existingQuery.then((rows) => rows[0]);
   if (existing) return existing;
 
   const requiredAcks = [
@@ -160,7 +160,7 @@ export async function decideApproval(
   id: string,
   decision: ApprovalDecision,
 ): Promise<DecideApprovalResult> {
-  ensureMigrated();
+  await ensureMigrated();
 
   const row = await getApproval(id);
   if (!row) return { ok: false, error: "not_found" };
@@ -275,7 +275,7 @@ export async function assertCanTransition(
   workspaceId: string,
   to: PrimaryJourneyState,
 ): Promise<TransitionGuardResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const approvals = await db
     .select({
       gateId: schema.approvalRequests.gateId,
@@ -283,7 +283,7 @@ export async function assertCanTransition(
     })
     .from(schema.approvalRequests)
     .where(eq(schema.approvalRequests.workspaceId, workspaceId))
-    .all();
+    ;
   return checkTransitionApproval(to, approvals);
 }
 
@@ -300,7 +300,7 @@ export async function guardedAdvanceJourney(
   to: PrimaryJourneyState,
   skuId?: string,
 ): Promise<GuardedAdvanceResult> {
-  ensureMigrated();
+  await ensureMigrated();
   const guard = await assertCanTransition(workspaceId, to);
   if (!guard.ok) return guard;
 

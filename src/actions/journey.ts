@@ -12,7 +12,7 @@ import {
 import { revalidatePath } from "next/cache";
 
 export async function pauseJourneyAction() {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return;
@@ -22,7 +22,7 @@ export async function pauseJourneyAction() {
 }
 
 export async function resumeJourneyAction() {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return;
@@ -32,7 +32,7 @@ export async function resumeJourneyAction() {
 }
 
 export async function blockJourneyAction(reason: string) {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return;
@@ -42,7 +42,7 @@ export async function blockJourneyAction(reason: string) {
 }
 
 export async function unblockJourneyAction() {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) return;

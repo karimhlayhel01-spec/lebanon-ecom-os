@@ -47,7 +47,7 @@ export async function changePasswordAction(
   _prev: SettingsActionState,
   formData: FormData,
 ): Promise<SettingsActionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
 
   const parsed = changePasswordSchema.safeParse({
@@ -66,7 +66,7 @@ export async function changePasswordAction(
     .select()
     .from(schema.users)
     .where(eq(schema.users.id, user.id))
-    .get();
+    .then((rows) => rows[0]);
   if (!row) {
     return { error: "errorGeneric" };
   }
@@ -92,7 +92,7 @@ export async function renameWorkspaceAction(
   _prev: SettingsActionState,
   formData: FormData,
 ): Promise<SettingsActionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   const workspace = await getWorkspaceForUser(user.id);
   if (!workspace) {
@@ -112,7 +112,7 @@ export async function renameWorkspaceAction(
 }
 
 export async function logoutEverywhereAction(): Promise<void> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
   await destroyAllSessions(user.id);
   const locale = await getLocale();
@@ -123,7 +123,7 @@ export async function deleteAccountAction(
   _prev: SettingsActionState,
   formData: FormData,
 ): Promise<SettingsActionState> {
-  ensureMigrated();
+  await ensureMigrated();
   const user = await requireUser();
 
   const parsed = deleteAccountSchema.safeParse({
@@ -141,7 +141,7 @@ export async function deleteAccountAction(
     .select()
     .from(schema.users)
     .where(eq(schema.users.id, user.id))
-    .get();
+    .then((rows) => rows[0]);
   if (!row) {
     return { error: "errorGeneric" };
   }
