@@ -8,12 +8,13 @@ import { pauseShopAction } from "@/actions/sku";
 import {
   changePasswordAction,
   deleteAccountAction,
+  demoResetJourneyAction,
   logoutEverywhereAction,
   renameWorkspaceAction,
   type SettingsActionState,
 } from "@/actions/settings";
 
-type Panel = "menu" | "password" | "rename" | "delete";
+type Panel = "menu" | "password" | "rename" | "delete" | "demo-reset";
 
 const initial: SettingsActionState = {};
 
@@ -27,11 +28,14 @@ export function SettingsMenu({
   email,
   workspaceName,
   isPaused = false,
+  demoResetEnabled = false,
 }: {
   email: string;
   workspaceName: string;
   /** When false, Pause shop is offered in this menu (Resume stays in the header). */
   isPaused?: boolean;
+  /** Server-gated: DEMO_RESET=1|true. Never show in production without the flag. */
+  demoResetEnabled?: boolean;
 }) {
   const t = useTranslations("Settings");
   const tDash = useTranslations("Dashboard");
@@ -156,6 +160,16 @@ export function SettingsMenu({
               >
                 {t("renameWorkspace")}
               </button>
+              {demoResetEnabled && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="w-full rounded-md px-3 py-2 text-start text-sm font-medium text-amber-900 transition hover:bg-amber-50"
+                  onClick={() => setPanel("demo-reset")}
+                >
+                  {t("demoReset")}
+                </button>
+              )}
               <form action={logoutAction}>
                 <button type="submit" role="menuitem" className={menuBtnClass}>
                   {tAuth("logout")}
@@ -190,6 +204,10 @@ export function SettingsMenu({
                 router.refresh();
               }}
             />
+          )}
+
+          {panel === "demo-reset" && demoResetEnabled && (
+            <DemoResetPanel onBack={() => setPanel("menu")} />
           )}
 
           {panel === "delete" && (
@@ -414,6 +432,54 @@ function DeletePanel({ onBack }: { onBack: () => void }) {
           className="rounded-md border border-red-700 bg-red-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-800 disabled:opacity-60"
         >
           {t("deleteAccountConfirm")}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function DemoResetPanel({ onBack }: { onBack: () => void }) {
+  const t = useTranslations("Settings");
+  const [state, formAction, pending] = useActionState(
+    demoResetJourneyAction,
+    initial,
+  );
+
+  return (
+    <div>
+      <PanelHeader
+        title={t("demoResetTitle")}
+        onBack={onBack}
+        backLabel={t("back")}
+      />
+      <form action={formAction} className="flex flex-col gap-3 px-1 pb-1">
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs leading-relaxed text-amber-950">
+          {t("demoResetBadge")}
+        </p>
+        <p className="text-xs leading-relaxed text-stone-dark">
+          {t("demoResetWarning")}
+        </p>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium text-ink">{t("demoResetConfirmLabel")}</span>
+          <input
+            name="confirmToken"
+            required
+            autoComplete="off"
+            placeholder="RESET"
+            className={fieldClass}
+          />
+        </label>
+        {state.error && (
+          <p className="text-xs text-red-700" role="alert">
+            {t(state.error as "errorGeneric")}
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-md border border-amber-800 bg-amber-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-amber-900 disabled:opacity-60"
+        >
+          {t("demoResetConfirm")}
         </button>
       </form>
     </div>

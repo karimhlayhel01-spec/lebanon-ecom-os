@@ -1192,6 +1192,12 @@
     "deleteAccountWarning": "سيُحذف حسابك ومساحة عملك وكل بيانات المسار نهائياً. لا يمكن التراجع عن هذا الإجراء.",
     "deleteConfirmLabel": "اكتب DELETE للتأكيد",
     "deleteAccountConfirm": "احذف حسابي",
+    "demoReset": "تجريبي: إعادة تعيين المسار",
+    "demoResetTitle": "تجريبي: إعادة تعيين المسار",
+    "demoResetBadge": "تحكم تجريبي مؤقت — للاختبار والعروض الحية فقط.",
+    "demoResetWarning": "يمسح كل بيانات مسار المتجر (المنتجات، الاكتشاف، الموردين، التسويق، الموضوع أ) ويعيدك إلى اكتشاف فارغ. يبقى تسجيل دخولك والإعداد الأولي. لا يمكن التراجع عن هذا الإجراء.",
+    "demoResetConfirmLabel": "اكتب RESET للتأكيد",
+    "demoResetConfirm": "إعادة تعيين المسار",
     "currentPassword": "كلمة المرور الحالية",
     "newPassword": "كلمة المرور الجديدة",
     "confirmPassword": "تأكيد كلمة المرور الجديدة",
@@ -1204,7 +1210,8 @@
     "errorGeneric": "حدث خطأ. حاول مرة أخرى.",
     "errorCurrentPassword": "كلمة المرور الحالية غير صحيحة.",
     "errorPasswordMismatch": "كلمتا المرور الجديدتان غير متطابقتين.",
-    "errorDeleteConfirm": "اكتب DELETE تماماً للتأكيد."
+    "errorDeleteConfirm": "اكتب DELETE تماماً للتأكيد.",
+    "errorDemoResetConfirm": "اكتب RESET تماماً للتأكيد."
   },
   "Vocabulary": {
     "title": "المفردات",

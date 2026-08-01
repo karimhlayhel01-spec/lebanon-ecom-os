@@ -13,6 +13,8 @@ import {
 import { getWorkspaceForUser } from "@/lib/workspace";
 import { founderEditWorkspace } from "@/lib/memory/repos";
 import { deleteUserAndWorkspace } from "@/lib/account/delete-user";
+import { isDemoResetEnabled } from "@/lib/demo/config";
+import { resetWorkspaceJourney } from "@/lib/demo/reset-journey";
 import { redirect } from "@/i18n/navigation";
 import { getLocale } from "next-intl/server";
 
@@ -41,6 +43,10 @@ const renameSchema = z.object({
 const deleteAccountSchema = z.object({
   currentPassword: z.string().min(1),
   confirmToken: z.literal("DELETE"),
+});
+
+const demoResetSchema = z.object({
+  confirmToken: z.literal("RESET"),
 });
 
 export async function changePasswordAction(
@@ -158,5 +164,38 @@ export async function deleteAccountAction(
   await destroySession();
   const locale = await getLocale();
   redirect({ href: "/auth/signup", locale });
+  return {};
+}
+
+/**
+ * Temporary DEMO control: wipe journey data → empty discovery.
+ * Hard no-op unless DEMO_RESET=1|true. Keeps login + onboarding.
+ */
+export async function demoResetJourneyAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  if (!isDemoResetEnabled()) {
+    return { error: "errorGeneric" };
+  }
+
+  await ensureMigrated();
+  const user = await requireUser();
+  const workspace = await getWorkspaceForUser(user.id);
+  if (!workspace) {
+    return { error: "errorGeneric" };
+  }
+
+  const parsed = demoResetSchema.safeParse({
+    confirmToken: formData.get("confirmToken"),
+  });
+  if (!parsed.success) {
+    return { error: "errorDemoResetConfirm" };
+  }
+
+  await resetWorkspaceJourney(workspace.id);
+  revalidatePath("/", "layout");
+  const locale = await getLocale();
+  redirect({ href: "/dashboard", locale });
   return {};
 }

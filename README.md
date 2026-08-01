@@ -33,6 +33,10 @@ npm run dev -- -p 3005   # dev server on port 3005
 
 Open [http://localhost:3005](http://localhost:3005) — you will be redirected to `/en` or `/ar`.
 
+### Demo reset
+
+Temporary control for testing and live demos (not Wave 2). With `DEMO_RESET=1` (or `true`) in `.env`, ⚙ Settings shows **Demo: reset journey**. Confirm by typing `RESET` — clears SKUs / discovery / supplier / marketing / Topic A back to empty hub discovery while keeping the same login, workspace id, and completed onboarding. Without the flag the control is invisible and the server action is a no-op.
+
 ### Scripts
 
 | Script | Purpose |

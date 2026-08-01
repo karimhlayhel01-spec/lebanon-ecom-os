@@ -1192,6 +1192,12 @@
     "deleteAccountWarning": "This permanently deletes your account, workspace, and all journey data. This cannot be undone.",
     "deleteConfirmLabel": "Type DELETE to confirm",
     "deleteAccountConfirm": "Delete my account",
+    "demoReset": "Demo: reset journey",
+    "demoResetTitle": "Demo: reset journey",
+    "demoResetBadge": "Temporary demo control — testing and live demos only.",
+    "demoResetWarning": "Clears all shop journey data (SKUs, discovery, suppliers, marketing, Topic A) and returns you to empty discovery. Your login and onboarding stay. This cannot be undone.",
+    "demoResetConfirmLabel": "Type RESET to confirm",
+    "demoResetConfirm": "Reset journey",
     "currentPassword": "Current password",
     "newPassword": "New password",
     "confirmPassword": "Confirm new password",
@@ -1204,7 +1210,8 @@
     "errorGeneric": "Something went wrong. Try again.",
     "errorCurrentPassword": "Current password is incorrect.",
     "errorPasswordMismatch": "New passwords do not match.",
-    "errorDeleteConfirm": "Type DELETE exactly to confirm."
+    "errorDeleteConfirm": "Type DELETE exactly to confirm.",
+    "errorDemoResetConfirm": "Type RESET exactly to confirm."
   },
   "Vocabulary": {
     "title": "Vocabulary",
