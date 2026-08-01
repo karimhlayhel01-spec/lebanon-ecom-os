@@ -1,6 +1,6 @@
 # Lebanon Ecom OS
 
-Founder operating system for importing and selling **one SKU** in Lebanon — bilingual EN/AR, guided journey backed by a Shared Business Memory with human approval gates.
+Founder operating system for importing and selling in Lebanon — **one Shopify workspace**, **Wave 1 multi-SKU** (shop hub + per-SKU journey pages), bilingual EN/AR, guided path backed by a Shared Business Memory with human approval gates.
 
 ## Status
 
@@ -10,6 +10,7 @@ Founder operating system for importing and selling **one SKU** in Lebanon — bi
 - **Done — M3:** Shared Margin skill (70% / 35%) with unit tests
 - **Done — M4:** Product Discovery (fit, show-more, demand confirm, Tier-1, accept flow)
 - **Done — M5:** Full guided path — Topic B SKU card → Supplier/Import (sample-first + batch) → Store side-status → stage-aware Marketing → Topic A/Finance panel → Orchestrator (CTAs + coaching)
+- **Done — Wave 1:** Multi-SKU shop hub, per-SKU pages, Mode C Topic A, inventory ledger units-left, calm scroll UX
 
 ## Stack
 
@@ -75,18 +76,34 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lebanon_ecom
 2. `npm run db:generate` → SQL under `drizzle/`
 3. `npm run db:migrate` (or rely on first-request `ensureMigrated()` in the app process)
 
-Legacy SQLite files under `data/*.sqlite` are unused and can be deleted.
-## Onboarding flow
+Shipped migrations include `drizzle/0000_solid_legion.sql` (base schema) and `drizzle/0001_topic_a_workspace_week_unique.sql` (unique `(workspace_id, week_start)` on Topic A — no duplicate money weeks). Inventory received for units-left lives on each SKU’s `importBatch` JSON (`totalUnitsReceived`).
 
-1. Sign up → creates user + single workspace (1 founder, 1 Shopify store slot) + journey/side status rows  
-2. Complete onboarding (min budget **$2,000**, Lebanon sellability + COD notices)  
-3. Land on dashboard in **discovery** and start a Product Discovery session
+Legacy SQLite files under `data/*.sqlite` are unused and can be deleted.
+
+## Onboarding & landing
+
+1. Sign up → creates user + single workspace (1 founder, 1 Shopify store slot) + journey/side status rows
+2. Complete onboarding (min budget **$2,000**, Lebanon sellability + COD notices)
+3. After onboarding / login, landing depends on **live** SKUs:
+   - **0** → shop hub `/dashboard` (discovery)
+   - **1** → that product’s `/sku/[id]`
+   - **2+** → shop hub
+4. Explicit Shop navigation always opens the hub: `/dashboard?hub=1`
+
+## Wave 1 product locks (shipped)
+
+- Same Shopify workspace; multi-SKU hub + per-SKU journey pages
+- **Hub Next** is display-only; **attention chips** are clickable deep-links
+- **Store readiness** never blocks batch order
+- Margins **≥ 70%** before ads / **≥ 35%** after; **sample-first**; same-source spares; spare approve ≠ path switch; quotes stale on path switch only
+- Topic A is **shop-combined** (Mode C when 2+ live); units left = **received − cumulative sold** (computed ledger, not founder-typed SoT)
+- Finance history (older weeks) via settings gear ⚙ → `/finance/history`; recent weeks stay on the Finance / Topic A panel
 
 ## Shared Business Memory (M1)
 
 - Repositories in `src/lib/memory/` are the single source of truth per workspace
 - Allowed-field policy (`src/lib/memory/allowed-fields.ts`): memory is system-written; founders may only edit an explicit allow-list of fields
-- Journey FSM in `src/lib/journey/fsm.ts`: `discovery → supplier_sample → sample_approved → store_setup → batch_ordered → batch_arrived_ready → selling`, plus `paused` / `blocked` overlays
+- Journey FSM in `src/lib/journey/fsm.ts`: `discovery → supplier_sample → sample_approved → store_setup → batch_ordered → batch_arrived_ready → selling`, plus `paused` / `blocked` overlays (per SKU in Wave 1)
 
 ## Human Approvals (M2)
 
@@ -110,9 +127,9 @@ Legacy SQLite files under `data/*.sqlite` are unused and can be deleted.
 - **Tier-1** conflict (Ishtari / EGLOW / Platza) → customize with supplier or drop
 - **Accept** routes through Human Approvals (`accept_product`), advances `discovery → supplier_sample`, and writes Topic B basics + active SKU
 
-## Guided path after accept (M5)
+## Guided path after accept (M5 + Wave 1)
 
-Once a product is accepted the dashboard composes the full operator journey. Every panel is bilingual (EN/AR), edits stay inside the allowed-field policy, and generated data (suppliers, creatives) is deterministic per SKU.
+After accept, work happens on the **shop hub** and **per-SKU pages** (`/sku/[id]`). Every panel is bilingual (EN/AR), edits stay inside the allowed-field policy, and generated data (suppliers, creatives) is deterministic per SKU.
 
 ### Topic B — SKU card (`src/lib/sku/`)
 
@@ -124,6 +141,7 @@ Once a product is accepted the dashboard composes the full operator journey. Eve
 
 - **3 primaries + 2 backups each = 9 options**, with years/rating/red-flag signals
 - **Sample-first** flow: request → received → decide (`sample_decision` approval)
+- Parallel **same-source spare** samples; spare approve does not switch the working path; **can’t-fulfill** prefers warm spares; cost quotes go stale on **path switch** only
 - Per-option **email draft**, **payment map**, quality checklist, and a **clearance-partner TBD** placeholder
 - **>$10k MOQ** shows a soft warning and a stuck ladder; high-MOQ alternatives surfaced where possible
 - Approvals: `sample_decision`, `batch_ordered`, `batch_arrived_ready` — **`batch_ordered` never requires `store_ready`**
@@ -141,12 +159,14 @@ Once a product is accepted the dashboard composes the full operator journey. Eve
 
 ### Topic A + Finance panel (`src/lib/finance/`)
 
-- Weekly inputs: sales, orders, Meta/TikTok spend, COD collected/outstanding, courier fees, per-SKU sold/left
+- **Shop-combined** weekly Topic A: sales/orders, Meta/TikTok spend, COD collected/outstanding, courier fees; with **2+ live SKUs** (Mode C) also per-SKU sales + units sold
+- **Units left** = `totalUnitsReceived − cumulative sold` (inventory ledger). Founder does not type left as source of truth; unknown received stays unknown (never invents 0)
 - **Preview advice before selling**; real advice only after the founder marks **selling** (`mark_selling`)
 - Uses the **Shared Margin skill**; **invest-next** recommendation appears after **4 weeks** of Topic A entries
+- Recent weeks on the Finance panel; older weeks under settings gear → `/finance/history`
 
 ### Orchestrator (`src/lib/orchestrator/`)
 
-- Computes the **next CTA(s)** and **coaching cards** from journey + side statuses
+- Computes the **next CTA(s)** and **coaching cards** from journey + side statuses (hub + per-SKU)
 - **Parallel CTAs after `sample_approved`** (store setup vs. batch order)
 - Coaching respects priority: **safety → margins → budget/experience → risk → likes**
