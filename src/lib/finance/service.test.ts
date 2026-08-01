@@ -4,6 +4,7 @@ import {
   computeHealth,
   computeWeekEconomics,
   computeWeeklyMargins,
+  isDuplicateTopicAWeek,
   parsePerSkuSoldLeft,
   partitionTopicAEntries,
   rollUpMultiSkuWeek,
@@ -28,6 +29,25 @@ function week(overrides: Partial<WeeklyInput> = {}): WeeklyInput {
     ...overrides,
   };
 }
+
+describe("isDuplicateTopicAWeek", () => {
+  it("rejects a weekStart already logged (no silent double rows)", () => {
+    const existing = ["2026-01-06", "2026-01-13", "2026-01-20"];
+    expect(isDuplicateTopicAWeek(existing, "2026-01-13")).toBe(true);
+    expect(isDuplicateTopicAWeek(existing, " 2026-01-13 ")).toBe(true);
+  });
+
+  it("allows a new weekStart", () => {
+    const existing = ["2026-01-06", "2026-01-13"];
+    expect(isDuplicateTopicAWeek(existing, "2026-01-20")).toBe(false);
+    expect(isDuplicateTopicAWeek([], "2026-01-06")).toBe(false);
+  });
+
+  it("empty weekStart is not treated as a duplicate match", () => {
+    expect(isDuplicateTopicAWeek(["2026-01-06"], "")).toBe(false);
+    expect(isDuplicateTopicAWeek(["2026-01-06"], "   ")).toBe(false);
+  });
+});
 
 describe("partitionTopicAEntries (display split)", () => {
   it("keeps all weeks in recent when ≤ limit", () => {
@@ -213,5 +233,14 @@ describe("multi-SKU Topic A roll-up (Mode C)", () => {
       JSON.stringify({ orders: 3, sold: 3, left: 7 }),
     );
     expect(flat.skuSold).toBe(3);
+
+    const unknownLeft = parsePerSkuSoldLeft(
+      JSON.stringify({
+        orders: 4,
+        skus: { a: { sold: 4, left: null, sales: 100 } },
+      }),
+    );
+    expect(unknownLeft.skus.a?.left).toBeNull();
+    expect(unknownLeft.skuLeft).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
   addWeeklyEntryAction,
@@ -18,6 +19,10 @@ import type {
 } from "@/lib/finance/service";
 import { MarginLegend } from "@/components/margins/MarginLegend";
 import { MARGIN_AFTER_ADS_MIN, MARGIN_BEFORE_ADS_MIN } from "@/lib/constants";
+import {
+  markStayOnFinanceAfterTopicAAction,
+  scrollToTopicAFinanceAnchorIfNeeded,
+} from "@/lib/sku/suppress-auto-scroll";
 
 function pct(fraction: number | null): string {
   return fraction == null ? "—" : `${Math.round(fraction * 100)}%`;
@@ -92,6 +97,7 @@ export function FinancePanel({
         <LiveBlock
           key={view.liveSkus.map((s) => s.id).join(",")}
           view={view}
+          preferredSkuId={preferredSkuId}
         />
       )}
     </div>
@@ -119,6 +125,7 @@ function PreviewBlock({
   preferredSkuId?: string;
 }) {
   const t = useTranslations("Finance");
+  const pathname = usePathname();
   const [pending, startTransition] = useTransition();
   const [skuId, setSkuId] = useState(() =>
     defaultSellableSkuId(view.sellableSkus, preferredSkuId),
@@ -167,7 +174,14 @@ function PreviewBlock({
           disabled={pending || !view.canStartSelling}
           onClick={() =>
             startTransition(async () => {
-              await startSellingAction(skuId || undefined);
+              const targetId = skuId || preferredSkuId;
+              // SKU page only: pin Topic A; SkuSectionFocus owns remount restore.
+              if (targetId) markStayOnFinanceAfterTopicAAction(targetId, pathname);
+              const res = await startSellingAction(skuId || undefined);
+              if (res.ok) {
+                // One backup if remount already consumed the flag and we're still off.
+                scrollToTopicAFinanceAnchorIfNeeded("smooth");
+              }
             })
           }
           className="rounded-md bg-cedar px-4 py-2 text-sm font-semibold text-foam shadow-sm transition hover:bg-cedar-deep disabled:cursor-not-allowed disabled:opacity-50"
@@ -182,24 +196,56 @@ function PreviewBlock({
   );
 }
 
-function LiveBlock({ view }: { view: FinancePanelView }) {
+function LiveBlock({
+  view,
+  preferredSkuId,
+}: {
+  view: FinancePanelView;
+  preferredSkuId?: string;
+}) {
   const t = useTranslations("Finance");
+  const pathname = usePathname();
+  const staySkuId =
+    preferredSkuId && view.liveSkus.some((s) => s.id === preferredSkuId)
+      ? preferredSkuId
+      : (view.liveSellingSkus[0]?.id ?? view.liveSkus[0]?.id ?? "");
+
   const [state, formAction, pending] = useActionState(
-    addWeeklyEntryAction,
+    async (prev: WeeklyEntryState, formData: FormData) => {
+      // markStay is a no-op on /finance; SkuSectionFocus restores on SKU remount.
+      if (staySkuId) markStayOnFinanceAfterTopicAAction(staySkuId, pathname);
+      return addWeeklyEntryAction(prev, formData);
+    },
     entryInitial,
   );
+
   // Mode C whenever 2+ live — not only 2+ selling (avoids legacy bleed after Add SKU).
   const multi = view.liveSkus.length > 1;
+  const invById = new Map(
+    view.inventoryBySku.map((h) => [h.skuId, h] as const),
+  );
   const [lines, setLines] = useState(
     () =>
       view.liveSkus.map((s) => ({
         skuId: s.id,
         name: s.name,
         sold: 0,
-        left: 0,
         sales: 0,
       })),
   );
+  const [singleSold, setSingleSold] = useState(0);
+
+  function computedLeft(
+    skuId: string,
+    thisWeekSold: number,
+  ): number | null {
+    const inv = invById.get(skuId);
+    if (!inv || inv.totalUnitsReceived == null) return null;
+    return Math.max(
+      0,
+      inv.totalUnitsReceived - inv.priorUnitsSold - Math.max(0, thisWeekSold),
+    );
+  }
 
   const shopInputs: Array<{ name: string; labelKey: string }> = [
     { name: "orders", labelKey: "fOrders" },
@@ -213,9 +259,10 @@ function LiveBlock({ view }: { view: FinancePanelView }) {
   const singleInputs: Array<{ name: string; labelKey: string }> = [
     { name: "sales", labelKey: "fSales" },
     ...shopInputs,
-    { name: "skuSold", labelKey: "fSold" },
-    { name: "skuLeft", labelKey: "fLeft" },
   ];
+
+  const soleSkuId = view.liveSkus[0]?.id ?? "";
+  const soleLeft = computedLeft(soleSkuId, singleSold);
 
   return (
     <div className="mt-4">
@@ -257,6 +304,9 @@ function LiveBlock({ view }: { view: FinancePanelView }) {
       {/* Weekly entry form */}
       <form
         action={formAction}
+        onSubmit={() => {
+          if (staySkuId) markStayOnFinanceAfterTopicAAction(staySkuId, pathname);
+        }}
         className="mt-4 rounded-lg border border-stone bg-surface-subtle p-4"
       >
         <h3 className="text-sm font-semibold text-ink">{t("addWeekTitle")}</h3>
@@ -286,6 +336,33 @@ function LiveBlock({ view }: { view: FinancePanelView }) {
               />
             </label>
           ))}
+          {!multi && (
+            <>
+              <label className="text-xs text-stone-dark">
+                {t("fSold")}
+                <input
+                  type="number"
+                  name="skuSold"
+                  min={0}
+                  step="1"
+                  value={singleSold}
+                  onChange={(e) =>
+                    setSingleSold(Number(e.target.value) || 0)
+                  }
+                  className="mt-1 w-full rounded-md border border-stone bg-surface px-2.5 py-2 text-sm outline-none focus:border-cedar"
+                />
+              </label>
+              <div className="text-xs text-stone-dark">
+                <p>{t("fLeft")}</p>
+                <p className="mt-1 rounded-md border border-stone/70 bg-surface-subtle px-2.5 py-2 text-sm font-medium tabular-nums text-ink">
+                  {soleLeft == null ? "—" : soleLeft}
+                </p>
+                <p className="mt-1 text-[11px] leading-snug text-stone-dark">
+                  {t("fLeftHint")}
+                </p>
+              </div>
+            </>
+          )}
         </div>
 
         {multi && (
@@ -294,61 +371,88 @@ function LiveBlock({ view }: { view: FinancePanelView }) {
               type="hidden"
               name="skuLines"
               value={JSON.stringify(
-                lines.map(({ skuId, sold, left, sales }) => ({
+                lines.map(({ skuId, sold, sales }) => ({
                   skuId,
                   sold,
-                  left,
+                  left: computedLeft(skuId, sold),
                   sales,
                 })),
               )}
             />
-            {lines.map((line, idx) => (
-              <div
-                key={line.skuId}
-                className="rounded-md border border-stone bg-surface p-3"
-              >
-                <p className="text-xs font-semibold text-ink" dir="auto">
-                  {line.name}
-                </p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                  {(
-                    [
-                      ["sales", "fSkuSales"],
-                      ["sold", "fSold"],
-                      ["left", "fLeft"],
-                    ] as const
-                  ).map(([field, labelKey]) => (
-                    <label key={field} className="text-xs text-stone-dark">
-                      {t(labelKey)}
+            {lines.map((line, idx) => {
+              const left = computedLeft(line.skuId, line.sold);
+              return (
+                <div
+                  key={line.skuId}
+                  className="rounded-md border border-stone bg-surface p-3"
+                >
+                  <p className="text-xs font-semibold text-ink" dir="auto">
+                    {line.name}
+                  </p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                    <label className="text-xs text-stone-dark">
+                      {t("fSkuSales")}
                       <input
                         type="number"
                         min={0}
                         step="0.01"
-                        value={line[field]}
+                        value={line.sales}
                         onChange={(e) => {
                           const v = Number(e.target.value) || 0;
                           setLines((prev) =>
                             prev.map((row, i) =>
-                              i === idx ? { ...row, [field]: v } : row,
+                              i === idx ? { ...row, sales: v } : row,
                             ),
                           );
                         }}
                         className="mt-1 w-full rounded-md border border-stone bg-surface px-2.5 py-2 text-sm outline-none focus:border-cedar"
                       />
                     </label>
-                  ))}
+                    <label className="text-xs text-stone-dark">
+                      {t("fSold")}
+                      <input
+                        type="number"
+                        min={0}
+                        step="1"
+                        value={line.sold}
+                        onChange={(e) => {
+                          const v = Math.max(
+                            0,
+                            Math.floor(Number(e.target.value) || 0),
+                          );
+                          setLines((prev) =>
+                            prev.map((row, i) =>
+                              i === idx ? { ...row, sold: v } : row,
+                            ),
+                          );
+                        }}
+                        className="mt-1 w-full rounded-md border border-stone bg-surface px-2.5 py-2 text-sm outline-none focus:border-cedar"
+                      />
+                    </label>
+                    <div className="text-xs text-stone-dark">
+                      <p>{t("fLeft")}</p>
+                      <p className="mt-1 rounded-md border border-stone/70 bg-surface-subtle px-2.5 py-2 text-sm font-medium tabular-nums text-ink">
+                        {left == null ? "—" : left}
+                      </p>
+                      <p className="mt-1 text-[11px] leading-snug text-stone-dark">
+                        {t("fLeftHint")}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         {state.error && (
           <p className="mt-2 text-xs text-amber-800">
             {state.error === "missing_week"
               ? t("errWeek")
-              : state.error === "not_selling"
-                ? t("errNotSelling")
-                : t("errorGeneric")}
+              : state.error === "duplicate_week"
+                ? t("errDuplicateWeek")
+                : state.error === "not_selling"
+                  ? t("errNotSelling")
+                  : t("errorGeneric")}
           </p>
         )}
         <button
@@ -472,7 +576,10 @@ function CurrentActualStrip({
   const hasActual = actual.after != null;
 
   return (
-    <div className="rounded-lg border border-cedar/30 bg-surface-subtle p-4">
+    <div
+      id="finance-actual"
+      className="scroll-mt-6 rounded-lg border border-cedar/30 bg-surface-subtle p-4"
+    >
       <div className="flex flex-wrap items-end justify-between gap-3">
         {/* Hero: current actual after ads */}
         <div>

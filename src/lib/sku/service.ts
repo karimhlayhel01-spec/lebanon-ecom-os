@@ -45,8 +45,14 @@ export type ImportBatchSection = {
   status: string;
   suggestedFirstBatch: number | null;
   /**
-   * Units on hand after batch arrive (ordered qty). Hub/runway bootstrap when
-   * Topic A has no left for this SKU yet. Topic A log-week left wins once set.
+   * Cumulative inventory received for this SKU (first batch arrived qty + all
+   * next-batch arrived qtys). Single ledger for units_left =
+   * max(0, totalUnitsReceived − cumulative Topic A sold).
+   */
+  totalUnitsReceived: number | null;
+  /**
+   * Cached on-hand snapshot (bootstrap / arrive). Prefer computing left from
+   * totalUnitsReceived − sold; do not treat founder-typed left as SoT.
    */
   unitsLeft: number | null;
   notes: string[];
@@ -214,6 +220,7 @@ export function buildSkuSections(input: SkuSectionInput) {
     moq: null,
     status: "not_ordered",
     suggestedFirstBatch: null,
+    totalUnitsReceived: null,
     unitsLeft: null,
     notes: ["@import.sampleFirst", "@import.startSmall"],
   };
@@ -298,11 +305,17 @@ function rowToSkuView(
     moq: null,
     status: "not_ordered",
     suggestedFirstBatch: null,
+    totalUnitsReceived: null,
     unitsLeft: null,
     notes: ["import.sampleFirst"],
   });
   const importBatch: ImportBatchSection = {
     ...importBatchRaw,
+    totalUnitsReceived:
+      importBatchRaw.totalUnitsReceived != null &&
+      Number.isFinite(importBatchRaw.totalUnitsReceived)
+        ? Math.max(0, Math.floor(importBatchRaw.totalUnitsReceived))
+        : null,
     unitsLeft:
       importBatchRaw.unitsLeft != null && Number.isFinite(importBatchRaw.unitsLeft)
         ? Math.max(0, Math.floor(importBatchRaw.unitsLeft))

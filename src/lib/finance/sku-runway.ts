@@ -1,12 +1,17 @@
 import {
   parsePerSkuSoldLeft,
   serializePerSkuSoldLeft,
-} from "@/lib/finance/service";
+} from "@/lib/finance/per-sku-sold-left";
 import {
   REORDER_RUNWAY_LOOKBACK_WEEKS,
   computeSkuRunway,
   type SkuRunwayView,
 } from "@/lib/supplier/reorder";
+
+export {
+  parsePerSkuSoldLeft,
+  serializePerSkuSoldLeft,
+} from "@/lib/finance/per-sku-sold-left";
 
 /**
  * Pull per-SKU left + recent weekly sold from Topic A rows.
@@ -14,6 +19,10 @@ import {
  * Legacy (no `skus` map): only when liveSkuCount ≤ 1. With 2+ live SKUs,
  * legacy weeks are skipped for that skuId (unknown) — never bleed another
  * SKU’s sold/left onto a new live product.
+ *
+ * Note: `skuLeft` here is the last *stored* snapshot (history). Live glance /
+ * Save week prefer {@link computeUnitsLeftFromReceivedSold} from the inventory
+ * ledger.
  */
 export function extractSkuTopicASeries(
   entries: readonly { perSkuSoldLeft: string }[],
@@ -53,28 +62,119 @@ export function extractSkuTopicASeries(
 }
 
 /**
- * Inventory that became real on batch arrive (importBatch.unitsLeft, else
- * ordered suggestedFirstBatch). Null while still in transit / not arrived.
- * Topic A left still wins once weekly rows exist for this skuId.
+ * Full-history sold + last stored left for one skuId (Mode C / sole-live legacy).
+ * Multi-live legacy weeks are skipped (no cross-SKU bleed).
+ */
+export function extractSkuInventoryLedger(
+  entries: readonly { perSkuSoldLeft: string }[],
+  skuId: string,
+  opts?: { liveSkuCount?: number },
+): { cumulativeSold: number; lastLeft: number | null } {
+  let cumulativeSold = 0;
+  let lastLeft: number | null = null;
+  let sawModeC = false;
+  const multiLive = (opts?.liveSkuCount ?? 1) >= 2;
+
+  for (const row of entries) {
+    const parsed = parsePerSkuSoldLeft(row.perSkuSoldLeft);
+    const modeC = Object.keys(parsed.skus).length > 0;
+    if (modeC) {
+      sawModeC = true;
+      const line = parsed.skus[skuId];
+      if (line) {
+        cumulativeSold += Math.max(0, Math.floor(line.sold));
+        if (line.left != null && Number.isFinite(line.left)) {
+          lastLeft = line.left;
+        }
+      }
+      continue;
+    }
+    if (sawModeC) continue;
+    if (multiLive) continue;
+    cumulativeSold += Math.max(0, Math.floor(parsed.skuSold));
+    if (parsed.skuLeft != null && Number.isFinite(parsed.skuLeft)) {
+      lastLeft = parsed.skuLeft;
+    }
+  }
+
+  return { cumulativeSold, lastLeft };
+}
+
+/**
+ * units_left = max(0, total_units_received − cumulative_units_sold).
+ * Null when received is unknown — never invent a received qty.
+ */
+export function computeUnitsLeftFromReceivedSold(
+  totalUnitsReceived: number | null | undefined,
+  cumulativeUnitsSold: number,
+): number | null {
+  if (totalUnitsReceived == null || !Number.isFinite(totalUnitsReceived)) {
+    return null;
+  }
+  const received = Math.max(0, Math.floor(totalUnitsReceived));
+  const sold = Math.max(0, Math.floor(cumulativeUnitsSold));
+  return Math.max(0, received - sold);
+}
+
+type ImportBatchInventory = {
+  totalUnitsReceived?: number | null;
+  unitsLeft?: number | null;
+  suggestedFirstBatch?: number | null;
+};
+
+/**
+ * Single inventory-in SoT: importBatch.totalUnitsReceived (first arrive +
+ * reorder arrives). Legacy without the field: reconstruct from last Topic A
+ * left + cumulative sold, else first-batch bootstrap qty.
+ */
+export function resolveTotalUnitsReceived(
+  importBatch: ImportBatchInventory | null | undefined,
+  opts: {
+    batchArrivedReady: boolean;
+    /** Last stored Topic A left for reconstruct when ledger field missing. */
+    topicALeft?: number | null;
+    cumulativeSold?: number;
+  },
+): number | null {
+  if (!opts.batchArrivedReady || !importBatch) return null;
+  if (
+    importBatch.totalUnitsReceived != null &&
+    Number.isFinite(importBatch.totalUnitsReceived)
+  ) {
+    return Math.max(0, Math.floor(importBatch.totalUnitsReceived));
+  }
+  // Legacy: Topic A left was maintained (incl. reorder bumps) as on-hand.
+  if (opts.topicALeft != null && Number.isFinite(opts.topicALeft)) {
+    return (
+      Math.max(0, Math.floor(opts.topicALeft)) +
+      Math.max(0, Math.floor(opts.cumulativeSold ?? 0))
+    );
+  }
+  return batchInventoryUnitsFromImportBatch(importBatch, {
+    batchArrivedReady: true,
+  });
+}
+
+/**
+ * Inventory that became real on batch arrive. Prefers totalUnitsReceived
+ * (ledger), else unitsLeft, else ordered suggestedFirstBatch. Null while
+ * still in transit / not arrived.
  */
 export function batchInventoryUnitsFromImportBatch(
-  importBatch:
-    | {
-        unitsLeft?: number | null;
-        suggestedFirstBatch?: number | null;
-      }
-    | null
-    | undefined,
+  importBatch: ImportBatchInventory | null | undefined,
   opts: { batchArrivedReady: boolean },
 ): number | null {
   if (!opts.batchArrivedReady || !importBatch) return null;
   const raw =
-    importBatch.unitsLeft != null && Number.isFinite(importBatch.unitsLeft)
-      ? importBatch.unitsLeft
-      : importBatch.suggestedFirstBatch != null &&
-          Number.isFinite(importBatch.suggestedFirstBatch)
-        ? importBatch.suggestedFirstBatch
-        : null;
+    importBatch.totalUnitsReceived != null &&
+    Number.isFinite(importBatch.totalUnitsReceived)
+      ? importBatch.totalUnitsReceived
+      : importBatch.unitsLeft != null && Number.isFinite(importBatch.unitsLeft)
+        ? importBatch.unitsLeft
+        : importBatch.suggestedFirstBatch != null &&
+            Number.isFinite(importBatch.suggestedFirstBatch)
+          ? importBatch.suggestedFirstBatch
+          : null;
   if (raw == null) return null;
   return Math.max(0, Math.floor(raw));
 }
@@ -120,6 +220,9 @@ export function resolvePriorLeftForReorderArrive(args: {
  * Index of the Topic A week whose left the glance currently reads for this
  * skuId — last Mode C line for skuId, else last sole-live legacy week.
  * -1 when nothing bumpable (e.g. multi-live legacy-only).
+ *
+ * @deprecated Reorder arrive increments totalUnitsReceived instead of bumping
+ * Topic A left. Kept for tests / legacy callers.
  */
 export function findTopicARowIndexToBumpLeft(
   entries: readonly { perSkuSoldLeft: string }[],
@@ -154,6 +257,9 @@ export function findTopicARowIndexToBumpLeft(
  * else priorLeft (current glance left). Legacy sole-SKU: bump shop left.
  * Multi-live legacy weeks are not rewritten (would bleed) — returns null;
  * caller still updates importBatch bootstrap.
+ *
+ * @deprecated Prefer incrementing importBatch.totalUnitsReceived and computing
+ * left = received − sold. Kept for legacy tests.
  */
 export function bumpTopicALeftAfterReorder(args: {
   perSkuSoldLeft: string;
@@ -173,7 +279,9 @@ export function bumpTopicALeftAfterReorder(args: {
   if (modeC) {
     const existing = parsed.skus[args.skuId];
     const baseLeft =
-      existing != null && Number.isFinite(existing.left)
+      existing != null &&
+      existing.left != null &&
+      Number.isFinite(existing.left)
         ? Math.max(0, existing.left)
         : priorLeft;
     const newLeft = baseLeft + addQty;
@@ -210,14 +318,73 @@ export function bumpTopicALeftAfterReorder(args: {
 export function computeRunwayForSkuFromEntries(
   entries: readonly { perSkuSoldLeft: string }[],
   skuId: string,
-  opts?: { liveSkuCount?: number; batchInventoryUnits?: number | null },
+  opts?: {
+    liveSkuCount?: number;
+    /** @deprecated Prefer totalUnitsReceived (ledger). Treated as received when ledger omitted. */
+    batchInventoryUnits?: number | null;
+    /** Cumulative units received (first + next batches). Explicit null = unknown. */
+    totalUnitsReceived?: number | null;
+  },
 ): SkuRunwayView {
   const series = extractSkuTopicASeries(entries, skuId, undefined, opts);
-  const skuLeft = resolveSkuLeftWithBatchBootstrap({
-    topicALeft: series.skuLeft,
-    batchInventoryUnits: opts?.batchInventoryUnits ?? null,
-  });
+  const { cumulativeSold, lastLeft } = extractSkuInventoryLedger(
+    entries,
+    skuId,
+    opts,
+  );
+
+  const inventoryOptProvided =
+    opts != null &&
+    ("totalUnitsReceived" in opts || "batchInventoryUnits" in opts);
+
+  const totalReceived =
+    opts?.totalUnitsReceived != null && Number.isFinite(opts.totalUnitsReceived)
+      ? Math.max(0, Math.floor(opts.totalUnitsReceived))
+      : opts?.batchInventoryUnits != null &&
+          Number.isFinite(opts.batchInventoryUnits)
+        ? Math.max(0, Math.floor(opts.batchInventoryUnits))
+        : null;
+
+  // Inventory context (incl. explicit null received): left = received − sold only.
+  // Never fall back to stored left — that invents glance 0 after unknown Save week.
+  // Entry-only calls (no inventory opts): legacy stored left for history fixtures.
+  const skuLeft = inventoryOptProvided
+    ? computeUnitsLeftFromReceivedSold(totalReceived, cumulativeSold)
+    : lastLeft != null && Number.isFinite(lastLeft)
+      ? Math.max(0, lastLeft)
+      : series.skuLeft != null && Number.isFinite(series.skuLeft)
+        ? Math.max(0, series.skuLeft)
+        : null;
+
   return computeSkuRunway({ ...series, skuLeft });
+}
+
+/**
+ * Resolve total received from importBatch + Topic A history, then runway.
+ */
+export function computeRunwayForSkuWithImportBatch(
+  entries: readonly { perSkuSoldLeft: string }[],
+  skuId: string,
+  args: {
+    liveSkuCount?: number;
+    importBatch: ImportBatchInventory | null | undefined;
+    batchArrivedReady: boolean;
+  },
+): SkuRunwayView {
+  const { cumulativeSold, lastLeft } = extractSkuInventoryLedger(
+    entries,
+    skuId,
+    { liveSkuCount: args.liveSkuCount },
+  );
+  const totalUnitsReceived = resolveTotalUnitsReceived(args.importBatch, {
+    batchArrivedReady: args.batchArrivedReady,
+    topicALeft: lastLeft,
+    cumulativeSold,
+  });
+  return computeRunwayForSkuFromEntries(entries, skuId, {
+    liveSkuCount: args.liveSkuCount,
+    totalUnitsReceived,
+  });
 }
 
 /**

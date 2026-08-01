@@ -5,17 +5,22 @@ import { Link } from "@/i18n/navigation";
 import type { UnitsLeftGlance } from "@/lib/finance/sku-runway";
 
 /**
- * Read-only units-left from Topic A runway helper.
+ * Read-only units-left from inventory ledger (received − sold).
  * Never shows fake 0 when unknown.
+ * Unknown = units received not known yet (not “log a Topic A week”).
  */
 export function UnitsLeftGlanceBlock({
   glance,
   compact = false,
-  financeHref = "/finance",
+  /**
+   * Optional link when left is unknown — typically Supplier / mark batch
+   * arrived. Do not point at Finance Topic A (received is the gap).
+   */
+  inventoryHref,
 }: {
   glance: UnitsLeftGlance;
   compact?: boolean;
-  financeHref?: string;
+  inventoryHref?: string;
 }) {
   const t = useTranslations("Shop");
 
@@ -29,12 +34,18 @@ export function UnitsLeftGlanceBlock({
         }
       >
         <p>{t("unitsLeftUnknown")}</p>
-        <Link
-          href={financeHref}
-          className="mt-1 inline-block font-medium text-sea underline-offset-2 hover:underline"
-        >
-          {t("unitsLeftLogWeek")}
-        </Link>
+        {inventoryHref ? (
+          <Link
+            href={inventoryHref}
+            className="mt-1 inline-block font-medium text-sea underline-offset-2 hover:underline"
+          >
+            {t("unitsLeftMarkArrived")}
+          </Link>
+        ) : (
+          <p className="mt-1 text-[11px] leading-snug text-stone-dark/90">
+            {t("unitsLeftUnknownHint")}
+          </p>
+        )}
       </div>
     );
   }

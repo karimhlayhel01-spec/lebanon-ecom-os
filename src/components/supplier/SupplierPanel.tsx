@@ -19,6 +19,7 @@ import {
 import { UnitsLeftGlanceBlock } from "@/components/shop/UnitsLeftGlance";
 import {
   suppressSkuAutoScroll,
+  suppressSkuAutoScrollAfterBatchAction,
 } from "@/lib/sku/suppress-auto-scroll";
 import { CANT_FULFILL_REASONS } from "@/lib/supplier/reorder-escape";
 import {
@@ -1615,6 +1616,7 @@ function BatchOrder({ view }: { view: SupplierPanelView }) {
         onClick={() => {
           setError(null);
           startTransition(async () => {
+            suppressSkuAutoScrollAfterBatchAction(view.skuId);
             const res = await orderBatchAction(supplierId, qty, acks);
             if (!res.ok) {
               setError(
@@ -1796,6 +1798,7 @@ function BatchArrived({ skuId }: { skuId: string }) {
         onClick={() => {
           setError(null);
           startTransition(async () => {
+            suppressSkuAutoScrollAfterBatchAction(skuId);
             const res = await markBatchArrivedAction(skuId, ack);
             if (!res.ok) setError("errorGeneric");
           });
@@ -1949,6 +1952,7 @@ function NextBatchOrder({
         onClick={() => {
           setError(null);
           startTransition(async () => {
+            suppressSkuAutoScrollAfterBatchAction(view.skuId);
             const res = await orderNextBatchAction(view.skuId, qty, {
               economicsAck,
               stuckAcks,
@@ -2034,6 +2038,7 @@ function ReorderInTransit({
         onClick={() => {
           setError(null);
           startTransition(async () => {
+            suppressSkuAutoScrollAfterBatchAction(view.skuId);
             const res = await markReorderArrivedAction(view.skuId, ack);
             if (!res.ok) setError("errorGeneric");
           });

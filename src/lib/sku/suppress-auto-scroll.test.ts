@@ -1,27 +1,42 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import {
   clearSkuAutoScrollSuppress,
+  clearStayOnFinanceAfterTopicAAction,
   consumeDeepLinkIfUnlocked,
+  consumeStayOnFinanceAfterTopicAAction,
+  isElementStartInView,
   isSkuAutoScrollSuppressed,
+  isSkuPagePathname,
+  isStayOnFinanceAfterTopicAAction,
+  markStayOnFinanceAfterTopicAAction,
+  markStayOnFinanceAfterStartSelling,
   shouldBlockSkuFocusScroll,
   suppressSkuAutoScroll,
+  suppressSkuAutoScrollAfterBatchAction,
 } from "@/lib/sku/suppress-auto-scroll";
 
 const SKU = "sku-test-1";
+const SKU_PATH = `/en/sku/${SKU}`;
 const SELLING_KEY = `/en/sku/${SKU}?attn=selling#finance`;
 const SAMPLE_KEY = `/en/sku/${SKU}?attn=sample#supplier`;
 const BARE_KEY = `/en/sku/${SKU}`;
+const BATCH_WITH_LEFTOVER_FINANCE = `/en/sku/${SKU}?attn=batch#finance`;
+const REORDER_WITH_LEFTOVER = `/en/sku/${SKU}?attn=reorder#supplier`;
+const EXPLICIT_FINANCE_CTA = `/en/sku/${SKU}?attn=selling#finance`;
+const REORDER_NEW_CTA = `/en/sku/${SKU}?attn=reorder#supplier&fresh=1`;
 
 describe("suppressSkuAutoScroll (durable sample-card lock)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-31T12:00:00.000Z"));
     clearSkuAutoScrollSuppress();
+    clearStayOnFinanceAfterTopicAAction();
   });
 
   afterEach(() => {
     vi.useRealTimers();
     clearSkuAutoScrollSuppress();
+    clearStayOnFinanceAfterTopicAAction();
   });
 
   it("is inactive before suppress", () => {
@@ -61,5 +76,215 @@ describe("suppressSkuAutoScroll (durable sample-card lock)", () => {
     suppressSkuAutoScroll(SKU, 5000, BARE_KEY);
     expect(isSkuAutoScrollSuppressed(SKU)).toBe(true);
     expect(shouldBlockSkuFocusScroll(SKU, BARE_KEY)).toBe(true);
+  });
+});
+
+describe("suppressSkuAutoScrollAfterBatchAction (Mark ordered / Mark arrived)", () => {
+  beforeEach(() => {
+    clearSkuAutoScrollSuppress();
+    clearStayOnFinanceAfterTopicAAction();
+  });
+
+  afterEach(() => {
+    clearSkuAutoScrollSuppress();
+    clearStayOnFinanceAfterTopicAAction();
+  });
+
+  it("blocks leftover #finance remount after Mark ordered / Mark arrived", () => {
+    suppressSkuAutoScrollAfterBatchAction(SKU, 5000, BATCH_WITH_LEFTOVER_FINANCE);
+    expect(isSkuAutoScrollSuppressed(SKU)).toBe(true);
+    expect(shouldBlockSkuFocusScroll(SKU, BATCH_WITH_LEFTOVER_FINANCE)).toBe(
+      true,
+    );
+    expect(consumeDeepLinkIfUnlocked(SKU, BATCH_WITH_LEFTOVER_FINANCE)).toBe(
+      false,
+    );
+    // Stay put — do not deep-link-scroll to Topic A.
+    expect(isSkuAutoScrollSuppressed(SKU)).toBe(true);
+  });
+
+  it("clears leaked stay-finance so Start selling / Save week cannot pull batch remount", () => {
+    markStayOnFinanceAfterTopicAAction(SKU, SKU_PATH);
+    expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(true);
+
+    suppressSkuAutoScrollAfterBatchAction(SKU, 5000, BATCH_WITH_LEFTOVER_FINANCE);
+
+    expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(false);
+    expect(
+      consumeStayOnFinanceAfterTopicAAction(SKU, {
+        hashSection: "finance",
+        attn: "batch",
+      }),
+    ).toBe(false);
+    // Remount still blocked by durable sample-style lock.
+    expect(shouldBlockSkuFocusScroll(SKU, BATCH_WITH_LEFTOVER_FINANCE)).toBe(
+      true,
+    );
+  });
+
+  it("explicit #finance CTA (new URL) still scrolls after batch stay-put", () => {
+    suppressSkuAutoScrollAfterBatchAction(SKU, 5000, BATCH_WITH_LEFTOVER_FINANCE);
+    expect(consumeDeepLinkIfUnlocked(SKU, BATCH_WITH_LEFTOVER_FINANCE)).toBe(
+      false,
+    );
+
+    // Founder clicks hero Start selling / Tools finance / Topic A chip → new key.
+    expect(consumeDeepLinkIfUnlocked(SKU, EXPLICIT_FINANCE_CTA)).toBe(true);
+    expect(isSkuAutoScrollSuppressed(SKU)).toBe(false);
+  });
+});
+
+describe("suppressSkuAutoScrollAfterBatchAction (reorder order / arrive)", () => {
+  beforeEach(() => {
+    clearSkuAutoScrollSuppress();
+    clearStayOnFinanceAfterTopicAAction();
+  });
+
+  afterEach(() => {
+    clearSkuAutoScrollSuppress();
+    clearStayOnFinanceAfterTopicAAction();
+  });
+
+  it("blocks same leftover reorder URL after Mark reorder arrived", () => {
+    suppressSkuAutoScrollAfterBatchAction(SKU, 5000, REORDER_WITH_LEFTOVER);
+    expect(shouldBlockSkuFocusScroll(SKU, REORDER_WITH_LEFTOVER)).toBe(true);
+    expect(consumeDeepLinkIfUnlocked(SKU, REORDER_WITH_LEFTOVER)).toBe(false);
+    expect(isSkuAutoScrollSuppressed(SKU)).toBe(true);
+  });
+
+  it("clears leaked stay-finance so reorder remount cannot yank to Topic A", () => {
+    markStayOnFinanceAfterTopicAAction(SKU, SKU_PATH);
+    expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(true);
+
+    suppressSkuAutoScrollAfterBatchAction(SKU, 5000, REORDER_WITH_LEFTOVER);
+
+    expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(false);
+    expect(
+      consumeStayOnFinanceAfterTopicAAction(SKU, {
+        hashSection: "finance",
+        attn: null,
+      }),
+    ).toBe(false);
+    expect(shouldBlockSkuFocusScroll(SKU, REORDER_WITH_LEFTOVER)).toBe(true);
+  });
+
+  it("new hub reorder CTA URL unlocks scroll", () => {
+    suppressSkuAutoScrollAfterBatchAction(SKU, 5000, REORDER_WITH_LEFTOVER);
+    expect(consumeDeepLinkIfUnlocked(SKU, REORDER_WITH_LEFTOVER)).toBe(false);
+    expect(consumeDeepLinkIfUnlocked(SKU, REORDER_NEW_CTA)).toBe(true);
+    expect(isSkuAutoScrollSuppressed(SKU)).toBe(false);
+  });
+});
+
+describe("stay on finance after Topic A actions (Start selling / Save week)", () => {
+  beforeEach(() => {
+    clearSkuAutoScrollSuppress();
+    clearStayOnFinanceAfterTopicAAction();
+  });
+
+  afterEach(() => {
+    clearSkuAutoScrollSuppress();
+    clearStayOnFinanceAfterTopicAAction();
+  });
+
+  it("marks and consumes one-shot restore to finance", () => {
+    expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(false);
+    markStayOnFinanceAfterTopicAAction(SKU, SKU_PATH);
+    expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(true);
+    expect(
+      consumeStayOnFinanceAfterTopicAAction(SKU, {
+        hashSection: "finance",
+        attn: null,
+      }),
+    ).toBe(true);
+    expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(false);
+  });
+
+  it("Start selling alias shares the same one-shot", () => {
+    markStayOnFinanceAfterStartSelling(SKU, SKU_PATH);
+    expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(true);
+    expect(
+      consumeStayOnFinanceAfterTopicAAction(SKU, {
+        hashSection: null,
+        attn: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("bare hash remount still restores finance after Save week / Start selling", () => {
+    markStayOnFinanceAfterTopicAAction(SKU, SKU_PATH);
+    expect(
+      consumeStayOnFinanceAfterTopicAAction(SKU, {
+        hashSection: null,
+        attn: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("consume is single-shot — second call does not restore again", () => {
+    markStayOnFinanceAfterTopicAAction(SKU, SKU_PATH);
+    expect(
+      consumeStayOnFinanceAfterTopicAAction(SKU, {
+        hashSection: "finance",
+        attn: null,
+      }),
+    ).toBe(true);
+    expect(
+      consumeStayOnFinanceAfterTopicAAction(SKU, {
+        hashSection: "finance",
+        attn: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("explicit reorder/supplier deep link cancels stay-finance", () => {
+    markStayOnFinanceAfterTopicAAction(SKU, SKU_PATH);
+    expect(
+      consumeStayOnFinanceAfterTopicAAction(SKU, {
+        hashSection: "supplier",
+        attn: "reorder",
+      }),
+    ).toBe(false);
+    expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(false);
+  });
+
+  it("attn=selling / topicA still allow stay-finance", () => {
+    markStayOnFinanceAfterTopicAAction(SKU, SKU_PATH);
+    expect(
+      consumeStayOnFinanceAfterTopicAAction(SKU, {
+        hashSection: "finance",
+        attn: "selling",
+      }),
+    ).toBe(true);
+
+    markStayOnFinanceAfterTopicAAction(SKU, SKU_PATH);
+    expect(
+      consumeStayOnFinanceAfterTopicAAction(SKU, {
+        hashSection: null,
+        attn: "topicA",
+      }),
+    ).toBe(true);
+  });
+
+  it("markStay is a no-op on /finance (not a SKU page)", () => {
+    markStayOnFinanceAfterTopicAAction(SKU, "/en/finance");
+    expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(false);
+  });
+});
+
+describe("isSkuPagePathname / isElementStartInView", () => {
+  it("detects /sku paths including locale prefix", () => {
+    expect(isSkuPagePathname(`/en/sku/${SKU}`)).toBe(true);
+    expect(isSkuPagePathname("/sku")).toBe(true);
+    expect(isSkuPagePathname("/en/finance")).toBe(false);
+    expect(isSkuPagePathname("/en/shop")).toBe(false);
+  });
+
+  it("treats element top near viewport top as in view", () => {
+    expect(isElementStartInView(0)).toBe(true);
+    expect(isElementStartInView(40)).toBe(true);
+    expect(isElementStartInView(-40)).toBe(true);
+    expect(isElementStartInView(200)).toBe(false);
+    expect(isElementStartInView(-200)).toBe(false);
   });
 });

@@ -20,7 +20,7 @@ export type SkuTopicAWeekForEconomics = {
   tiktokSpend: number;
   courierFees: number;
   /** Mode C per-SKU map; absent/empty = legacy single-SKU week. */
-  skus?: Record<string, { sold: number; left: number; sales: number }>;
+  skus?: Record<string, { sold: number; left: number | null; sales: number }>;
 };
 
 export type TopicARowForEconomics = {

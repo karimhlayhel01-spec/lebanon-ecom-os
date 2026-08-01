@@ -6,8 +6,8 @@ import { useTranslations } from "next-intl";
  * the numbers already shown on SKU / Finance / dashboard surfaces so the three
  * layers don't look contradictory. No calculations here.
  *
- * Universal component (no "use client"): renders in both server components
- * (CompactSku) and client components (SkuCard, FinancePanel).
+ * Universal component (no "use client"): renders in both server and client
+ * components (SkuCard, FinancePanel).
  */
 export function MarginLegend({ compact = false }: { compact?: boolean }) {
   const t = useTranslations("Margins");

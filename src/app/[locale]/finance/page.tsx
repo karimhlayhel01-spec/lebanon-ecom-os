@@ -53,7 +53,10 @@ export default async function FinancePage({ params }: Props) {
       }
     >
       {view ? (
-        <FinancePanel view={view} />
+        <FinancePanel
+          view={view}
+          preferredSkuId={skuId ?? undefined}
+        />
       ) : (
         <EmptyState message={t("emptyFinance")} />
       )}

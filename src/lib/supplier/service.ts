@@ -39,12 +39,10 @@ import {
   type UnavailableSuppliersMap,
 } from "@/lib/supplier/reorder-escape";
 import {
-  batchInventoryUnitsFromImportBatch,
-  bumpTopicALeftAfterReorder,
-  computeRunwayForSkuFromEntries,
-  extractSkuTopicASeries,
-  findTopicARowIndexToBumpLeft,
-  resolvePriorLeftForReorderArrive,
+  computeRunwayForSkuWithImportBatch,
+  computeUnitsLeftFromReceivedSold,
+  extractSkuInventoryLedger,
+  resolveTotalUnitsReceived,
   resolveUnitsLeftGlance,
   type UnitsLeftGlance,
 } from "@/lib/finance/sku-runway";
@@ -922,11 +920,10 @@ export async function getSupplierPanel(
     importCogsPerUnit: costBasisForSku(sku).importCogsPerUnit,
   });
   const experience = (onboarding?.experience ?? "beginner") as ExperienceLevel;
-  const runway = computeRunwayForSkuFromEntries(topicRows, sku.id, {
+  const runway = computeRunwayForSkuWithImportBatch(topicRows, sku.id, {
     liveSkuCount: live.length,
-    batchInventoryUnits: batchInventoryUnitsFromImportBatch(sku.importBatch, {
-      batchArrivedReady: flags.batchArrivedReady,
-    }),
+    importBatch: sku.importBatch,
+    batchArrivedReady: flags.batchArrivedReady,
   });
   const economics = evaluateReorderEconomicsGate({
     experience,
@@ -1538,6 +1535,7 @@ export async function orderBatch(
         moq: supplier.moq,
         status: "ordered",
         suggestedFirstBatch: qty,
+        totalUnitsReceived: null,
         unitsLeft: null,
         estCost,
         supplierId,
@@ -1588,8 +1586,8 @@ export async function markBatchArrived(
   const now = nowIso();
   await patchSkuSideFlags(workspaceId, sku.id, { batchArrivedReady: true });
 
-  // Inventory is real at arrive (inventory_ack): seed units-left from ordered qty.
-  // Topic A log-week left remains SoT once weekly rows exist for this skuId.
+  // Inventory ledger: total received = first-batch ordered qty at arrive.
+  // units_left = totalUnitsReceived − cumulative Topic A sold (computed on save / glance).
   const orderedQty =
     sku.importBatch.suggestedFirstBatch != null &&
     Number.isFinite(sku.importBatch.suggestedFirstBatch)
@@ -1601,6 +1599,7 @@ export async function markBatchArrived(
       importBatch: JSON.stringify({
         ...sku.importBatch,
         status: "arrived",
+        totalUnitsReceived: orderedQty,
         unitsLeft: orderedQty,
       }),
       updatedAt: now,
@@ -1612,7 +1611,11 @@ export async function markBatchArrived(
     workspaceId,
     kind: "batch_arrived_ready",
     message: "Batch arrived and inventory checked",
-    meta: JSON.stringify({ skuId: sku.id, unitsLeft: orderedQty }),
+    meta: JSON.stringify({
+      skuId: sku.id,
+      unitsLeft: orderedQty,
+      totalUnitsReceived: orderedQty,
+    }),
     createdAt: now,
   });
 
@@ -1954,11 +1957,10 @@ export async function orderNextBatch(
       qty,
       estCost,
       source,
-      runway: computeRunwayForSkuFromEntries(topicRows, skuId, {
+      runway: computeRunwayForSkuWithImportBatch(topicRows, skuId, {
         liveSkuCount: live.length,
-        batchInventoryUnits: batchInventoryUnitsFromImportBatch(sku.importBatch, {
-          batchArrivedReady: true, // selling/reorder path implies first batch arrived
-        }),
+        importBatch: sku.importBatch,
+        batchArrivedReady: true, // selling/reorder path implies first batch arrived
       }),
       investNextRecommendation,
     },
@@ -2065,44 +2067,24 @@ export async function markReorderArrived(
       .where(eq(schema.topicAEntries.workspaceId, workspaceId))
       .orderBy(asc(schema.topicAEntries.weekStart));
 
-    const series = extractSkuTopicASeries(topicRows, skuId, undefined, {
-      liveSkuCount: live.length,
-    });
-    const batchInventoryUnits = batchInventoryUnitsFromImportBatch(
-      sku.importBatch,
-      { batchArrivedReady: true },
-    );
-    const priorLeft = resolvePriorLeftForReorderArrive({
-      topicALeft: series.skuLeft,
-      batchInventoryUnits,
-    });
-    newUnitsLeft = priorLeft + reorderQty;
-
-    // Topic A is glance SoT — bump this skuId’s left (+reorderQty) on the week
-    // the runway reads. Do not leave the top-up only on importBatch (Topic A
-    // would keep winning with the stale left). No new fake sold week.
-    const bumpIdx = findTopicARowIndexToBumpLeft(
+    const { cumulativeSold, lastLeft } = extractSkuInventoryLedger(
       topicRows,
       skuId,
-      live.length,
+      { liveSkuCount: live.length },
     );
-    const target = bumpIdx >= 0 ? topicRows[bumpIdx] : undefined;
-    if (target) {
-      const bumped = bumpTopicALeftAfterReorder({
-        perSkuSoldLeft: target.perSkuSoldLeft,
-        skuId,
-        addQty: reorderQty,
-        priorLeft,
-        liveSkuCount: live.length,
-      });
-      if (bumped) {
-        await db
-          .update(schema.topicAEntries)
-          .set({ perSkuSoldLeft: bumped.perSkuSoldLeft })
-          .where(eq(schema.topicAEntries.id, target.id));
-        newUnitsLeft = bumped.newLeft;
-      }
-    }
+    const priorReceived = resolveTotalUnitsReceived(sku.importBatch, {
+      batchArrivedReady: true,
+      topicALeft: lastLeft,
+      cumulativeSold,
+    });
+    // Ledger SoT: received increases on arrive; left = received − sold.
+    // Do not bump Topic A stored left (would double-count with the formula).
+    const newReceived =
+      (priorReceived ?? 0) + reorderQty;
+    newUnitsLeft = computeUnitsLeftFromReceivedSold(
+      newReceived,
+      cumulativeSold,
+    );
 
     await db
       .update(schema.skuCards)
@@ -2110,6 +2092,7 @@ export async function markReorderArrived(
         importBatch: JSON.stringify({
           ...sku.importBatch,
           status: "arrived",
+          totalUnitsReceived: newReceived,
           unitsLeft: newUnitsLeft,
         }),
         updatedAt: now,

@@ -123,7 +123,7 @@ export function weeklyInputForPreviousSku(
       codOutstanding: row.codOutstanding,
       courierFees: row.courierFees * share,
       skuSold: sold,
-      skuLeft: line.left,
+      skuLeft: line.left ?? 0,
     };
   }
 
@@ -141,7 +141,7 @@ export function weeklyInputForPreviousSku(
     codOutstanding: row.codOutstanding,
     courierFees: row.courierFees,
     skuSold: sold,
-    skuLeft: parsed.skuLeft,
+    skuLeft: parsed.skuLeft ?? 0,
   };
 }
 

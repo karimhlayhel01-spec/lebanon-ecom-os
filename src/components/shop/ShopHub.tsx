@@ -247,7 +247,7 @@ export function ShopHub({
                     <UnitsLeftGlanceBlock
                       glance={sku.unitsLeftGlance}
                       compact
-                      financeHref={`/sku/${sku.id}?attn=topicA#finance`}
+                      inventoryHref={`/sku/${sku.id}?attn=arrived#supplier`}
                     />
                   </div>
                 )}

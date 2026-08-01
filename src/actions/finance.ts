@@ -40,21 +40,26 @@ export async function addWeeklyEntryAction(
 
   const skuLinesRaw = String(formData.get("skuLines") ?? "").trim();
   let skuLines:
-    | Array<{ skuId: string; sold: number; left: number; sales: number }>
+    | Array<{ skuId: string; sold: number; left: number | null; sales: number }>
     | undefined;
   if (skuLinesRaw) {
     try {
       const parsed = JSON.parse(skuLinesRaw) as Array<{
         skuId: string;
         sold: number;
-        left: number;
+        left: number | null;
         sales: number;
       }>;
       if (Array.isArray(parsed) && parsed.length > 0) {
         skuLines = parsed.map((l) => ({
           skuId: String(l.skuId),
           sold: Number(l.sold) || 0,
-          left: Number(l.left) || 0,
+          left:
+            l.left == null
+              ? null
+              : Number.isFinite(Number(l.left))
+                ? Number(l.left)
+                : null,
           sales: Number(l.sales) || 0,
         }));
       }

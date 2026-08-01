@@ -4,6 +4,7 @@ import {
   integer,
   pgTable,
   text,
+  unique,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -325,21 +326,30 @@ export const marketingKits = pgTable("marketing_kits", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const topicAEntries = pgTable("topic_a_entries", {
-  id: text("id").primaryKey(),
-  workspaceId: text("workspace_id")
-    .notNull()
-    .references(() => workspaces.id),
-  weekStart: text("week_start").notNull(),
-  storeTotalsUsd: doublePrecision("store_totals_usd").notNull(),
-  perSkuSoldLeft: text("per_sku_sold_left").notNull(), // JSON
-  metaSpend: doublePrecision("meta_spend").notNull().default(0),
-  tiktokSpend: doublePrecision("tiktok_spend").notNull().default(0),
-  codCollected: doublePrecision("cod_collected").notNull().default(0),
-  codOutstanding: doublePrecision("cod_outstanding").notNull().default(0),
-  courierFees: doublePrecision("courier_fees").notNull().default(0),
-  createdAt: text("created_at").notNull(),
-});
+export const topicAEntries = pgTable(
+  "topic_a_entries",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    weekStart: text("week_start").notNull(),
+    storeTotalsUsd: doublePrecision("store_totals_usd").notNull(),
+    perSkuSoldLeft: text("per_sku_sold_left").notNull(), // JSON
+    metaSpend: doublePrecision("meta_spend").notNull().default(0),
+    tiktokSpend: doublePrecision("tiktok_spend").notNull().default(0),
+    codCollected: doublePrecision("cod_collected").notNull().default(0),
+    codOutstanding: doublePrecision("cod_outstanding").notNull().default(0),
+    courierFees: doublePrecision("courier_fees").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [
+    unique("topic_a_entries_workspace_week_unique").on(
+      t.workspaceId,
+      t.weekStart,
+    ),
+  ],
+);
 
 export const financeVerdicts = pgTable("finance_verdicts", {
   id: text("id").primaryKey(),

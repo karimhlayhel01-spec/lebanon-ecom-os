@@ -4,8 +4,12 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
+  clearSkuAutoScrollSuppress,
   consumeDeepLinkIfUnlocked,
+  consumeStayOnFinanceAfterTopicAAction,
   isSkuAutoScrollSuppressed,
+  isTopicAFinanceAnchorInView,
+  scrollToTopicAFinanceAnchor,
   shouldBlockSkuFocusScroll,
   skuFocusLocationKey,
 } from "@/lib/sku/suppress-auto-scroll";
@@ -70,6 +74,8 @@ function normalizeSectionId(raw: string | null | undefined): SectionId | null {
  * Finance is never a cold target — hub → /sku/[id] in selling / batch_arrived_ready
  * must land calm (top/hero). Explicit #finance / Topic A clicks still scroll.
  * Remount with leftover ?attn=#finance after sample buttons: stay put.
+ * Start selling / Save week: one-shot restore to #finance (no banner) so
+ * Order next batch does not steal scroll.
  */
 function SkuSectionFocusInner({
   skuId,
@@ -106,7 +112,6 @@ function SkuSectionFocusInner({
 
       const fromDeepLink = !!(hashSection || attn);
       const fromCold = !hashSection && !attn && !!cold;
-      const section = hashSection ?? (fromCold ? cold : null);
 
       if (activeEl) {
         activeEl.classList.remove("sku-section-focus");
@@ -114,6 +119,29 @@ function SkuSectionFocusInner({
       }
       if (clearHighlight) clearTimeout(clearHighlight);
       if (clearBanner) clearTimeout(clearBanner);
+
+      // Topic A remount (Start selling / Save week): one calm restore, no banner.
+      // Explicit other-section deep links (e.g. ?attn=reorder#supplier) cancel it.
+      if (
+        consumeStayOnFinanceAfterTopicAAction(skuId, { hashSection, attn })
+      ) {
+        clearSkuAutoScrollSuppress(skuId);
+        if (window.location.hash !== "#finance") {
+          window.history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}#finance`,
+          );
+        }
+        if (!isTopicAFinanceAnchorInView()) {
+          scrollToTopicAFinanceAnchor("smooth");
+        }
+        setBanner(null);
+        return;
+      }
+
+      const section: SectionId | null =
+        hashSection ?? (fromCold ? cold : null);
 
       if (!section) {
         setBanner(null);
@@ -154,8 +182,10 @@ function SkuSectionFocusInner({
         if (activeEl === el) activeEl = null;
       }, 2800);
 
-      const label = attn ? t(`chip.${attn}`) : sectionLabel(section, t);
-      setBanner(t("sectionFocusNext", { label }));
+      const bannerLabel = attn
+        ? t(`chip.${attn}`)
+        : sectionLabel(section, t);
+      setBanner(t("sectionFocusNext", { label: bannerLabel }));
       clearBanner = setTimeout(() => setBanner(null), 3200);
     }
 

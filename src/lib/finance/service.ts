@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import {
@@ -25,6 +25,15 @@ import {
   type SkuContributionBreakdown,
   type WeekSkuContribution,
 } from "@/lib/finance/sku-contribution";
+import {
+  parsePerSkuSoldLeft,
+  serializePerSkuSoldLeft,
+} from "@/lib/finance/per-sku-sold-left";
+import {
+  computeUnitsLeftFromReceivedSold,
+  extractSkuInventoryLedger,
+  resolveTotalUnitsReceived,
+} from "@/lib/finance/sku-runway";
 
 export type {
   SkuContributionBreakdown,
@@ -32,6 +41,11 @@ export type {
   WeekSkuContribution,
   WeekSkuContributionRow,
 } from "@/lib/finance/sku-contribution";
+
+export {
+  parsePerSkuSoldLeft,
+  serializePerSkuSoldLeft,
+} from "@/lib/finance/per-sku-sold-left";
 
 /**
  * Topic A + Finance panel.
@@ -70,7 +84,8 @@ export type WeeklyInput = {
 export type SkuWeekLine = {
   skuId: string;
   sold: number;
-  left: number;
+  /** null when totalUnitsReceived unknown — never invent 0. */
+  left: number | null;
   sales: number;
 };
 
@@ -155,6 +170,14 @@ export type SellableSku = {
   name: string;
 };
 
+/** Per-SKU inventory for Topic A form: left = received − (priorSold + this week sold). */
+export type SkuInventoryHint = {
+  skuId: string;
+  /** null when no batch arrived qty — left unknown. */
+  totalUnitsReceived: number | null;
+  priorUnitsSold: number;
+};
+
 export type FinancePanelView = {
   mode: "preview" | "live";
   canStartSelling: boolean;
@@ -164,6 +187,8 @@ export type FinancePanelView = {
   liveSkus: SellableSku[];
   /** Live SKUs currently in selling. */
   liveSellingSkus: SellableSku[];
+  /** Inventory ledger hints for computed units-left on the form. */
+  inventoryBySku: SkuInventoryHint[];
   /** Full Topic A week count (gates / invest-next unlock). */
   weekCount: number;
   investNextMinWeeks: number;
@@ -262,7 +287,10 @@ export function rollUpMultiSkuWeek(lines: SkuCostLine[]): {
 } {
   const sales = lines.reduce((s, l) => s + Math.max(l.sales, 0), 0);
   const skuSold = lines.reduce((s, l) => s + Math.max(l.sold, 0), 0);
-  const skuLeft = lines.reduce((s, l) => s + Math.max(l.left, 0), 0);
+  const skuLeft = lines.reduce(
+    (s, l) => s + Math.max(l.left ?? 0, 0),
+    0,
+  );
   const importCogsTotal = lines.reduce(
     (s, l) => s + l.importCogsPerUnit * Math.max(l.sold, 0),
     0,
@@ -281,67 +309,21 @@ export function rollUpMultiSkuWeek(lines: SkuCostLine[]): {
 }
 
 /**
- * Parse `per_sku_sold_left` JSON.
- * Legacy: `{ orders, sku: { sold, left } }` or `{ orders, sold, left }`
- * Mode C: `{ orders, skus: { [skuId]: { sold, left, sales } } }`
+ * Persistable units left for a week line.
+ * left = max(0, received − (priorSold + thisWeekSold));
+ * null when received unknown — never invent 0.
+ * Client-supplied left is ignored by addWeeklyEntry.
  */
-export function parsePerSkuSoldLeft(raw: string): {
-  orders: number;
-  skuSold: number;
-  skuLeft: number;
-  skus: Record<string, { sold: number; left: number; sales: number }>;
-} {
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const orders = Number(parsed.orders ?? 0);
-    if (parsed.skus && typeof parsed.skus === "object") {
-      const skus: Record<string, { sold: number; left: number; sales: number }> =
-        {};
-      let skuSold = 0;
-      let skuLeft = 0;
-      for (const [id, v] of Object.entries(
-        parsed.skus as Record<
-          string,
-          { sold?: number; left?: number; sales?: number }
-        >,
-      )) {
-        const sold = Number(v?.sold ?? 0);
-        const left = Number(v?.left ?? 0);
-        const sales = Number(v?.sales ?? 0);
-        skus[id] = { sold, left, sales };
-        skuSold += sold;
-        skuLeft += left;
-      }
-      return { orders, skuSold, skuLeft, skus };
-    }
-    const legacySku =
-      parsed.sku && typeof parsed.sku === "object"
-        ? (parsed.sku as { sold?: number; left?: number })
-        : null;
-    return {
-      orders,
-      skuSold: Number(legacySku?.sold ?? parsed.sold ?? 0),
-      skuLeft: Number(legacySku?.left ?? parsed.left ?? 0),
-      skus: {},
-    };
-  } catch {
-    return { orders: 0, skuSold: 0, skuLeft: 0, skus: {} };
-  }
-}
-
-export function serializePerSkuSoldLeft(input: {
-  orders: number;
-  skuSold?: number;
-  skuLeft?: number;
-  skus?: Record<string, { sold: number; left: number; sales: number }>;
-}): string {
-  if (input.skus && Object.keys(input.skus).length > 0) {
-    return JSON.stringify({ orders: input.orders, skus: input.skus });
-  }
-  return JSON.stringify({
-    orders: input.orders,
-    sku: { sold: input.skuSold ?? 0, left: input.skuLeft ?? 0 },
-  });
+export function computePersistedUnitsLeft(args: {
+  totalUnitsReceived: number | null;
+  priorUnitsSold: number;
+  thisWeekSold: number;
+}): number | null {
+  return computeUnitsLeftFromReceivedSold(
+    args.totalUnitsReceived,
+    Math.max(0, Math.floor(args.priorUnitsSold)) +
+      Math.max(0, Math.floor(args.thisWeekSold)),
+  );
 }
 
 /**
@@ -535,7 +517,7 @@ function parseEntry(row: typeof schema.topicAEntries.$inferSelect): WeeklyInput 
     codOutstanding: row.codOutstanding,
     courierFees: row.courierFees,
     skuSold: parsed.skuSold,
-    skuLeft: parsed.skuLeft,
+    skuLeft: parsed.skuLeft ?? 0,
     skuLines: skuLines.length > 0 ? skuLines : undefined,
   };
 }
@@ -628,6 +610,46 @@ export async function getFinancePanel(
     .map((s) => ({ id: s.id, name: s.name }));
   const liveSkus: SellableSku[] = live.map((s) => ({ id: s.id, name: s.name }));
 
+  const topicRowsForInventory = rows.map((r) => ({
+    perSkuSoldLeft: r.perSkuSoldLeft,
+  }));
+  const inventoryBySku: SkuInventoryHint[] = live.map((s) => {
+    const j = journeyBySku.get(s.id);
+    const arrived =
+      !!j?.batchArrivedReady ||
+      j?.primaryState === "selling" ||
+      j?.primaryState === "batch_arrived_ready" ||
+      (!!side?.batchArrivedReady && s.id === sku.id);
+    let importBatch: {
+      totalUnitsReceived?: number | null;
+      unitsLeft?: number | null;
+      suggestedFirstBatch?: number | null;
+    } | null = null;
+    try {
+      importBatch = JSON.parse(s.importBatch) as {
+        totalUnitsReceived?: number | null;
+        unitsLeft?: number | null;
+        suggestedFirstBatch?: number | null;
+      };
+    } catch {
+      importBatch = null;
+    }
+    const { cumulativeSold, lastLeft } = extractSkuInventoryLedger(
+      topicRowsForInventory,
+      s.id,
+      { liveSkuCount: live.length },
+    );
+    return {
+      skuId: s.id,
+      totalUnitsReceived: resolveTotalUnitsReceived(importBatch, {
+        batchArrivedReady: arrived,
+        topicALeft: lastLeft,
+        cumulativeSold,
+      }),
+      priorUnitsSold: cumulativeSold,
+    };
+  });
+
   // Legacy workspace-level canStartSelling still true when active SKU is ready.
   const activeCanStart =
     journey?.primaryState === "batch_arrived_ready" &&
@@ -719,6 +741,7 @@ export async function getFinancePanel(
           : [],
     liveSkus,
     liveSellingSkus,
+    inventoryBySku,
     weekCount,
     investNextMinWeeks: INVEST_NEXT_MIN_WEEKS,
     entries,
@@ -797,8 +820,8 @@ export async function getTopicAHistoryEntries(
 
 /**
  * Rolling current actual margins for the active SKU — the SAME helper the Finance
- * panel uses, exposed for read-only mirrors (SKU sheet, dashboard CompactSku) so
- * they can never disagree with Finance. Returns null when there is no active SKU.
+ * panel uses, exposed for read-only mirrors (SKU sheet) so they can never disagree
+ * with Finance. Returns null when there is no active SKU.
  */
 export async function getCurrentActual(
   workspaceId: string,
@@ -912,6 +935,16 @@ export type AddWeeklyEntryInput = WeeklyInput & {
   skuLines?: SkuWeekLine[];
 };
 
+/** True when this weekStart is already logged for the workspace (no overwrite). */
+export function isDuplicateTopicAWeek(
+  existingWeekStarts: readonly string[],
+  weekStart: string,
+): boolean {
+  const target = weekStart.trim();
+  if (!target) return false;
+  return existingWeekStarts.some((w) => w === target);
+}
+
 export async function addWeeklyEntry(
   workspaceId: string,
   input: AddWeeklyEntryInput,
@@ -924,14 +957,89 @@ export async function addWeeklyEntry(
   const sku = await getSkuView(workspaceId);
   if (!sku) return { ok: false, error: "not_found" };
 
+  const weekStart = input.weekStart.trim();
+  if (!weekStart) return { ok: false, error: "missing_week" };
+
+  const dup = await db
+    .select({ id: schema.topicAEntries.id })
+    .from(schema.topicAEntries)
+    .where(
+      and(
+        eq(schema.topicAEntries.workspaceId, workspaceId),
+        eq(schema.topicAEntries.weekStart, weekStart),
+      ),
+    )
+    .limit(1)
+    .then((rows) => rows[0]);
+  if (dup) return { ok: false, error: "duplicate_week" };
+
   const live = await listLiveSkus(workspaceId);
   const multiLive = live.length >= 2;
 
+  const existingRows = await db
+    .select({ perSkuSoldLeft: schema.topicAEntries.perSkuSoldLeft })
+    .from(schema.topicAEntries)
+    .where(eq(schema.topicAEntries.workspaceId, workspaceId))
+    .orderBy(asc(schema.topicAEntries.weekStart));
+
+  const journeys = await db
+    .select()
+    .from(schema.skuJourneys)
+    .where(eq(schema.skuJourneys.workspaceId, workspaceId));
+  const journeyBySku = new Map(journeys.map((j) => [j.skuId, j]));
+  const side = await db
+    .select()
+    .from(schema.sideStatuses)
+    .where(eq(schema.sideStatuses.workspaceId, workspaceId))
+    .then((rows) => rows[0]);
+
+  const inventoryById = new Map<
+    string,
+    { totalUnitsReceived: number | null; priorUnitsSold: number }
+  >();
+  for (const s of live) {
+    const j = journeyBySku.get(s.id);
+    const arrived =
+      !!j?.batchArrivedReady ||
+      j?.primaryState === "selling" ||
+      j?.primaryState === "batch_arrived_ready" ||
+      (!!side?.batchArrivedReady && s.id === sku.id);
+    let importBatch: {
+      totalUnitsReceived?: number | null;
+      unitsLeft?: number | null;
+      suggestedFirstBatch?: number | null;
+    } | null = null;
+    try {
+      importBatch = JSON.parse(s.importBatch) as {
+        totalUnitsReceived?: number | null;
+        unitsLeft?: number | null;
+        suggestedFirstBatch?: number | null;
+      };
+    } catch {
+      importBatch = null;
+    }
+    const { cumulativeSold, lastLeft } = extractSkuInventoryLedger(
+      existingRows,
+      s.id,
+      { liveSkuCount: live.length },
+    );
+    inventoryById.set(s.id, {
+      totalUnitsReceived: resolveTotalUnitsReceived(importBatch, {
+        batchArrivedReady: arrived,
+        topicALeft: lastLeft,
+        cumulativeSold,
+      }),
+      priorUnitsSold: cumulativeSold,
+    });
+  }
+
   let sales = input.sales;
   let skuSold = input.skuSold;
-  let skuLeft = input.skuLeft;
+  let skuLeft: number = input.skuLeft;
+  /** Sole-SKU JSON left (null when received unknown). Mode C uses skusJson. */
+  let solePersistLeft: number | null | undefined;
   let skusJson:
-    | Record<string, { sold: number; left: number; sales: number }>
+    | Record<string, { sold: number; left: number | null; sales: number }>
     | undefined;
   let basis = costBasisForSku(sku);
   let skuLines = input.skuLines;
@@ -943,26 +1051,43 @@ export async function addWeeklyEntry(
     );
     skuLines = live.map((s) => {
       const existing = byId.get(s.id);
+      let sold: number;
+      let salesLine: number;
       if (existing) {
-        return {
-          skuId: s.id,
-          sold: Math.max(0, existing.sold),
-          left: Math.max(0, existing.left),
-          sales: Math.max(0, existing.sales),
-        };
+        sold = Math.max(0, existing.sold);
+        salesLine = Math.max(0, existing.sales);
+      } else if (
+        (!input.skuLines || input.skuLines.length === 0) &&
+        s.id === sku.id
+      ) {
+        sold = Math.max(0, input.skuSold);
+        salesLine = Math.max(0, input.sales);
+      } else {
+        sold = 0;
+        salesLine = 0;
       }
-      // Missing line: zeros (not-yet-selling) — except attribute legacy
-      // single-field payload to the active SKU when no lines were posted.
-      if ((!input.skuLines || input.skuLines.length === 0) && s.id === sku.id) {
-        return {
-          skuId: s.id,
-          sold: Math.max(0, input.skuSold),
-          left: Math.max(0, input.skuLeft),
-          sales: Math.max(0, input.sales),
-        };
-      }
-      return { skuId: s.id, sold: 0, left: 0, sales: 0 };
+      const inv = inventoryById.get(s.id);
+      // Ignore client left — compute from ledger (null when received unknown).
+      const left = computePersistedUnitsLeft({
+        totalUnitsReceived: inv?.totalUnitsReceived ?? null,
+        priorUnitsSold: inv?.priorUnitsSold ?? 0,
+        thisWeekSold: sold,
+      });
+      return { skuId: s.id, sold, left, sales: salesLine };
     });
+  } else {
+    // Single live SKU: override client left from inventory ledger.
+    const soleId = live[0]?.id ?? sku.id;
+    const inv = inventoryById.get(soleId);
+    const sold = Math.max(0, input.skuSold);
+    solePersistLeft = computePersistedUnitsLeft({
+      totalUnitsReceived: inv?.totalUnitsReceived ?? null,
+      priorUnitsSold: inv?.priorUnitsSold ?? 0,
+      thisWeekSold: sold,
+    });
+    // WeeklyInput.skuLeft is shop aggregate number; JSON stores null when unknown.
+    skuLeft = solePersistLeft ?? 0;
+    skuSold = sold;
   }
 
   if (skuLines && skuLines.length > 0) {
@@ -993,6 +1118,7 @@ export async function addWeeklyEntry(
 
   const weekInput: WeeklyInput = {
     ...input,
+    weekStart,
     sales,
     skuSold,
     skuLeft,
@@ -1000,36 +1126,46 @@ export async function addWeeklyEntry(
   };
 
   const now = nowIso();
-  await db.insert(schema.topicAEntries).values({
-    id: newId(),
-    workspaceId,
-    weekStart: input.weekStart,
-    storeTotalsUsd: sales,
-    perSkuSoldLeft: serializePerSkuSoldLeft({
-      orders: input.orders,
-      skuSold,
-      skuLeft,
-      skus: skusJson,
-    }),
-    metaSpend: input.metaSpend,
-    tiktokSpend: input.tiktokSpend,
-    codCollected: input.codCollected,
-    codOutstanding: input.codOutstanding,
-    courierFees: input.courierFees,
-    createdAt: now,
-  });
+  try {
+    await db.insert(schema.topicAEntries).values({
+      id: newId(),
+      workspaceId,
+      weekStart,
+      storeTotalsUsd: sales,
+      perSkuSoldLeft: serializePerSkuSoldLeft({
+        orders: input.orders,
+        skuSold,
+        skuLeft: skusJson != null ? skuLeft : (solePersistLeft ?? null),
+        skus: skusJson,
+      }),
+      metaSpend: input.metaSpend,
+      tiktokSpend: input.tiktokSpend,
+      codCollected: input.codCollected,
+      codOutstanding: input.codOutstanding,
+      courierFees: input.courierFees,
+      createdAt: now,
+    });
+  } catch (err) {
+    // Race: unique (workspace_id, week_start) — never silent double rows.
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code: unknown }).code)
+        : "";
+    if (code === "23505") return { ok: false, error: "duplicate_week" };
+    throw err;
+  }
 
   const health = computeHealth(weekInput, basis);
   await db.insert(schema.financeVerdicts).values({
     id: newId(),
     workspaceId,
     kind: "weekly_health",
-    payload: JSON.stringify({ weekStart: input.weekStart, health }),
+    payload: JSON.stringify({ weekStart, health }),
     confidence: 0.7,
     createdAt: now,
   });
 
-  const side = await db
+  const sideCount = await db
     .select({ topicAWeekCount: schema.sideStatuses.topicAWeekCount })
     .from(schema.sideStatuses)
     .where(eq(schema.sideStatuses.workspaceId, workspaceId))
@@ -1037,7 +1173,7 @@ export async function addWeeklyEntry(
   await db
     .update(schema.sideStatuses)
     .set({
-      topicAWeekCount: (side?.topicAWeekCount ?? 0) + 1,
+      topicAWeekCount: (sideCount?.topicAWeekCount ?? 0) + 1,
       updatedAt: now,
     })
     .where(eq(schema.sideStatuses.workspaceId, workspaceId));

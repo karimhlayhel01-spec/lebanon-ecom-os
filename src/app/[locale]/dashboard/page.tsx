@@ -5,8 +5,7 @@ import { requireOnboardedContext } from "@/lib/workspace";
 import { getDiscoveryView } from "@/lib/discovery/service";
 import { getFinancePanel } from "@/lib/finance/service";
 import {
-  batchInventoryUnitsFromImportBatch,
-  computeRunwayForSkuFromEntries,
+  computeRunwayForSkuWithImportBatch,
   resolveUnitsLeftGlance,
   shouldShowUnitsLeftOnHub,
 } from "@/lib/finance/sku-runway";
@@ -253,23 +252,28 @@ export default async function DashboardPage({ params, searchParams }: Props) {
       }
       const reorderStatus = normalizeReorderStatus(j?.reorderStatus);
       let importBatch: {
+        totalUnitsReceived?: number | null;
         unitsLeft?: number | null;
         suggestedFirstBatch?: number | null;
       } | null = null;
       try {
         importBatch = JSON.parse(s.importBatch) as {
+          totalUnitsReceived?: number | null;
           unitsLeft?: number | null;
           suggestedFirstBatch?: number | null;
         };
       } catch {
         importBatch = null;
       }
-      const runway = computeRunwayForSkuFromEntries(topicRowsForRunway, s.id, {
-        liveSkuCount: live.length,
-        batchInventoryUnits: batchInventoryUnitsFromImportBatch(importBatch, {
+      const runway = computeRunwayForSkuWithImportBatch(
+        topicRowsForRunway,
+        s.id,
+        {
+          liveSkuCount: live.length,
+          importBatch,
           batchArrivedReady: !!j?.batchArrivedReady,
-        }),
-      });
+        },
+      );
       const unitsLeftGlance = resolveUnitsLeftGlance(runway);
       const reorderNudge =
         effState === "selling" &&

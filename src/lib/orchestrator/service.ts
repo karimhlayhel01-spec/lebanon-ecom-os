@@ -7,7 +7,7 @@ import {
 } from "@/lib/sku/journey";
 import { effectiveJourneyState } from "@/lib/sku/page-sections";
 import { costBasisForSku } from "@/lib/finance/service";
-import { computeRunwayForSkuFromEntries, batchInventoryUnitsFromImportBatch } from "@/lib/finance/sku-runway";
+import { computeRunwayForSkuWithImportBatch } from "@/lib/finance/sku-runway";
 import { getSkuViewById } from "@/lib/sku/service";
 import { reorderInvestNextTone } from "@/lib/supplier/reorder";
 import {
@@ -422,17 +422,13 @@ export async function getSkuOrchestration(
 
   const runway =
     primaryState === "selling"
-      ? computeRunwayForSkuFromEntries(topicRows, skuId, {
+      ? computeRunwayForSkuWithImportBatch(topicRows, skuId, {
           liveSkuCount: live.length,
-          batchInventoryUnits: batchInventoryUnitsFromImportBatch(
-            sku?.importBatch,
-            {
-              batchArrivedReady:
-                !!skuJourney?.batchArrivedReady ||
-                primaryState === "selling" ||
-                primaryState === "batch_arrived_ready",
-            },
-          ),
+          importBatch: sku?.importBatch,
+          batchArrivedReady:
+            !!skuJourney?.batchArrivedReady ||
+            primaryState === "selling" ||
+            primaryState === "batch_arrived_ready",
         })
       : { nudge: false };
   // Same per-SKU economics as Supplier reorder (not shop Finance invest-next).
