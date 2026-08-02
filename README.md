@@ -41,10 +41,11 @@ Temporary control for testing and live demos (not Wave 2). Enable with `DEMO_RES
 
 - Signed-out server actions that call `requireUser` / `requireOnboardedWorkspace` **redirect to login** (same as pages) — they do not throw a raw `UNAUTHORIZED` 500.
 - Login is throttled in-memory: **10 failed attempts / 15 minutes** per email and per client IP (`src/lib/auth/login-rate-limit.ts`). Best-effort only (per process; not shared across instances).
+- Password change invalidates all other sessions, then mints a fresh session for this browser.
 
 ### Postgres integration tests
 
-Critical-path suites live in `src/**/*.integration.test.ts` (IDOR, Topic A week count txn, reorder arrive ledger, demo reset). They **skip when `DATABASE_URL` is unset**. Default `npm test` excludes them (keeps unit CI fast). Run with:
+Critical-path suites live in `src/**/*.integration.test.ts` (IDOR, Topic A week count txn, reorder arrive ledger, demo reset, fail-closed `skuId` / `advanceJourney`). They **skip when `DATABASE_URL` is unset**. Default `npm test` excludes them (keeps unit CI fast). Run with:
 
 ```bash
 npm run test:integration
@@ -94,7 +95,7 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lebanon_ecom
 2. `npm run db:generate` → SQL under `drizzle/`
 3. `npm run db:migrate` (or rely on first-request `ensureMigrated()` in the app process)
 
-Shipped migrations include `drizzle/0000_solid_legion.sql` (base schema) and `drizzle/0001_topic_a_workspace_week_unique.sql` (unique `(workspace_id, week_start)` on Topic A — no duplicate money weeks). Inventory received for units-left lives on each SKU’s `importBatch` JSON (`totalUnitsReceived`).
+Shipped migrations include `drizzle/0000_solid_legion.sql` (base schema), `drizzle/0001_topic_a_workspace_week_unique.sql` (unique `(workspace_id, week_start)` on Topic A — no duplicate money weeks), and `drizzle/0002_approval_pending_unique.sql` (at most one pending approval per workspace + gate + SKU). Inventory received for units-left lives on each SKU’s `importBatch` JSON (`totalUnitsReceived`).
 
 Legacy SQLite files under `data/*.sqlite` are unused and can be deleted.
 
@@ -116,6 +117,7 @@ Legacy SQLite files under `data/*.sqlite` are unused and can be deleted.
 - Margins **≥ 70%** before ads / **≥ 35%** after; **sample-first**; same-source spares; spare approve ≠ path switch; quotes stale on path switch only
 - Topic A is **shop-combined** (Mode C when 2+ live); units left = **received − cumulative sold** (computed ledger, not founder-typed SoT)
 - Finance history (older weeks) via settings gear ⚙ → `/finance/history`; recent weeks stay on the Finance / Topic A panel
+- `skuId` mutations are ownership-checked / fail-closed (no `activeSkuId` soft fallback when live SKUs exist); `activeSkuId` remains a hub Tools preference pointer only (not flipped on `/sku/[id]` GET)
 
 ## Shared Business Memory (M1)
 
