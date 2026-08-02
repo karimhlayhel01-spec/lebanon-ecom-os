@@ -2,8 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ensureMigrated } from "@/db";
-import { requireUser } from "@/lib/auth";
-import { getWorkspaceForUser } from "@/lib/memory/repos";
+import { requireOnboardedWorkspace } from "@/lib/workspace";
 import {
   decideSample,
   markBatchArrived,
@@ -29,17 +28,24 @@ import {
   type SwitchReorderBackupResult,
 } from "@/lib/supplier/service";
 import type { SetBatchArrivalEtaInput } from "@/lib/supplier/batch-eta";
+import { assertSkuOwned } from "@/lib/sku/ownership";
 
 async function workspaceForRequest() {
-  const user = await requireUser();
-  return getWorkspaceForUser(user.id);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return ctx;
+  return { ok: true as const, workspace: ctx.workspace };
+}
+
+async function requireOwnedSku(workspaceId: string, skuId: string) {
+  const owned = await assertSkuOwned(workspaceId, skuId);
+  return owned.ok;
 }
 
 export async function requestSampleAction(supplierId: string) {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await requestSample(workspace.id, supplierId);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  const res = await requestSample(ctx.workspace.id, supplierId);
   revalidatePath("/", "layout");
   return res;
 }
@@ -50,10 +56,10 @@ export async function markSampleReceivedAction(
   photoNotes: string,
 ) {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
   const res = await markSampleReceived(
-    workspace.id,
+    ctx.workspace.id,
     sampleId,
     checklist,
     photoNotes,
@@ -67,9 +73,9 @@ export async function decideSampleAction(
   decision: SampleDecision,
 ) {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await decideSample(workspace.id, sampleId, decision);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  const res = await decideSample(ctx.workspace.id, sampleId, decision);
   revalidatePath("/", "layout");
   return res;
 }
@@ -80,9 +86,9 @@ export async function orderBatchAction(
   stuckAcks: boolean,
 ): Promise<OrderBatchResult> {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await orderBatch(workspace.id, supplierId, quantity, stuckAcks);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  const res = await orderBatch(ctx.workspace.id, supplierId, quantity, stuckAcks);
   revalidatePath("/", "layout");
   return res;
 }
@@ -92,21 +98,27 @@ export async function markBatchArrivedAction(
   inventoryAck: boolean,
 ) {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await markBatchArrived(workspace.id, skuId, inventoryAck);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await markBatchArrived(ctx.workspace.id, skuId, inventoryAck);
   revalidatePath("/", "layout");
   return res;
 }
 
 export async function saveCostQuotesAction(
   input: CostQuoteInput,
-  skuId?: string,
+  skuId: string,
 ): Promise<SaveCostQuotesResult> {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await saveCostQuotes(workspace.id, input, skuId);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await saveCostQuotes(ctx.workspace.id, input, skuId);
   revalidatePath("/", "layout");
   return res;
 }
@@ -116,9 +128,12 @@ export async function setBatchArrivalEtaAction(
   input: SetBatchArrivalEtaInput,
 ): Promise<SetBatchArrivalEtaResult> {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await setBatchArrivalEta(workspace.id, skuId, input);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await setBatchArrivalEta(ctx.workspace.id, skuId, input);
   revalidatePath("/", "layout");
   return res;
 }
@@ -129,9 +144,12 @@ export async function orderNextBatchAction(
   opts: { economicsAck?: boolean; stuckAcks?: boolean } = {},
 ): Promise<OrderNextBatchResult> {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await orderNextBatch(workspace.id, skuId, quantity, opts);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await orderNextBatch(ctx.workspace.id, skuId, quantity, opts);
   revalidatePath("/", "layout");
   return res;
 }
@@ -141,9 +159,12 @@ export async function markReorderArrivedAction(
   inventoryAck: boolean,
 ): Promise<MarkReorderArrivedResult> {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await markReorderArrived(workspace.id, skuId, inventoryAck);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await markReorderArrived(ctx.workspace.id, skuId, inventoryAck);
   revalidatePath("/", "layout");
   return res;
 }
@@ -153,9 +174,12 @@ export async function setReorderArrivalEtaAction(
   input: SetBatchArrivalEtaInput,
 ): Promise<SetReorderArrivalEtaResult> {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await setReorderArrivalEta(workspace.id, skuId, input);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await setReorderArrivalEta(ctx.workspace.id, skuId, input);
   revalidatePath("/", "layout");
   return res;
 }
@@ -165,9 +189,14 @@ export async function reportSupplierCantFulfillAction(
   reason?: string,
 ): Promise<ReportCantFulfillResult> {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await reportSupplierCantFulfill(workspace.id, skuId, { reason });
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await reportSupplierCantFulfill(ctx.workspace.id, skuId, {
+    reason,
+  });
   revalidatePath("/", "layout");
   return res;
 }
@@ -178,10 +207,13 @@ export async function switchReorderBackupAction(
   opts: { skipSampleAck?: boolean } = {},
 ): Promise<SwitchReorderBackupResult> {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
   const res = await switchReorderBackup(
-    workspace.id,
+    ctx.workspace.id,
     skuId,
     backupSupplierId,
     opts,

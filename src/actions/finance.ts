@@ -2,83 +2,59 @@
 
 import { revalidatePath } from "next/cache";
 import { ensureMigrated } from "@/db";
-import { requireUser } from "@/lib/auth";
-import { getWorkspaceForUser } from "@/lib/memory/repos";
+import { requireOnboardedWorkspace } from "@/lib/workspace";
 import { addWeeklyEntry, startSelling } from "@/lib/finance/service";
+import { parseWeeklyEntryFormData } from "@/lib/finance/validate";
 
 async function workspaceForRequest() {
-  const user = await requireUser();
-  return getWorkspaceForUser(user.id);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return ctx;
+  return { ok: true as const, workspace: ctx.workspace };
 }
 
-export async function startSellingAction(skuId?: string) {
+export async function startSellingAction(skuId: string) {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await startSelling(workspace.id, skuId || undefined);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  const res = await startSelling(ctx.workspace.id, skuId);
   revalidatePath("/", "layout");
   return res;
 }
 
 export type WeeklyEntryState = { ok?: boolean; error?: string };
 
-function num(formData: FormData, key: string): number {
-  const v = Number(formData.get(key));
-  return Number.isFinite(v) ? v : 0;
-}
-
 export async function addWeeklyEntryAction(
   _prev: WeeklyEntryState,
   formData: FormData,
 ): Promise<WeeklyEntryState> {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { error: "not_found" };
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { error: ctx.error };
 
-  const weekStart = String(formData.get("weekStart") ?? "").trim();
-  if (!weekStart) return { error: "missing_week" };
+  const parsed = parseWeeklyEntryFormData(formData);
+  if (!parsed.ok) return { error: parsed.error };
 
-  const skuLinesRaw = String(formData.get("skuLines") ?? "").trim();
-  let skuLines:
-    | Array<{ skuId: string; sold: number; left: number | null; sales: number }>
-    | undefined;
-  if (skuLinesRaw) {
-    try {
-      const parsed = JSON.parse(skuLinesRaw) as Array<{
-        skuId: string;
-        sold: number;
-        left: number | null;
-        sales: number;
-      }>;
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        skuLines = parsed.map((l) => ({
-          skuId: String(l.skuId),
-          sold: Number(l.sold) || 0,
-          left:
-            l.left == null
-              ? null
-              : Number.isFinite(Number(l.left))
-                ? Number(l.left)
-                : null,
-          sales: Number(l.sales) || 0,
-        }));
-      }
-    } catch {
-      return { error: "invalid_sku_lines" };
-    }
-  }
+  const { data } = parsed;
+  // Client left is never trusted — server computes units left from ledger.
+  const skuLines = data.skuLines?.map((l) => ({
+    skuId: l.skuId,
+    sold: l.sold,
+    sales: l.sales,
+    left: null as number | null,
+  }));
 
-  const res = await addWeeklyEntry(workspace.id, {
-    weekStart,
-    sales: num(formData, "sales"),
-    orders: num(formData, "orders"),
-    metaSpend: num(formData, "metaSpend"),
-    tiktokSpend: num(formData, "tiktokSpend"),
-    codCollected: num(formData, "codCollected"),
-    codOutstanding: num(formData, "codOutstanding"),
-    courierFees: num(formData, "courierFees"),
-    skuSold: num(formData, "skuSold"),
-    skuLeft: num(formData, "skuLeft"),
+  const res = await addWeeklyEntry(ctx.workspace.id, {
+    weekStart: data.weekStart,
+    sales: data.sales,
+    orders: data.orders,
+    metaSpend: data.metaSpend,
+    tiktokSpend: data.tiktokSpend,
+    codCollected: data.codCollected,
+    codOutstanding: data.codOutstanding,
+    courierFees: data.courierFees,
+    skuSold: data.skuSold,
+    // Placeholder only; addWeeklyEntry overwrites from inventory ledger.
+    skuLeft: data.skuLeft ?? 0,
     skuLines,
   });
 

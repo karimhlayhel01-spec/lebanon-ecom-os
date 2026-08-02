@@ -15,6 +15,8 @@ import {
   listLiveSkus,
   patchSkuJourneyFlags,
 } from "@/lib/sku/journey";
+import { assertSkuOwned } from "@/lib/sku/ownership";
+import { parseGenerateKitSkuScope } from "@/lib/sku/require-sku-id";
 import {
   buildIntroLesson,
   type IntroLessonPayload,
@@ -191,7 +193,10 @@ export async function getMarketingPanel(
         ? null
         : await getSkuView(workspaceId);
 
-  // Default to active / first live when no explicit pick.
+  // Explicit skuId that doesn't resolve → miss (no activeSkuId steal).
+  if (typeof skuId === "string" && skuId.length > 0 && !sku) return null;
+
+  // Default to active / first live when no explicit pick (reads / hub Tools).
   if (!isShopKit && !sku) {
     sku = await getSkuView(workspaceId);
     if (!sku && live[0]) {
@@ -358,7 +363,15 @@ export async function generateKit(
   skuId?: string | null,
 ): Promise<GenerateKitResult> {
   await ensureMigrated();
-  const panel = await getMarketingPanel(workspaceId, skuId);
+  const scope = parseGenerateKitSkuScope(skuId);
+  if (!scope.ok) return { ok: false, error: "not_found" };
+
+  if (scope.skuId !== null) {
+    const owned = await assertSkuOwned(workspaceId, scope.skuId);
+    if (!owned.ok) return { ok: false, error: "not_found" };
+  }
+
+  const panel = await getMarketingPanel(workspaceId, scope.skuId);
   if (!panel) return { ok: false, error: "not_found" };
 
   const isShopKit = panel.isShopKit;
@@ -366,8 +379,12 @@ export async function generateKit(
     ? null
     : panel.selectedSkuId
       ? await getSkuViewById(workspaceId, panel.selectedSkuId)
-      : await getSkuView(workspaceId);
+      : null;
   if (!isShopKit && !sku) return { ok: false, error: "not_found" };
+  // Explicit SKU scope must not resolve to a different product via read fallbacks.
+  if (scope.skuId !== null && panel.selectedSkuId !== scope.skuId) {
+    return { ok: false, error: "not_found" };
+  }
 
   const info = panel.stages.find((s) => s.stage === stage);
   if (!info || !info.unlocked) return { ok: false, error: "stage_locked" };

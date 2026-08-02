@@ -25,6 +25,7 @@
     "logout": "Log out",
     "errorGeneric": "Something went wrong. Try again.",
     "errorCredentials": "Invalid email or password.",
+    "errorRateLimited": "Too many sign-in attempts. Try again in a few minutes.",
     "errorEmailTaken": "That email is already registered."
   },
   "Onboarding": {
@@ -48,6 +49,7 @@
     "experienceSome": "Some experience",
     "experienceExperienced": "Experienced",
     "storageDescription": "Where will you store inventory?",
+    "storageDescriptionPlaceholder": "e.g. Home / small storage",
     "storageLimits": "Storage limits / constraints",
     "optional": "optional",
     "storageLimitsPlaceholder": "e.g. 2 free shelves; no boxes over 40cm; dry room; no fragile.",
@@ -78,6 +80,7 @@
     "lebanonSellability": "I understand products must be sellable in Lebanon (regulations, demand, and logistics).",
     "lebanonRequired": "You must acknowledge Lebanon sellability.",
     "codComfort": "COD comfort & notes",
+    "codComfortPlaceholder": "e.g. Comfortable with COD; will track refusals.",
     "codNoticeTitle": "Cash on delivery (COD)",
     "codNoticeBody": "COD means the buyer pays you in cash to the delivery person on arrival — not a payment to your China supplier. It is common in Lebanon and carries collection risk, refusal rates, and last-mile courier fees. Plan margins and cash flow accordingly.",
     "sampleClearance": "I am ready to handle sample clearance with a partner when needed (mainly for Import).",
@@ -943,6 +946,7 @@
     "fLeft": "Units left",
     "fLeftHint": "Calculated from units received − sold.",
     "errWeek": "Pick the week's start date.",
+    "errInvalidWeek": "Use a real date as YYYY-MM-DD (for example 2026-01-06).",
     "errDuplicateWeek": "That week is already saved. Pick a different week start — don’t save the same week twice.",
     "errNotSelling": "Mark selling before logging weeks.",
     "errorGeneric": "Something went wrong. Try again.",

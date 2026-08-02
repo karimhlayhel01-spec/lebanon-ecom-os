@@ -3,7 +3,11 @@ import { requireOnboardedContext } from "@/lib/workspace";
 import { getFinancePanel } from "@/lib/finance/service";
 import { FinancePanel } from "@/components/finance/FinancePanel";
 import { DeepPageLayout, EmptyState } from "@/components/dashboard/DeepPageLayout";
-import { getSkuJourney, listLiveSkus } from "@/lib/sku/journey";
+import {
+  listLiveSkus,
+  listSkuJourneysForSkus,
+  mapSkuJourneysBySkuId,
+} from "@/lib/sku/journey";
 import { isSkuFinanceSectionUnlocked } from "@/lib/sku/page-sections";
 import { resolveHubToolSkuId } from "@/lib/sku/tools";
 
@@ -26,21 +30,20 @@ export default async function FinancePage({ params }: Props) {
   );
   const sku = skuId ? live.find((s) => s.id === skuId) : null;
 
-  let showFinance = false;
-  for (const s of live) {
-    const j = await getSkuJourney(s.id);
-    if (
-      j &&
+  const journeyBySkuId = mapSkuJourneysBySkuId(
+    await listSkuJourneysForSkus(live.map((s) => s.id)),
+  );
+  const showFinance = live.some((s) => {
+    const j = journeyBySkuId.get(s.id);
+    return (
+      !!j &&
       isSkuFinanceSectionUnlocked({
         batchArrivedReady: !!j.batchArrivedReady,
         primaryState: j.primaryState,
         pausedFromState: j.pausedFromState,
       })
-    ) {
-      showFinance = true;
-      break;
-    }
-  }
+    );
+  });
 
   const view = showFinance ? await getFinancePanel(ctx.workspace.id) : null;
 

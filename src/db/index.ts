@@ -61,6 +61,24 @@ const client = postgres(connectionString, {
 
 export const db = drizzle(client, { schema });
 
+export type { DbExecutor, DbTx } from "@/db/executor";
+export { TxRollback, isTxRollback } from "@/db/executor";
+import type { DbTx } from "@/db/executor";
+import { isTxRollback } from "@/db/executor";
+
+/** Run `fn` in a transaction; map TxRollback to its result; other errors → onError. */
+export async function withTxResult<T>(
+  fn: (tx: DbTx) => Promise<T>,
+  onError: (err: unknown) => T,
+): Promise<T> {
+  try {
+    return await db.transaction(async (tx) => fn(tx));
+  } catch (err) {
+    if (isTxRollback<T>(err)) return err.result;
+    return onError(err);
+  }
+}
+
 let migratePromise: Promise<void> | null = null;
 
 /**

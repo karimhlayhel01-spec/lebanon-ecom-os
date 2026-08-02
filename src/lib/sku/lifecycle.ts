@@ -1,7 +1,49 @@
 import { and, eq } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
+import type { DbExecutor } from "@/db/executor";
+import { SKU_WIPE_DELETE_ORDER } from "@/lib/account/cascade-order";
 import { nowIso } from "@/lib/ids";
-import { listLiveSkus, resolveActiveSkuId } from "@/lib/sku/journey";
+import { listLiveSkus } from "@/lib/sku/journey";
+
+/** Delete SKU-scoped dependents in cascade order (card is marked wiped after). */
+async function deleteSkuWipeDependents(
+  exec: DbExecutor,
+  skuId: string,
+): Promise<void> {
+  for (const table of SKU_WIPE_DELETE_ORDER) {
+    switch (table) {
+      case "sample_records":
+        await exec
+          .delete(schema.sampleRecords)
+          .where(eq(schema.sampleRecords.skuId, skuId));
+        break;
+      case "supplier_options":
+        await exec
+          .delete(schema.supplierOptions)
+          .where(eq(schema.supplierOptions.skuId, skuId));
+        break;
+      case "marketing_kits":
+        await exec
+          .delete(schema.marketingKits)
+          .where(eq(schema.marketingKits.skuId, skuId));
+        break;
+      case "sku_journeys":
+        await exec
+          .delete(schema.skuJourneys)
+          .where(eq(schema.skuJourneys.skuId, skuId));
+        break;
+      case "approval_requests":
+        await exec
+          .delete(schema.approvalRequests)
+          .where(eq(schema.approvalRequests.skuId, skuId));
+        break;
+      default: {
+        const _exhaustive: never = table;
+        throw new Error(`Unexpected SKU wipe table: ${_exhaustive}`);
+      }
+    }
+  }
+}
 
 export type ArchiveWarning = {
   sampleNotArrived: boolean;
@@ -18,7 +60,7 @@ export type RestoreResult =
 
 export type WipeResult =
   | { ok: true }
-  | { ok: false; error: "not_found" | "must_archive_first" };
+  | { ok: false; error: "not_found" | "must_archive_first" | "error" };
 
 function warningsFor(journey: {
   sampleStatus: string;
@@ -207,39 +249,39 @@ export async function wipeSku(
   }
   if (card.lifecycleStatus === "wiped") return { ok: true };
 
-  // Delete dependent rows (samples → suppliers → kits → journey → card mark).
-  await db
-    .delete(schema.sampleRecords)
-    .where(eq(schema.sampleRecords.skuId, skuId));
-  await db
-    .delete(schema.supplierOptions)
-    .where(eq(schema.supplierOptions.skuId, skuId));
-  await db
-    .delete(schema.marketingKits)
-    .where(eq(schema.marketingKits.skuId, skuId));
-  await db
-    .delete(schema.skuJourneys)
-    .where(eq(schema.skuJourneys.skuId, skuId));
-  await db
-    .delete(schema.approvalRequests)
-    .where(eq(schema.approvalRequests.skuId, skuId));
+  // Delete dependent rows in SKU_WIPE_DELETE_ORDER, then mark card wiped.
+  try {
+    await db.transaction(async (tx) => {
+      await deleteSkuWipeDependents(tx, skuId);
 
-  const now = nowIso();
-  await db
-    .update(schema.skuCards)
-    .set({
-      lifecycleStatus: "wiped",
-      name: "[wiped]",
-      founderNotes: "",
-      updatedAt: now,
-    })
-    .where(eq(schema.skuCards.id, skuId));
+      const now = nowIso();
+      await tx
+        .update(schema.skuCards)
+        .set({
+          lifecycleStatus: "wiped",
+          name: "[wiped]",
+          founderNotes: "",
+          updatedAt: now,
+        })
+        .where(eq(schema.skuCards.id, skuId));
 
-  const active = await resolveActiveSkuId(workspaceId);
-  await db
-    .update(schema.workspaces)
-    .set({ activeSkuId: active })
-    .where(eq(schema.workspaces.id, workspaceId));
+      const live = await tx
+        .select({ id: schema.skuCards.id })
+        .from(schema.skuCards)
+        .where(
+          and(
+            eq(schema.skuCards.workspaceId, workspaceId),
+            eq(schema.skuCards.lifecycleStatus, "live"),
+          ),
+        );
+      await tx
+        .update(schema.workspaces)
+        .set({ activeSkuId: live[0]?.id ?? null })
+        .where(eq(schema.workspaces.id, workspaceId));
+    });
+  } catch {
+    return { ok: false, error: "error" };
+  }
 
   return { ok: true };
 }

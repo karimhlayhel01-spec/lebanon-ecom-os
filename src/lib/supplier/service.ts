@@ -1,5 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
-import { db, ensureMigrated, schema } from "@/db";
+import { db, ensureMigrated, schema, withTxResult } from "@/db";
+import type { DbExecutor } from "@/db/executor";
+import { TxRollback } from "@/db/executor";
 import { newId, nowIso } from "@/lib/ids";
 import { BATCH_SOFT_WARNING_USD, CLEARANCE_PARTNER_TBD } from "@/lib/constants";
 import { createApprovalRequest, decideApproval } from "@/lib/approvals/engine";
@@ -13,6 +15,8 @@ import {
 } from "@/lib/sku/service";
 import { generateKit } from "@/lib/marketing/service";
 import { getSkuJourney, listLiveSkus, patchSkuJourneyFlags } from "@/lib/sku/journey";
+import { assertSkuOwned } from "@/lib/sku/ownership";
+import { parseRequiredSkuId } from "@/lib/sku/require-sku-id";
 import { resolveSupplierJourneyFlags } from "@/lib/supplier/flags";
 import {
   canEditBatchArrivalEta,
@@ -53,8 +57,11 @@ import {
   canEditReorderArrivalEta,
   canMarkReorderArrived,
   canMarkReorderOrdered,
+  casUpdateSucceeded,
   evaluateReorderEconomicsGate,
   normalizeReorderStatus,
+  reorderCasMissError,
+  reorderCasPriorStatus,
   reorderInvestNextTone,
   type InvestNextTone,
   type ReorderStatus,
@@ -81,6 +88,8 @@ import {
   type SupplierSource,
 } from "@/lib/supplier/source";
 import {
+  canDecideSample,
+  canMarkSampleReceived,
   canShowBackupInsurance,
   countInFlightSpareSamples,
   findFirstApprovedSample,
@@ -88,9 +97,16 @@ import {
   listInFlightSamples,
   resolveWorkingPathSupplierId,
   sampleFlightGate,
+  sampleFlightInsertDecision,
   shouldPatchJourneySampleStatus,
 } from "@/lib/supplier/sample-flight";
+import { encodeImportBatchForWrite } from "@/lib/finance/validate";
 import { localPlanningLegs } from "@/lib/discovery/local-hint";
+
+function importBatchJson(batch: unknown): string | null {
+  const enc = encodeImportBatchForWrite(batch);
+  return enc.ok ? enc.json : null;
+}
 
 export type { CostQuoteInput } from "@/lib/supplier/quotes";
 export type { SupplierSource, SupplierTabFilter } from "@/lib/supplier/source";
@@ -107,9 +123,10 @@ async function patchSkuSideFlags(
   patch: Parameters<typeof patchSkuJourneyFlags>[1] & {
     // also mirrored onto workspace side_statuses when this is the active SKU
   },
+  exec: DbExecutor = db,
 ) {
-  await patchSkuJourneyFlags(skuId, patch);
-  const workspace = await db
+  await patchSkuJourneyFlags(skuId, patch, exec);
+  const workspace = await exec
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId))
@@ -131,7 +148,7 @@ async function patchSkuSideFlags(
   if (patch.stuckOver10kAck !== undefined)
     sidePatch.stuckOver10kAck = patch.stuckOver10kAck;
 
-  await db
+  await exec
     .update(schema.sideStatuses)
     .set(sidePatch)
     .where(eq(schema.sideStatuses.workspaceId, workspaceId));
@@ -1071,130 +1088,155 @@ export async function requestSample(
   const supplier = await ownedSupplier(workspaceId, supplierId);
   if (!supplier) return { ok: false, error: "not_found" };
 
-  const [sampleRows, skuJourney, journey, side] = await Promise.all([
-    db
-      .select()
-      .from(schema.sampleRecords)
-      .where(eq(schema.sampleRecords.skuId, supplier.skuId))
-      .orderBy(asc(schema.sampleRecords.createdAt)),
-    getSkuJourney(supplier.skuId),
-    getJourney(workspaceId),
-    db
-      .select()
-      .from(schema.sideStatuses)
-      .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-      .then((rows) => rows[0]),
-  ]);
+  // Serialize concurrent requests for this SKU; re-check flight gate under lock
+  // so double-click cannot exceed primary single-flight or spare caps.
+  return withTxResult<{ ok: boolean; error?: string }>(
+    async (tx) => {
+      const card = await tx
+        .select({ id: schema.skuCards.id })
+        .from(schema.skuCards)
+        .where(
+          and(
+            eq(schema.skuCards.id, supplier.skuId),
+            eq(schema.skuCards.workspaceId, workspaceId),
+          ),
+        )
+        .for("update")
+        .then((rows) => rows[0]);
+      if (!card) {
+        throw new TxRollback({ ok: false as const, error: "not_found" });
+      }
 
-  const flags = resolveSupplierJourneyFlags({
-    skuJourney: skuJourney
-      ? {
-          primaryState: skuJourney.primaryState,
-          pausedFromState: skuJourney.pausedFromState,
-          sampleStatus: skuJourney.sampleStatus,
-          batchOrdered: skuJourney.batchOrdered,
-          batchArrivedReady: skuJourney.batchArrivedReady,
-          batchArrivalEta: skuJourney.batchArrivalEta,
-          costQuotesSaved: skuJourney.costQuotesSaved,
+      const [sampleRows, skuJourney, journey, side] = await Promise.all([
+        tx
+          .select()
+          .from(schema.sampleRecords)
+          .where(eq(schema.sampleRecords.skuId, supplier.skuId))
+          .orderBy(asc(schema.sampleRecords.createdAt)),
+        getSkuJourney(supplier.skuId, tx),
+        getJourney(workspaceId),
+        tx
+          .select()
+          .from(schema.sideStatuses)
+          .where(eq(schema.sideStatuses.workspaceId, workspaceId))
+          .then((rows) => rows[0]),
+      ]);
+
+      const flags = resolveSupplierJourneyFlags({
+        skuJourney: skuJourney
+          ? {
+              primaryState: skuJourney.primaryState,
+              pausedFromState: skuJourney.pausedFromState,
+              sampleStatus: skuJourney.sampleStatus,
+              batchOrdered: skuJourney.batchOrdered,
+              batchArrivedReady: skuJourney.batchArrivedReady,
+              batchArrivalEta: skuJourney.batchArrivalEta,
+              costQuotesSaved: skuJourney.costQuotesSaved,
+            }
+          : null,
+        legacy: journey
+          ? {
+              primaryState: journey.primaryState,
+              sampleStatus: side?.sampleStatus ?? "none",
+              batchOrdered: side?.batchOrdered ?? false,
+              batchArrivedReady: side?.batchArrivedReady ?? false,
+              batchArrivalEta: side?.batchArrivalEta ?? null,
+              costQuotesSaved: side?.costQuotesSaved ?? false,
+            }
+          : null,
+      });
+
+      let pathId: string | null = null;
+
+      // After first approve: insurance only — cold same-source backups, never path.
+      if (flags.sampleApproved) {
+        const allSuppliers = await tx
+          .select()
+          .from(schema.supplierOptions)
+          .where(eq(schema.supplierOptions.skuId, supplier.skuId));
+        const unavailable = parseUnavailableSuppliers(
+          skuJourney?.reorderUnavailableJson,
+        );
+        const firstApproved = findFirstApprovedSample(sampleRows);
+        pathId =
+          skuJourney?.reorderPathSupplierId ??
+          skuJourney?.reorderSupplierId ??
+          firstApproved?.supplierId ??
+          null;
+        const pathRow = pathId
+          ? allSuppliers.find((s) => s.id === pathId)
+          : undefined;
+        const pathSource = normalizeSupplierSource(
+          pathRow?.source ?? supplier.source,
+        );
+
+        if (supplier.id === pathId) {
+          throw new TxRollback({ ok: false as const, error: "path_supplier" });
         }
-      : null,
-    legacy: journey
-      ? {
-          primaryState: journey.primaryState,
-          sampleStatus: side?.sampleStatus ?? "none",
-          batchOrdered: side?.batchOrdered ?? false,
-          batchArrivedReady: side?.batchArrivedReady ?? false,
-          batchArrivalEta: side?.batchArrivalEta ?? null,
-          costQuotesSaved: side?.costQuotesSaved ?? false,
+        if (normalizeSupplierSource(supplier.source) !== pathSource) {
+          throw new TxRollback({ ok: false as const, error: "wrong_source" });
         }
-      : null,
-  });
+        if (unavailable[supplier.id]) {
+          throw new TxRollback({ ok: false as const, error: "unavailable" });
+        }
+        // Already warmed — no second sample needed for insurance.
+        if (
+          sampleRows.some(
+            (s) => s.supplierId === supplier.id && s.status === "approved",
+          )
+        ) {
+          throw new TxRollback({ ok: false as const, error: "already_warm" });
+        }
+      }
 
-  let pathId: string | null = null;
+      const flight = sampleFlightGate({
+        sampleApproved: flags.sampleApproved,
+        sampleRows,
+        pathSupplierId: pathId,
+        targetSupplierId: supplier.id,
+      });
+      const allowed = sampleFlightInsertDecision(flight);
+      if (!allowed.ok) {
+        throw new TxRollback({ ok: false as const, error: allowed.error });
+      }
 
-  // After first approve: insurance only — cold same-source backups, never path.
-  if (flags.sampleApproved) {
-    const allSuppliers = await db
-      .select()
-      .from(schema.supplierOptions)
-      .where(eq(schema.supplierOptions.skuId, supplier.skuId))
-      ;
-    const unavailable = parseUnavailableSuppliers(
-      skuJourney?.reorderUnavailableJson,
-    );
-    const firstApproved = findFirstApprovedSample(sampleRows);
-    pathId =
-      skuJourney?.reorderPathSupplierId ??
-      skuJourney?.reorderSupplierId ??
-      firstApproved?.supplierId ??
-      null;
-    const pathRow = pathId
-      ? allSuppliers.find((s) => s.id === pathId)
-      : undefined;
-    const pathSource = normalizeSupplierSource(
-      pathRow?.source ?? supplier.source,
-    );
+      const now = nowIso();
+      await tx.insert(schema.sampleRecords).values({
+        id: newId(),
+        workspaceId,
+        skuId: supplier.skuId,
+        supplierId,
+        status: "requested",
+        qualityChecklist: freshChecklist(),
+        photoNotes: "",
+        packingBrief: "",
+        decidedAt: null,
+        createdAt: now,
+      });
 
-    if (supplier.id === pathId) {
-      return { ok: false, error: "path_supplier" };
-    }
-    if (normalizeSupplierSource(supplier.source) !== pathSource) {
-      return { ok: false, error: "wrong_source" };
-    }
-    if (unavailable[supplier.id]) {
-      return { ok: false, error: "unavailable" };
-    }
-    // Already warmed — no second sample needed for insurance.
-    if (
-      sampleRows.some(
-        (s) => s.supplierId === supplier.id && s.status === "approved",
-      )
-    ) {
-      return { ok: false, error: "already_warm" };
-    }
-  }
+      // Spare requests must not overwrite path sampleStatus once approved.
+      if (shouldPatchJourneySampleStatus(flags.sampleApproved)) {
+        await patchSkuSideFlags(
+          workspaceId,
+          supplier.skuId,
+          { sampleStatus: "in_flight" },
+          tx,
+        );
+      }
 
-  const flight = sampleFlightGate({
-    sampleApproved: flags.sampleApproved,
-    sampleRows,
-    pathSupplierId: pathId,
-    targetSupplierId: supplier.id,
-  });
-  if (flight !== "ok") {
-    return { ok: false, error: flight };
-  }
+      await tx.insert(schema.orchestratorEvents).values({
+        id: newId(),
+        workspaceId,
+        kind: "sample_requested",
+        message: `Sample requested from ${supplier.name}`,
+        meta: JSON.stringify({ supplierId }),
+        createdAt: now,
+      });
 
-  const now = nowIso();
-  await db.insert(schema.sampleRecords).values({
-    id: newId(),
-    workspaceId,
-    skuId: supplier.skuId,
-    supplierId,
-    status: "requested",
-    qualityChecklist: freshChecklist(),
-    photoNotes: "",
-    packingBrief: "",
-    decidedAt: null,
-    createdAt: now,
-  });
-
-  // Spare requests must not overwrite path sampleStatus once approved.
-  if (shouldPatchJourneySampleStatus(flags.sampleApproved)) {
-    await patchSkuSideFlags(workspaceId, supplier.skuId, {
-      sampleStatus: "in_flight",
-    });
-  }
-
-  await db.insert(schema.orchestratorEvents).values({
-    id: newId(),
-    workspaceId,
-    kind: "sample_requested",
-    message: `Sample requested from ${supplier.name}`,
-    meta: JSON.stringify({ supplierId }),
-    createdAt: now,
-  });
-
-  return { ok: true };
+      return { ok: true as const };
+    },
+    () => ({ ok: false, error: "error" }),
+  );
 }
 
 export async function markSampleReceived(
@@ -1210,6 +1252,9 @@ export async function markSampleReceived(
     .where(eq(schema.sampleRecords.id, sampleId))
     .then((rows) => rows[0]);
   if (!row || row.workspaceId !== workspaceId) return { ok: false, error: "not_found" };
+  if (!canMarkSampleReceived(row.status)) {
+    return { ok: false, error: "not_requested" };
+  }
 
   await db
     .update(schema.sampleRecords)
@@ -1237,6 +1282,9 @@ export async function decideSample(
     .then((rows) => rows[0]);
   if (!row || row.workspaceId !== workspaceId) {
     return { ok: false, error: "not_found" };
+  }
+  if (!canDecideSample(row.status)) {
+    return { ok: false, error: "not_received" };
   }
 
   const [skuJourney, journey, side] = await Promise.all([
@@ -1333,12 +1381,16 @@ export type SaveCostQuotesResult =
 export async function saveCostQuotes(
   workspaceId: string,
   input: CostQuoteInput,
-  skuId?: string,
+  skuId: string,
 ): Promise<SaveCostQuotesResult> {
   await ensureMigrated();
-  const sku = skuId
-    ? await getSkuViewById(workspaceId, skuId)
-    : await getSkuView(workspaceId);
+  const required = parseRequiredSkuId(skuId);
+  if (!required.ok) return { ok: false, error: "not_found" };
+
+  const owned = await assertSkuOwned(workspaceId, required.skuId);
+  if (!owned.ok) return { ok: false, error: "not_found" };
+
+  const sku = await getSkuViewById(workspaceId, required.skuId);
   if (!sku) return { ok: false, error: "not_found" };
 
   const [skuJourney, journey, side, onboarding] = await Promise.all([
@@ -1528,19 +1580,21 @@ export async function orderBatch(
   });
 
   // Update the SKU import/batch section.
+  const orderedBatchJson = importBatchJson({
+    moq: supplier.moq,
+    status: "ordered",
+    suggestedFirstBatch: qty,
+    totalUnitsReceived: null,
+    unitsLeft: null,
+    estCost,
+    supplierId,
+    notes: ["@import.trackShipment", "@import.prepClearance"],
+  });
+  if (!orderedBatchJson) return { ok: false, error: "error" };
   await db
     .update(schema.skuCards)
     .set({
-      importBatch: JSON.stringify({
-        moq: supplier.moq,
-        status: "ordered",
-        suggestedFirstBatch: qty,
-        totalUnitsReceived: null,
-        unitsLeft: null,
-        estCost,
-        supplierId,
-        notes: ["@import.trackShipment", "@import.prepClearance"],
-      }),
+      importBatch: orderedBatchJson,
       updatedAt: now,
     })
     .where(eq(schema.skuCards.id, sku.id));
@@ -1571,55 +1625,76 @@ export async function markBatchArrived(
   const sku = await getSkuViewById(workspaceId, panelSkuId);
   if (!sku) return { ok: false, error: "not_found" };
 
-  const approval = await createApprovalRequest(
-    workspaceId,
-    "batch_arrived_ready",
-    { data: {}, skuId: sku.id },
-  );
-  if (!approval) return { ok: false, error: "error" };
-  const decided = await decideApproval(approval.id, {
-    type: "approve",
-    acknowledgements: ["inventory_ack"],
-  });
-  if (!decided.ok) return { ok: false, error: "error" };
+  return withTxResult<{ ok: true } | { ok: false; error: string }>(
+    async (tx) => {
+      const approval = await createApprovalRequest(
+        workspaceId,
+        "batch_arrived_ready",
+        { data: {}, skuId: sku.id, exec: tx },
+      );
+      if (!approval) {
+        throw new TxRollback({ ok: false as const, error: "error" });
+      }
+      const decided = await decideApproval(
+        approval.id,
+        {
+          type: "approve",
+          acknowledgements: ["inventory_ack"],
+        },
+        { exec: tx },
+      );
+      if (!decided.ok) {
+        throw new TxRollback({ ok: false as const, error: "error" });
+      }
 
-  const now = nowIso();
-  await patchSkuSideFlags(workspaceId, sku.id, { batchArrivedReady: true });
+      const now = nowIso();
+      await patchSkuSideFlags(
+        workspaceId,
+        sku.id,
+        { batchArrivedReady: true },
+        tx,
+      );
 
-  // Inventory ledger: total received = first-batch ordered qty at arrive.
-  // units_left = totalUnitsReceived − cumulative Topic A sold (computed on save / glance).
-  const orderedQty =
-    sku.importBatch.suggestedFirstBatch != null &&
-    Number.isFinite(sku.importBatch.suggestedFirstBatch)
-      ? Math.max(1, Math.floor(sku.importBatch.suggestedFirstBatch))
-      : null;
-  await db
-    .update(schema.skuCards)
-    .set({
-      importBatch: JSON.stringify({
+      // Inventory ledger: total received = first-batch ordered qty at arrive.
+      const orderedQty =
+        sku.importBatch.suggestedFirstBatch != null &&
+        Number.isFinite(sku.importBatch.suggestedFirstBatch)
+          ? Math.max(1, Math.floor(sku.importBatch.suggestedFirstBatch))
+          : null;
+      const arrivedBatchJson = importBatchJson({
         ...sku.importBatch,
         status: "arrived",
         totalUnitsReceived: orderedQty,
         unitsLeft: orderedQty,
-      }),
-      updatedAt: now,
-    })
-    .where(eq(schema.skuCards.id, sku.id));
+      });
+      if (!arrivedBatchJson) {
+        throw new TxRollback({ ok: false as const, error: "error" });
+      }
+      await tx
+        .update(schema.skuCards)
+        .set({
+          importBatch: arrivedBatchJson,
+          updatedAt: now,
+        })
+        .where(eq(schema.skuCards.id, sku.id));
 
-  await db.insert(schema.orchestratorEvents).values({
-    id: newId(),
-    workspaceId,
-    kind: "batch_arrived_ready",
-    message: "Batch arrived and inventory checked",
-    meta: JSON.stringify({
-      skuId: sku.id,
-      unitsLeft: orderedQty,
-      totalUnitsReceived: orderedQty,
-    }),
-    createdAt: now,
-  });
+      await tx.insert(schema.orchestratorEvents).values({
+        id: newId(),
+        workspaceId,
+        kind: "batch_arrived_ready",
+        message: "Batch arrived and inventory checked",
+        meta: JSON.stringify({
+          skuId: sku.id,
+          unitsLeft: orderedQty,
+          totalUnitsReceived: orderedQty,
+        }),
+        createdAt: now,
+      });
 
-  return { ok: true };
+      return { ok: true as const };
+    },
+    () => ({ ok: false as const, error: "error" }),
+  );
 }
 
 export type SetBatchArrivalEtaResult =
@@ -1981,14 +2056,32 @@ export async function orderNextBatch(
   }
 
   const now = nowIso();
-  await patchSkuJourneyFlags(skuId, {
-    reorderStatus: "ordered",
-    reorderSupplierId: supplierId,
-    reorderPathSupplierId: supplierId,
-    reorderQty: qty,
-    reorderEstCost: estCost,
-    reorderArrivalEta: null,
-  });
+  // CAS: only idle → ordered. Concurrent double-click loses → reorder_active.
+  const claimed = await db
+    .update(schema.skuJourneys)
+    .set({
+      reorderStatus: "ordered",
+      reorderSupplierId: supplierId,
+      reorderPathSupplierId: supplierId,
+      reorderQty: qty,
+      reorderEstCost: estCost,
+      reorderArrivalEta: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(schema.skuJourneys.skuId, skuId),
+        eq(
+          schema.skuJourneys.reorderStatus,
+          reorderCasPriorStatus("mark_ordered"),
+        ),
+      ),
+    )
+    .returning({ skuId: schema.skuJourneys.skuId });
+
+  if (!casUpdateSucceeded(claimed.length)) {
+    return { ok: false, error: reorderCasMissError("mark_ordered") };
+  }
 
   await db.insert(schema.orchestratorEvents).values({
     id: newId(),
@@ -2027,98 +2120,166 @@ export async function markReorderArrived(
     pausedFromState: skuJourney.pausedFromState,
   });
   const reorderStatus = normalizeReorderStatus(skuJourney.reorderStatus);
-  if (
-    !canMarkReorderArrived({ primaryState, reorderStatus })
-  ) {
+  if (!canMarkReorderArrived({ primaryState, reorderStatus })) {
     if (primaryState !== "selling") return { ok: false, error: "not_selling" };
     return { ok: false, error: "reorder_not_ordered" };
   }
 
-  const approval = await createApprovalRequest(workspaceId, "reorder_arrived", {
-    data: {
-      supplierId: skuJourney.reorderSupplierId,
-      qty: skuJourney.reorderQty,
-    },
-    skuId,
-  });
-  if (!approval) return { ok: false, error: "error" };
-  const decided = await decideApproval(approval.id, {
-    type: "approve",
-    acknowledgements: ["inventory_ack"],
-  });
-  if (!decided.ok) return { ok: false, error: "error" };
-
-  const now = nowIso();
   const reorderQty =
     skuJourney.reorderQty != null && Number.isFinite(skuJourney.reorderQty)
       ? Math.max(0, Math.floor(skuJourney.reorderQty))
       : 0;
   const sku = await getSkuViewById(workspaceId, skuId);
   const live = await listLiveSkus(workspaceId);
-  let newUnitsLeft: number | null = null;
 
-  if (sku && reorderQty > 0) {
-    const topicRows = await db
-      .select({
-        id: schema.topicAEntries.id,
-        perSkuSoldLeft: schema.topicAEntries.perSkuSoldLeft,
-      })
-      .from(schema.topicAEntries)
-      .where(eq(schema.topicAEntries.workspaceId, workspaceId))
-      .orderBy(asc(schema.topicAEntries.weekStart));
+  return withTxResult<MarkReorderArrivedResult>(
+    async (tx) => {
+      // Serialize arrive + inventory bump; CAS below rejects double-submit.
+      const locked = await tx
+        .select({
+          reorderStatus: schema.skuJourneys.reorderStatus,
+          primaryState: schema.skuJourneys.primaryState,
+          pausedFromState: schema.skuJourneys.pausedFromState,
+        })
+        .from(schema.skuJourneys)
+        .where(eq(schema.skuJourneys.skuId, skuId))
+        .for("update")
+        .then((rows) => rows[0]);
+      if (!locked) {
+        throw new TxRollback({ ok: false as const, error: "not_found" });
+      }
+      const lockedPrimary = effectiveJourneyState({
+        primaryState: locked.primaryState,
+        pausedFromState: locked.pausedFromState,
+      });
+      const lockedReorder = normalizeReorderStatus(locked.reorderStatus);
+      if (!canMarkReorderArrived({ primaryState: lockedPrimary, reorderStatus: lockedReorder })) {
+        throw new TxRollback({
+          ok: false as const,
+          error:
+            lockedPrimary !== "selling"
+              ? ("not_selling" as const)
+              : reorderCasMissError("mark_arrived"),
+        });
+      }
 
-    const { cumulativeSold, lastLeft } = extractSkuInventoryLedger(
-      topicRows,
-      skuId,
-      { liveSkuCount: live.length },
-    );
-    const priorReceived = resolveTotalUnitsReceived(sku.importBatch, {
-      batchArrivedReady: true,
-      topicALeft: lastLeft,
-      cumulativeSold,
-    });
-    // Ledger SoT: received increases on arrive; left = received − sold.
-    // Do not bump Topic A stored left (would double-count with the formula).
-    const newReceived =
-      (priorReceived ?? 0) + reorderQty;
-    newUnitsLeft = computeUnitsLeftFromReceivedSold(
-      newReceived,
-      cumulativeSold,
-    );
+      const approval = await createApprovalRequest(
+        workspaceId,
+        "reorder_arrived",
+        {
+          data: {
+            supplierId: skuJourney.reorderSupplierId,
+            qty: skuJourney.reorderQty,
+          },
+          skuId,
+          exec: tx,
+        },
+      );
+      if (!approval) {
+        throw new TxRollback({ ok: false as const, error: "error" });
+      }
+      const decided = await decideApproval(
+        approval.id,
+        {
+          type: "approve",
+          acknowledgements: ["inventory_ack"],
+        },
+        { exec: tx },
+      );
+      if (!decided.ok) {
+        throw new TxRollback({ ok: false as const, error: "error" });
+      }
 
-    await db
-      .update(schema.skuCards)
-      .set({
-        importBatch: JSON.stringify({
+      const now = nowIso();
+      let newUnitsLeft: number | null = null;
+
+      if (sku && reorderQty > 0) {
+        const topicRows = await tx
+          .select({
+            id: schema.topicAEntries.id,
+            perSkuSoldLeft: schema.topicAEntries.perSkuSoldLeft,
+          })
+          .from(schema.topicAEntries)
+          .where(eq(schema.topicAEntries.workspaceId, workspaceId))
+          .orderBy(asc(schema.topicAEntries.weekStart));
+
+        const { cumulativeSold, lastLeft } = extractSkuInventoryLedger(
+          topicRows,
+          skuId,
+          { liveSkuCount: live.length },
+        );
+        const priorReceived = resolveTotalUnitsReceived(sku.importBatch, {
+          batchArrivedReady: true,
+          topicALeft: lastLeft,
+          cumulativeSold,
+        });
+        const newReceived = (priorReceived ?? 0) + reorderQty;
+        newUnitsLeft = computeUnitsLeftFromReceivedSold(
+          newReceived,
+          cumulativeSold,
+        );
+
+        const reorderBatchJson = importBatchJson({
           ...sku.importBatch,
           status: "arrived",
           totalUnitsReceived: newReceived,
           unitsLeft: newUnitsLeft,
-        }),
-        updatedAt: now,
-      })
-      .where(eq(schema.skuCards.id, sku.id));
-  }
+        });
+        if (!reorderBatchJson) {
+          throw new TxRollback({ ok: false as const, error: "error" });
+        }
+        await tx
+          .update(schema.skuCards)
+          .set({
+            importBatch: reorderBatchJson,
+            updatedAt: now,
+          })
+          .where(eq(schema.skuCards.id, sku.id));
+      }
 
-  // Complete side-flow → idle; primary stays selling.
-  await patchSkuJourneyFlags(skuId, {
-    reorderStatus: "idle",
-    reorderSupplierId: null,
-    reorderQty: null,
-    reorderEstCost: null,
-    reorderArrivalEta: null,
-  });
+      // Complete side-flow → idle; primary stays selling.
+      // CAS: only ordered → idle. Concurrent double-arrive loses.
+      const claimed = await tx
+        .update(schema.skuJourneys)
+        .set({
+          reorderStatus: "idle",
+          reorderSupplierId: null,
+          reorderQty: null,
+          reorderEstCost: null,
+          reorderArrivalEta: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.skuJourneys.skuId, skuId),
+            eq(
+              schema.skuJourneys.reorderStatus,
+              reorderCasPriorStatus("mark_arrived"),
+            ),
+          ),
+        )
+        .returning({ skuId: schema.skuJourneys.skuId });
 
-  await db.insert(schema.orchestratorEvents).values({
-    id: newId(),
-    workspaceId,
-    kind: "reorder_arrived",
-    message: "Next batch arrived — stock topped up; still selling",
-    meta: JSON.stringify({ skuId, reorderQty, unitsLeft: newUnitsLeft }),
-    createdAt: now,
-  });
+      if (!casUpdateSucceeded(claimed.length)) {
+        throw new TxRollback({
+          ok: false as const,
+          error: reorderCasMissError("mark_arrived"),
+        });
+      }
 
-  return { ok: true };
+      await tx.insert(schema.orchestratorEvents).values({
+        id: newId(),
+        workspaceId,
+        kind: "reorder_arrived",
+        message: "Next batch arrived — stock topped up; still selling",
+        meta: JSON.stringify({ skuId, reorderQty, unitsLeft: newUnitsLeft }),
+        createdAt: now,
+      });
+
+      return { ok: true as const };
+    },
+    () => ({ ok: false as const, error: "error" }),
+  );
 }
 
 export type SetReorderArrivalEtaResult =

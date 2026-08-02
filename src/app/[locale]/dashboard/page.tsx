@@ -30,7 +30,9 @@ import { JourneyStrip } from "@/components/dashboard/JourneyStrip";
 import {
   listArchivedSkus,
   listLiveSkus,
-  getSkuJourney,
+  listSkuJourneysForSkus,
+  mapSkuJourneysBySkuId,
+  type SkuJourneyRow,
 } from "@/lib/sku/journey";
 import { evaluateAddSku } from "@/lib/sku/add-sku";
 import {
@@ -221,17 +223,16 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   const skuChips: ShopSkuChip[] = [];
   let financeUnlockedOnHub = false;
-  // Journeys keyed for Tools row gates against the hub target SKU.
-  const journeyBySkuId = new Map<
-    string,
-    NonNullable<Awaited<ReturnType<typeof getSkuJourney>>>
-  >();
+  /**
+   * Hub journey map — one `sku_journeys` IN(…) query for all live SKUs.
+   * Before: N× getSkuJourney per chip loop (+ fallbacks for tools/orientation).
+   * Hub Next stays display-only from chips; Status uses light facts (not panel).
+   */
+  let journeyBySkuId = new Map<string, SkuJourneyRow>();
   if (live.length >= 1 && showHub) {
-    for (const s of live) {
-      const j = await getSkuJourney(s.id);
-      if (j) journeyBySkuId.set(s.id, j);
-    }
-
+    journeyBySkuId = mapSkuJourneysBySkuId(
+      await listSkuJourneysForSkus(live.map((s) => s.id)),
+    );
     const liveIds = live.map((s) => s.id);
     const [workingNames, warmedBySku] = await Promise.all([
       resolveWorkingSupplierNamesBySku(liveIds, journeyBySkuId),
@@ -322,8 +323,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     workspace.activeSkuId,
   );
   const toolsJourney = toolsTargetSkuId
-    ? (journeyBySkuId.get(toolsTargetSkuId) ??
-      (await getSkuJourney(toolsTargetSkuId)))
+    ? (journeyBySkuId.get(toolsTargetSkuId) ?? null)
     : null;
   const toolsUnlocked = {
     // Always one-click (empty/locked /store when sample not approved).
@@ -370,8 +370,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         }
       : null;
   const orientationJourney = orientationSkuId
-    ? (journeyBySkuId.get(orientationSkuId) ??
-      (await getSkuJourney(orientationSkuId)))
+    ? (journeyBySkuId.get(orientationSkuId) ?? null)
     : null;
   const orientationPrimary = orientationJourney
     ? effectiveJourneyState({
@@ -392,6 +391,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           batchOrdered: orientationJourney.batchOrdered,
           batchArrivedReady: orientationJourney.batchArrivedReady,
           sideMarketingStage: orientationJourney.marketingStage,
+          batchArrivalEtaJson: orientationJourney.batchArrivalEta,
+          reorderPathSupplierId: orientationJourney.reorderPathSupplierId,
+          reorderSupplierId: orientationJourney.reorderSupplierId,
         })
       : null;
   const journeyStep = primaryStateToJourneyStep(orientationPrimary);

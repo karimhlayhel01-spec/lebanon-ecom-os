@@ -1,10 +1,9 @@
 "use server";
 
 import { ensureMigrated } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireOnboardedWorkspace } from "@/lib/workspace";
 import {
   blockJourney,
-  getWorkspaceForUser,
   pauseJourney,
   resumeJourney,
   unblockJourney,
@@ -13,40 +12,36 @@ import { revalidatePath } from "next/cache";
 
 export async function pauseJourneyAction() {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return;
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return;
 
-  await pauseJourney(workspace.id);
+  await pauseJourney(ctx.workspace.id);
   revalidatePath("/", "layout");
 }
 
 export async function resumeJourneyAction() {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return;
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return;
 
-  await resumeJourney(workspace.id);
+  await resumeJourney(ctx.workspace.id);
   revalidatePath("/", "layout");
 }
 
 export async function blockJourneyAction(reason: string) {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return;
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return;
 
-  await blockJourney(workspace.id, reason);
+  await blockJourney(ctx.workspace.id, reason);
   revalidatePath("/", "layout");
 }
 
 export async function unblockJourneyAction() {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return;
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return;
 
-  await unblockJourney(workspace.id);
+  await unblockJourney(ctx.workspace.id);
   revalidatePath("/", "layout");
 }

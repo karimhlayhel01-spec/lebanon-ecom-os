@@ -1,5 +1,6 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
+import type { DbExecutor } from "@/db/executor";
 import { newId, nowIso } from "@/lib/ids";
 import type { JourneyState } from "@/lib/constants";
 import {
@@ -16,6 +17,13 @@ export type SkuLifecycleStatus = "live" | "archived" | "wiped";
 
 export type SkuJourneyRow = typeof schema.skuJourneys.$inferSelect;
 
+/** Index journey rows by skuId (last write wins if duplicates). */
+export function mapSkuJourneysBySkuId(
+  rows: readonly SkuJourneyRow[],
+): Map<string, SkuJourneyRow> {
+  return new Map(rows.map((r) => [r.skuId, r]));
+}
+
 function toJourneyView(row: {
   primaryState: string;
   pausedFromState: string | null;
@@ -30,9 +38,9 @@ function toJourneyView(row: {
   };
 }
 
-export async function getSkuJourney(skuId: string) {
+export async function getSkuJourney(skuId: string, exec: DbExecutor = db) {
   await ensureMigrated();
-  return db
+  return exec
     .select()
     .from(schema.skuJourneys)
     .where(eq(schema.skuJourneys.skuId, skuId))
@@ -44,13 +52,30 @@ export async function listSkuJourneys(workspaceId: string) {
   return db
     .select()
     .from(schema.skuJourneys)
-    .where(eq(schema.skuJourneys.workspaceId, workspaceId))
-    ;
+    .where(eq(schema.skuJourneys.workspaceId, workspaceId));
 }
 
-export async function listLiveSkus(workspaceId: string) {
+/**
+ * One query for many SKUs’ journeys (hub chips / orchestration).
+ * Prefer this over N× getSkuJourney when building hub status.
+ */
+export async function listSkuJourneysForSkus(
+  skuIds: readonly string[],
+): Promise<SkuJourneyRow[]> {
   await ensureMigrated();
+  if (skuIds.length === 0) return [];
   return db
+    .select()
+    .from(schema.skuJourneys)
+    .where(inArray(schema.skuJourneys.skuId, [...skuIds]));
+}
+
+export async function listLiveSkus(
+  workspaceId: string,
+  exec: DbExecutor = db,
+) {
+  await ensureMigrated();
+  return exec
     .select()
     .from(schema.skuCards)
     .where(
@@ -58,8 +83,7 @@ export async function listLiveSkus(workspaceId: string) {
         eq(schema.skuCards.workspaceId, workspaceId),
         eq(schema.skuCards.lifecycleStatus, "live"),
       ),
-    )
-    ;
+    );
 }
 
 export async function listArchivedSkus(workspaceId: string) {
@@ -76,8 +100,11 @@ export async function listArchivedSkus(workspaceId: string) {
     ;
 }
 
-export async function countLiveSkus(workspaceId: string): Promise<number> {
-  const rows = await listLiveSkus(workspaceId);
+export async function countLiveSkus(
+  workspaceId: string,
+  exec: DbExecutor = db,
+): Promise<number> {
+  const rows = await listLiveSkus(workspaceId, exec);
   return rows.length;
 }
 
@@ -130,21 +157,22 @@ export async function createSkuJourney(args: {
 async function runSkuTransition(
   skuId: string,
   plan: (view: JourneyView) => FsmResult,
+  exec: DbExecutor = db,
 ): Promise<FsmResult> {
   await ensureMigrated();
-  const row = await getSkuJourney(skuId);
+  const row = await getSkuJourney(skuId, exec);
   if (!row) return { ok: false, error: "invalid_transition" };
 
   const result = plan(toJourneyView(row));
   if (!result.ok) return result;
 
-  await db
+  await exec
     .update(schema.skuJourneys)
     .set({ ...result.patch, updatedAt: nowIso() })
     .where(eq(schema.skuJourneys.id, row.id));
 
   // Keep legacy workspace journey_states in sync when this is the active SKU.
-  await syncWorkspaceJourneyMirror(row.workspaceId, skuId, result.patch);
+  await syncWorkspaceJourneyMirror(row.workspaceId, skuId, result.patch, exec);
 
   return result;
 }
@@ -158,8 +186,9 @@ async function syncWorkspaceJourneyMirror(
     blockedFromState: string | null;
     blockedReason: string | null;
   },
+  exec: DbExecutor = db,
 ) {
-  const workspace = await db
+  const workspace = await exec
     .select()
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, workspaceId))
@@ -167,30 +196,38 @@ async function syncWorkspaceJourneyMirror(
   if (!workspace || workspace.activeSkuId !== skuId) return;
   if (workspace.shopPaused) return;
 
-  await db
+  await exec
     .update(schema.journeyStates)
     .set({ ...patch, updatedAt: nowIso() })
     .where(eq(schema.journeyStates.workspaceId, workspaceId));
 }
 
-export function advanceSkuJourney(skuId: string, to: JourneyState) {
-  return runSkuTransition(skuId, (view) => planAdvance(view, to));
+export function advanceSkuJourney(
+  skuId: string,
+  to: JourneyState,
+  exec: DbExecutor = db,
+) {
+  return runSkuTransition(skuId, (view) => planAdvance(view, to), exec);
 }
 
-export function pauseSkuJourney(skuId: string) {
-  return runSkuTransition(skuId, planPause);
+export function pauseSkuJourney(skuId: string, exec: DbExecutor = db) {
+  return runSkuTransition(skuId, planPause, exec);
 }
 
-export function resumeSkuJourney(skuId: string) {
-  return runSkuTransition(skuId, planResume);
+export function resumeSkuJourney(skuId: string, exec: DbExecutor = db) {
+  return runSkuTransition(skuId, planResume, exec);
 }
 
-export function blockSkuJourney(skuId: string, reason: string) {
-  return runSkuTransition(skuId, (view) => planBlock(view, reason));
+export function blockSkuJourney(
+  skuId: string,
+  reason: string,
+  exec: DbExecutor = db,
+) {
+  return runSkuTransition(skuId, (view) => planBlock(view, reason), exec);
 }
 
-export function unblockSkuJourney(skuId: string) {
-  return runSkuTransition(skuId, planUnblock);
+export function unblockSkuJourney(skuId: string, exec: DbExecutor = db) {
+  return runSkuTransition(skuId, planUnblock, exec);
 }
 
 export async function patchSkuJourneyFlags(
@@ -215,9 +252,10 @@ export async function patchSkuJourneyFlags(
     reorderUnavailableJson: string | null;
     reorderCrisisSkipJson: string | null;
   }>,
+  exec: DbExecutor = db,
 ) {
   await ensureMigrated();
-  await db
+  await exec
     .update(schema.skuJourneys)
     .set({ ...patch, updatedAt: nowIso() })
     .where(eq(schema.skuJourneys.skuId, skuId));
@@ -327,7 +365,18 @@ export async function resumeSelectedSkus(skuIds: string[]) {
   return results;
 }
 
-/** Resolve which SKU journey to use for legacy workspace-scoped callers. */
+/**
+ * Resolve which SKU journey to use for legacy workspace-scoped callers.
+ *
+ * `activeSkuId` is a soft preference pointer — NOT updated on /sku/[id] GET.
+ * Intentional remaining uses (do not treat as page-scoped mutation target):
+ * - Hub Tools / vocab / /sku redirect: which live SKU to deep-link by default
+ * - Accept-product / archive / restore / wipe: maintain or clear the pointer
+ * - Shop-level reads (getSkuView, journey mirror, hub Tools deep-links):
+ *   fallback when the surface has no explicit page skuId (/finance, /supplier,
+ *   /marketing shop tools, Mode C rollups)
+ * Per-SKU pages and mutations must pass explicit owned skuId instead.
+ */
 export async function resolveActiveSkuId(
   workspaceId: string,
 ): Promise<string | null> {

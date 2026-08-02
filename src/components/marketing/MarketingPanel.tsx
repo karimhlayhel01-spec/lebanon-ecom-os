@@ -165,7 +165,9 @@ export function MarketingPanel({
             hasKit={view.kits.some((k) => k.stage === s.stage)}
             onGenerated={stickToStage}
             onSelect={stickToStage}
-            kitSkuId={view.isShopKit ? null : view.selectedSkuId}
+            kitSkuId={
+              view.isShopKit ? null : (view.selectedSkuId as string)
+            }
             surface={surface}
           />
         ))}
@@ -248,8 +250,8 @@ function StageCard({
   hasKit: boolean;
   onGenerated: (stage: MarketingStage) => void;
   onSelect: (stage: MarketingStage) => void;
-  /** null = shop kit; string = SKU id; undefined = active SKU default */
-  kitSkuId?: string | null;
+  /** null = shop kit; string = SKU id (required for SKU kits — never omit / active fallback) */
+  kitSkuId: string | null;
   surface: "deep" | "sku";
 }) {
   const t = useTranslations("Marketing");
@@ -331,6 +333,7 @@ function StageCard({
               setError(null);
               startTransition(async () => {
                 // Button click acknowledges launch budget rules (no checkbox).
+                // Shop kits: null. SKU kits: always pass kitSkuId (never undefined).
                 const res = await generateKitAction(
                   stage,
                   true,

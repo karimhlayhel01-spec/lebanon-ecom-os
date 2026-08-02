@@ -1,6 +1,9 @@
 import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
+import { getLocale } from "next-intl/server";
 import { db, ensureMigrated, schema } from "@/db";
+import type { DbExecutor } from "@/db/executor";
+import { redirect } from "@/i18n/navigation";
 import { newId, nowIso } from "@/lib/ids";
 
 const SESSION_COOKIE = "leb_session";
@@ -12,31 +15,42 @@ export type SessionUser = {
   name: string;
 };
 
-export async function createSession(userId: string) {
+export async function createSession(
+  userId: string,
+  opts: { exec?: DbExecutor; skipCookie?: boolean } = {},
+) {
   await ensureMigrated();
+  const exec = opts.exec ?? db;
   const id = newId();
   const createdAt = nowIso();
   const expiresAt = new Date(
     Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000,
   ).toISOString();
 
-  await db.insert(schema.sessions).values({
+  await exec.insert(schema.sessions).values({
     id,
     userId,
     expiresAt,
     createdAt,
   });
 
+  if (!opts.skipCookie) {
+    await setSessionCookie(id, expiresAt);
+  }
+
+  return { id, expiresAt };
+}
+
+/** Set the session cookie after a transactional bootstrap (cookie I/O outside DB). */
+export async function setSessionCookie(sessionId: string, expiresAt: string) {
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, id, {
+  cookieStore.set(SESSION_COOKIE, sessionId, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
     secure: process.env.NODE_ENV === "production",
     expires: new Date(expiresAt),
   });
-
-  return id;
 }
 
 export async function destroySession() {
@@ -90,10 +104,16 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   return { id: row.userId, email: row.email, name: row.name };
 }
 
+/**
+ * Require a signed-in user for server actions / helpers.
+ * Signed-out → redirect to login (same pattern as requireOnboardedContext).
+ * Never throws a raw Error("UNAUTHORIZED") that would surface as a 500.
+ */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getSessionUser();
   if (!user) {
-    throw new Error("UNAUTHORIZED");
+    const locale = await getLocale();
+    redirect({ href: "/auth/login", locale });
   }
-  return user;
+  return user!;
 }

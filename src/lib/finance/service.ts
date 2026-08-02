@@ -1,5 +1,6 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
+import { TxRollback, isTxRollback } from "@/db/executor";
 import { newId, nowIso } from "@/lib/ids";
 import {
   INVEST_NEXT_MIN_WEEKS,
@@ -15,10 +16,11 @@ import {
   type SkuCardView,
 } from "@/lib/sku/service";
 import {
-  getSkuJourney,
   listLiveSkus,
   resolveActiveSkuId,
 } from "@/lib/sku/journey";
+import { assertSkuOwned } from "@/lib/sku/ownership";
+import { parseRequiredSkuId } from "@/lib/sku/require-sku-id";
 import {
   computeSkuContributionBreakdown,
   computeWeekSkuContribution,
@@ -30,10 +32,16 @@ import {
   serializePerSkuSoldLeft,
 } from "@/lib/finance/per-sku-sold-left";
 import {
+  encodePerSkuSoldLeftForWrite,
+  parseImportBatchInventory,
+  validateWeeklyEntryInput,
+} from "@/lib/finance/validate";
+import {
   computeUnitsLeftFromReceivedSold,
   extractSkuInventoryLedger,
   resolveTotalUnitsReceived,
 } from "@/lib/finance/sku-runway";
+import { topicAWeekCountFromRowCount } from "@/lib/finance/topic-a-week-count";
 
 export type {
   SkuContributionBreakdown,
@@ -620,20 +628,7 @@ export async function getFinancePanel(
       j?.primaryState === "selling" ||
       j?.primaryState === "batch_arrived_ready" ||
       (!!side?.batchArrivedReady && s.id === sku.id);
-    let importBatch: {
-      totalUnitsReceived?: number | null;
-      unitsLeft?: number | null;
-      suggestedFirstBatch?: number | null;
-    } | null = null;
-    try {
-      importBatch = JSON.parse(s.importBatch) as {
-        totalUnitsReceived?: number | null;
-        unitsLeft?: number | null;
-        suggestedFirstBatch?: number | null;
-      };
-    } catch {
-      importBatch = null;
-    }
+    const importBatch = parseImportBatchInventory(s.importBatch);
     const { cumulativeSold, lastLeft } = extractSkuInventoryLedger(
       topicRowsForInventory,
       s.id,
@@ -880,37 +875,33 @@ export async function canStartSellingForSku(
   skuId: string,
 ): Promise<boolean> {
   await ensureMigrated();
-  const journey = await getSkuJourney(skuId);
-  if (!journey || journey.workspaceId !== workspaceId) return false;
+  const owned = await assertSkuOwned(workspaceId, skuId);
+  if (!owned.ok) return false;
   return (
-    journey.primaryState === "batch_arrived_ready" && journey.batchArrivedReady
+    owned.journey.primaryState === "batch_arrived_ready" &&
+    owned.journey.batchArrivedReady
   );
 }
 
 export async function startSelling(
   workspaceId: string,
-  skuId?: string,
+  skuId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   await ensureMigrated();
-  const resolvedSkuId = skuId ?? (await resolveActiveSkuId(workspaceId));
-  if (!resolvedSkuId) return { ok: false, error: "not_found" };
+  const required = parseRequiredSkuId(skuId);
+  if (!required.ok) return { ok: false, error: "not_found" };
 
-  const journey = await getSkuJourney(resolvedSkuId);
-  if (!journey || journey.primaryState !== "batch_arrived_ready") {
-    // Fallback: legacy workspace journey for single-SKU workspaces mid-migration.
-    if (!skuId) {
-      const wsJourney = await getJourney(workspaceId);
-      if (!wsJourney || wsJourney.primaryState !== "batch_arrived_ready") {
-        return { ok: false, error: "not_ready" };
-      }
-    } else {
-      return { ok: false, error: "not_ready" };
-    }
+  const owned = await assertSkuOwned(workspaceId, required.skuId);
+  if (!owned.ok) return { ok: false, error: "not_found" };
+
+  const journey = owned.journey;
+  if (journey.primaryState !== "batch_arrived_ready") {
+    return { ok: false, error: "not_ready" };
   }
 
   const approval = await createApprovalRequest(workspaceId, "mark_selling", {
     data: {},
-    skuId: resolvedSkuId,
+    skuId: required.skuId,
   });
   if (!approval) return { ok: false, error: "error" };
   const decided = await decideApproval(approval.id, {
@@ -924,7 +915,7 @@ export async function startSelling(
     workspaceId,
     kind: "mark_selling",
     message: "Marked selling — Topic A advice is now live",
-    meta: JSON.stringify({ skuId: resolvedSkuId }),
+    meta: JSON.stringify({ skuId: required.skuId }),
     createdAt: nowIso(),
   });
   return { ok: true };
@@ -950,6 +941,24 @@ export async function addWeeklyEntry(
   input: AddWeeklyEntryInput,
 ): Promise<{ ok: boolean; error?: string }> {
   await ensureMigrated();
+
+  // Defense in depth: reject negative / non-finite money+unit fields even if
+  // a caller bypasses the action Zod gate (old num() footgun).
+  const validated = validateWeeklyEntryInput({
+    weekStart: input.weekStart,
+    sales: input.sales,
+    orders: input.orders,
+    metaSpend: input.metaSpend,
+    tiktokSpend: input.tiktokSpend,
+    codCollected: input.codCollected,
+    codOutstanding: input.codOutstanding,
+    courierFees: input.courierFees,
+    skuSold: input.skuSold,
+    skuLeft: input.skuLeft,
+    skuLines: input.skuLines,
+  });
+  if (!validated.ok) return { ok: false, error: validated.error };
+
   const panel = await getFinancePanel(workspaceId);
   if (!panel || panel.mode !== "live") {
     return { ok: false, error: "not_selling" };
@@ -1004,20 +1013,7 @@ export async function addWeeklyEntry(
       j?.primaryState === "selling" ||
       j?.primaryState === "batch_arrived_ready" ||
       (!!side?.batchArrivedReady && s.id === sku.id);
-    let importBatch: {
-      totalUnitsReceived?: number | null;
-      unitsLeft?: number | null;
-      suggestedFirstBatch?: number | null;
-    } | null = null;
-    try {
-      importBatch = JSON.parse(s.importBatch) as {
-        totalUnitsReceived?: number | null;
-        unitsLeft?: number | null;
-        suggestedFirstBatch?: number | null;
-      };
-    } catch {
-      importBatch = null;
-    }
+    const importBatch = parseImportBatchInventory(s.importBatch);
     const { cumulativeSold, lastLeft } = extractSkuInventoryLedger(
       existingRows,
       s.id,
@@ -1127,56 +1123,86 @@ export async function addWeeklyEntry(
 
   const now = nowIso();
   try {
-    await db.insert(schema.topicAEntries).values({
-      id: newId(),
-      workspaceId,
-      weekStart,
-      storeTotalsUsd: sales,
-      perSkuSoldLeft: serializePerSkuSoldLeft({
-        orders: input.orders,
-        skuSold,
-        skuLeft: skusJson != null ? skuLeft : (solePersistLeft ?? null),
-        skus: skusJson,
-      }),
-      metaSpend: input.metaSpend,
-      tiktokSpend: input.tiktokSpend,
-      codCollected: input.codCollected,
-      codOutstanding: input.codOutstanding,
-      courierFees: input.courierFees,
-      createdAt: now,
+    await db.transaction(async (tx) => {
+      // Serialize concurrent week saves on this workspace so COUNT → mirror
+      // cannot lose a committed sibling insert (read-then-+1 drift).
+      await tx
+        .select({ id: schema.sideStatuses.id })
+        .from(schema.sideStatuses)
+        .where(eq(schema.sideStatuses.workspaceId, workspaceId))
+        .for("update");
+
+      try {
+        const perSkuEncoded = encodePerSkuSoldLeftForWrite({
+          orders: input.orders,
+          skuSold,
+          skuLeft: skusJson != null ? skuLeft : (solePersistLeft ?? null),
+          skus: skusJson,
+        });
+        if (!perSkuEncoded.ok) {
+          throw new TxRollback({
+            ok: false as const,
+            error: "invalid_fields" as const,
+          });
+        }
+
+        await tx.insert(schema.topicAEntries).values({
+          id: newId(),
+          workspaceId,
+          weekStart,
+          storeTotalsUsd: sales,
+          perSkuSoldLeft: perSkuEncoded.json,
+          metaSpend: input.metaSpend,
+          tiktokSpend: input.tiktokSpend,
+          codCollected: input.codCollected,
+          codOutstanding: input.codOutstanding,
+          courierFees: input.courierFees,
+          createdAt: now,
+        });
+      } catch (err) {
+        // Race: unique (workspace_id, week_start) — never silent double rows.
+        const code =
+          err && typeof err === "object" && "code" in err
+            ? String((err as { code: unknown }).code)
+            : "";
+        if (code === "23505") {
+          throw new TxRollback({ ok: false as const, error: "duplicate_week" });
+        }
+        throw err;
+      }
+
+      const health = computeHealth(weekInput, basis);
+      await tx.insert(schema.financeVerdicts).values({
+        id: newId(),
+        workspaceId,
+        kind: "weekly_health",
+        payload: JSON.stringify({ weekStart, health }),
+        confidence: 0.7,
+        createdAt: now,
+      });
+
+      // SoT: COUNT(topic_a_entries), not side.topicAWeekCount + 1.
+      const counted = await tx
+        .select({ n: count() })
+        .from(schema.topicAEntries)
+        .where(eq(schema.topicAEntries.workspaceId, workspaceId))
+        .then((rows) => rows[0]?.n ?? 0);
+      await tx
+        .update(schema.sideStatuses)
+        .set({
+          topicAWeekCount: topicAWeekCountFromRowCount(Number(counted)),
+          updatedAt: now,
+        })
+        .where(eq(schema.sideStatuses.workspaceId, workspaceId));
+
+      return { ok: true as const };
     });
   } catch (err) {
-    // Race: unique (workspace_id, week_start) — never silent double rows.
-    const code =
-      err && typeof err === "object" && "code" in err
-        ? String((err as { code: unknown }).code)
-        : "";
-    if (code === "23505") return { ok: false, error: "duplicate_week" };
-    throw err;
+    if (isTxRollback<{ ok: false; error: string }>(err)) {
+      return err.result;
+    }
+    return { ok: false, error: "error" };
   }
-
-  const health = computeHealth(weekInput, basis);
-  await db.insert(schema.financeVerdicts).values({
-    id: newId(),
-    workspaceId,
-    kind: "weekly_health",
-    payload: JSON.stringify({ weekStart, health }),
-    confidence: 0.7,
-    createdAt: now,
-  });
-
-  const sideCount = await db
-    .select({ topicAWeekCount: schema.sideStatuses.topicAWeekCount })
-    .from(schema.sideStatuses)
-    .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-    .then((rows) => rows[0]);
-  await db
-    .update(schema.sideStatuses)
-    .set({
-      topicAWeekCount: (sideCount?.topicAWeekCount ?? 0) + 1,
-      updatedAt: now,
-    })
-    .where(eq(schema.sideStatuses.workspaceId, workspaceId));
 
   return { ok: true };
 }

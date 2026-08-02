@@ -4,10 +4,13 @@ import {
   canEditReorderArrivalEta,
   canMarkReorderArrived,
   canMarkReorderOrdered,
+  casUpdateSucceeded,
   computeSkuRunway,
   evaluateReorderEconomicsGate,
   isReorderEconomicsHealthy,
   normalizeReorderStatus,
+  reorderCasMissError,
+  reorderCasPriorStatus,
   reorderInvestNextTone,
 } from "@/lib/supplier/reorder";
 
@@ -170,6 +173,38 @@ describe("reorder status transitions", () => {
     ).toBe(false);
     expect(canEditReorderArrivalEta({ reorderStatus: "ordered" })).toBe(true);
     expect(canEditReorderArrivalEta({ reorderStatus: "idle" })).toBe(false);
+  });
+});
+
+describe("reorder CAS double-submit rejection", () => {
+  it("casUpdateSucceeded accepts only exactly one matched row", () => {
+    expect(casUpdateSucceeded(0)).toBe(false);
+    expect(casUpdateSucceeded(1)).toBe(true);
+    expect(casUpdateSucceeded(2)).toBe(false);
+  });
+
+  it("mark_ordered CAS expects idle; miss → reorder_active", () => {
+    expect(reorderCasPriorStatus("mark_ordered")).toBe("idle");
+    expect(reorderCasMissError("mark_ordered")).toBe("reorder_active");
+    // Second click after first claimed idle→ordered:
+    expect(canMarkReorderOrdered({
+      primaryState: "selling",
+      reorderStatus: "ordered",
+      firstBatchArrived: true,
+      sampleApproved: true,
+    })).toBe(false);
+    expect(casUpdateSucceeded(0)).toBe(false);
+  });
+
+  it("mark_arrived CAS expects ordered; miss → reorder_not_ordered", () => {
+    expect(reorderCasPriorStatus("mark_arrived")).toBe("ordered");
+    expect(reorderCasMissError("mark_arrived")).toBe("reorder_not_ordered");
+    expect(
+      canMarkReorderArrived({
+        primaryState: "selling",
+        reorderStatus: "idle",
+      }),
+    ).toBe(false);
   });
 });
 

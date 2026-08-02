@@ -34,7 +34,7 @@ export function SettingsMenu({
   workspaceName: string;
   /** When false, Pause shop is offered in this menu (Resume stays in the header). */
   isPaused?: boolean;
-  /** Server-gated: DEMO_RESET=1|true. Never show in production without the flag. */
+  /** Server-gated: DEMO_RESET (+ prod allow). Never show without the flags. */
   demoResetEnabled?: boolean;
 }) {
   const t = useTranslations("Settings");

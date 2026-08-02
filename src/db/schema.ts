@@ -377,6 +377,8 @@ export const approvalRequests = pgTable("approval_requests", {
   decidedAt: text("decided_at"),
   createdAt: text("created_at").notNull(),
 });
+// Partial unique index (workspace_id, gate_id, coalesce(sku_id,'')) WHERE status='pending'
+// — see drizzle/0002_approval_pending_unique.sql.
 
 export const orchestratorEvents = pgTable("orchestrator_events", {
   id: text("id").primaryKey(),

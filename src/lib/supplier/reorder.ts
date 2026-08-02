@@ -142,6 +142,34 @@ export function normalizeReorderStatus(
   return "idle";
 }
 
+/**
+ * Conditional UPDATE matched exactly one row (CAS success).
+ * 0 rows → concurrent double-submit lost the race; reject.
+ */
+export function casUpdateSucceeded(returningCount: number): boolean {
+  return returningCount === 1;
+}
+
+/** Prior reorder_status required for a CAS claim. */
+export function reorderCasPriorStatus(
+  action: "mark_ordered" | "mark_arrived",
+): ReorderStatus {
+  return action === "mark_ordered" ? "idle" : "ordered";
+}
+
+/** Error when a reorder CAS UPDATE matches 0 rows (double-submit). */
+export function reorderCasMissError(
+  action: "mark_ordered",
+): "reorder_active";
+export function reorderCasMissError(
+  action: "mark_arrived",
+): "reorder_not_ordered";
+export function reorderCasMissError(
+  action: "mark_ordered" | "mark_arrived",
+): "reorder_active" | "reorder_not_ordered" {
+  return action === "mark_ordered" ? "reorder_active" : "reorder_not_ordered";
+}
+
 /** Mark ordered only while selling and reorder is idle. */
 export function canMarkReorderOrdered(args: {
   primaryState: string;

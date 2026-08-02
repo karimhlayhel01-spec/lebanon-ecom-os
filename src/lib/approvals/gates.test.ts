@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  approvalPendingClaimSucceeded,
+  approvalPendingDedupeKey,
   checkTransitionApproval,
   evaluateApprovalDecision,
   gateForTransition,
   gateTargetState,
 } from "@/lib/approvals/gates";
+import { evaluateSkuOwnership } from "@/lib/sku/ownership";
 
 describe("approval gates — transition mapping", () => {
   it("maps each guarded transition to its gate", () => {
@@ -108,5 +111,79 @@ describe("approval gates — server transition guard", () => {
       error: "approval_required",
       gate: "batch_ordered",
     });
+  });
+});
+
+describe("approval pending CAS / unique scope", () => {
+  it("claim succeeds only when exactly one pending row matched", () => {
+    expect(approvalPendingClaimSucceeded(0)).toBe(false);
+    expect(approvalPendingClaimSucceeded(1)).toBe(true);
+    expect(approvalPendingClaimSucceeded(2)).toBe(false);
+  });
+
+  it("dedupe key treats null sku like empty (coalesce) for same gate", () => {
+    expect(
+      approvalPendingDedupeKey({
+        workspaceId: "ws",
+        gateId: "store_ready",
+        skuId: null,
+      }),
+    ).toBe(
+      approvalPendingDedupeKey({
+        workspaceId: "ws",
+        gateId: "store_ready",
+        skuId: "",
+      }),
+    );
+  });
+
+  it("dedupe key separates different skus / gates", () => {
+    expect(
+      approvalPendingDedupeKey({
+        workspaceId: "ws",
+        gateId: "sample_decision",
+        skuId: "a",
+      }),
+    ).not.toBe(
+      approvalPendingDedupeKey({
+        workspaceId: "ws",
+        gateId: "sample_decision",
+        skuId: "b",
+      }),
+    );
+    expect(
+      approvalPendingDedupeKey({
+        workspaceId: "ws",
+        gateId: "sample_decision",
+        skuId: "a",
+      }),
+    ).not.toBe(
+      approvalPendingDedupeKey({
+        workspaceId: "ws",
+        gateId: "batch_ordered",
+        skuId: "a",
+      }),
+    );
+  });
+
+  it("create must reject foreign skuId (ownership) before insert", () => {
+    expect(
+      evaluateSkuOwnership({
+        workspaceId: "ws-a",
+        card: { workspaceId: "ws-b", lifecycleStatus: "live" },
+        journey: { workspaceId: "ws-b" },
+      }),
+    ).toEqual({ ok: false, error: "foreign" });
+  });
+
+  it("double-decide: second claim miss maps to already_decided", () => {
+    // First decide claimed the pending row; second UPDATE matches 0.
+    expect(approvalPendingClaimSucceeded(0)).toBe(false);
+    expect(
+      evaluateApprovalDecision({ status: "approved" }, [], {
+        type: "approve",
+        acknowledgements: [],
+      }),
+    ).toEqual({ ok: false, error: "already_decided" });
   });
 });

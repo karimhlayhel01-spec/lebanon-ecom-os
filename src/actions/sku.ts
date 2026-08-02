@@ -5,12 +5,8 @@ import { redirect } from "@/i18n/navigation";
 import { getLocale } from "next-intl/server";
 import { eq } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
-import {
-  founderEditSkuCard,
-  getWorkspaceForUser,
-} from "@/lib/memory/repos";
-import { getActiveSku } from "@/lib/sku/service";
+import { founderEditSkuCard } from "@/lib/memory/repos";
+import { requireOnboardedWorkspace } from "@/lib/workspace";
 import { evaluateAddSku, startAddSku } from "@/lib/sku/add-sku";
 import {
   archiveSku,
@@ -22,6 +18,8 @@ import {
   resumeSelectedSkus,
   setShopPaused,
 } from "@/lib/sku/journey";
+import { assertSkuOwned } from "@/lib/sku/ownership";
+import { parseSkuNotesForm } from "@/lib/sku/save-notes";
 import { startDiscoverySession } from "@/lib/discovery/service";
 
 export type SkuNotesState = { ok?: boolean; error?: string };
@@ -31,15 +29,21 @@ export async function saveSkuNotesAction(
   formData: FormData,
 ): Promise<SkuNotesState> {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return { error: "not_found" };
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return { error: ctx.error };
 
-  const sku = await getActiveSku(workspace.id);
-  if (!sku) return { error: "not_found" };
+  const parsed = parseSkuNotesForm({
+    skuId: formData.get("skuId"),
+    founderNotes: formData.get("founderNotes"),
+  });
+  if (!parsed.ok) return { error: parsed.error };
 
-  const notes = String(formData.get("founderNotes") ?? "");
-  await founderEditSkuCard(sku.id, { founderNotes: notes });
+  const owned = await assertSkuOwned(ctx.workspace.id, parsed.skuId);
+  if (!owned.ok) return { error: "not_found" };
+  // Notes only on live cards (archived/wiped are read-only).
+  if (owned.card.lifecycleStatus !== "live") return { error: "not_found" };
+
+  await founderEditSkuCard(parsed.skuId, { founderNotes: parsed.notes });
   revalidatePath("/", "layout");
   return { ok: true };
 }
@@ -53,10 +57,9 @@ export type AddSkuActionState = {
 
 export async function evaluateAddSkuAction(): Promise<AddSkuActionState> {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return { error: "not_found" };
-  const result = await evaluateAddSku(workspace.id);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return { error: ctx.error };
+  const result = await evaluateAddSku(ctx.workspace.id);
   if (!result.ok) return { error: result.error, seriousnessWarning: result.seriousnessWarning };
   return {
     ok: true,
@@ -71,12 +74,11 @@ export async function startAddSkuAction(
   formData: FormData,
 ): Promise<AddSkuActionState> {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return { error: "not_found" };
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return { error: ctx.error };
 
   const ackSerious = formData.get("ackSerious") === "1";
-  const evaluation = await evaluateAddSku(workspace.id);
+  const evaluation = await evaluateAddSku(ctx.workspace.id);
   if (!evaluation.ok) return { error: evaluation.error };
   if (evaluation.seriousnessWarning && !ackSerious) {
     return {
@@ -87,17 +89,17 @@ export async function startAddSkuAction(
     };
   }
 
-  const started = await startAddSku(workspace.id);
+  const started = await startAddSku(ctx.workspace.id);
   if (!started.ok) return { error: started.error };
 
   const onboarding = await db
     .select()
     .from(schema.onboardingProfiles)
-    .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
+    .where(eq(schema.onboardingProfiles.workspaceId, ctx.workspace.id))
     .then((rows) => rows[0]);
   if (!onboarding) return { error: "not_found" };
 
-  await startDiscoverySession(workspace.id, onboarding);
+  await startDiscoverySession(ctx.workspace.id, onboarding);
   revalidatePath("/", "layout");
   const locale = await getLocale();
   redirect({ href: "/dashboard?hub=1&addSku=1#discovery", locale });
@@ -108,10 +110,12 @@ export async function archiveSkuAction(
   skuId: string,
 ): Promise<{ ok: boolean; error?: string; warnings?: string[] }> {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await archiveSku(workspace.id, skuId);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  if (!(await assertSkuOwned(ctx.workspace.id, skuId)).ok) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await archiveSku(ctx.workspace.id, skuId);
   revalidatePath("/", "layout");
   if (!res.ok) return { ok: false, error: res.error };
   return {
@@ -127,10 +131,12 @@ export async function restoreSkuAction(
   skuId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await restoreSku(workspace.id, skuId);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  if (!(await assertSkuOwned(ctx.workspace.id, skuId)).ok) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await restoreSku(ctx.workspace.id, skuId);
   revalidatePath("/", "layout");
   return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
@@ -139,38 +145,37 @@ export async function wipeSkuAction(
   skuId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await wipeSku(workspace.id, skuId);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  if (!(await assertSkuOwned(ctx.workspace.id, skuId)).ok) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await wipeSku(ctx.workspace.id, skuId);
   revalidatePath("/", "layout");
   return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
 
 export async function pauseShopAction() {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return;
-  await setShopPaused(workspace.id, true);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return;
+  await setShopPaused(ctx.workspace.id, true);
   revalidatePath("/", "layout");
 }
 
 export async function resumeShopAction() {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return;
-  await setShopPaused(workspace.id, false);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return;
+  await setShopPaused(ctx.workspace.id, false);
   revalidatePath("/", "layout");
 }
 
 export async function pauseSkusAction(skuIds: string[]) {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return { ok: false, error: "not_found" };
-  const owned = await listOwnedLiveIds(workspace.id, skuIds);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  const owned = await listOwnedLiveIds(ctx.workspace.id, skuIds);
   await pauseSelectedSkus(owned);
   revalidatePath("/", "layout");
   return { ok: true };
@@ -178,10 +183,9 @@ export async function pauseSkusAction(skuIds: string[]) {
 
 export async function resumeSkusAction(skuIds: string[]) {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return { ok: false, error: "not_found" };
-  const owned = await listOwnedLiveIds(workspace.id, skuIds);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  const owned = await listOwnedLiveIds(ctx.workspace.id, skuIds);
   await resumeSelectedSkus(owned);
   revalidatePath("/", "layout");
   return { ok: true };

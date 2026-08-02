@@ -186,6 +186,7 @@ export function SkuCard({
       </Section>
 
       <form action={formAction} className="mt-4">
+        <input type="hidden" name="skuId" value={sku.id} />
         <label className="text-sm font-medium text-ink">
           {t("founderNotes")}
         </label>

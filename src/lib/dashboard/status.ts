@@ -1,11 +1,11 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import type { MarketingStage } from "@/lib/constants";
+import { loadHubSupplierStatusFacts } from "@/lib/dashboard/hub-status-facts";
 import {
   resolveDefaultFocusStage,
   resolveUnlockedStages,
 } from "@/lib/marketing/focus";
-import { getSupplierPanel } from "@/lib/supplier/service";
 import { skuToolHref } from "@/lib/sku/tools";
 import type { AppLocale } from "@/i18n/routing";
 
@@ -198,7 +198,11 @@ async function workspaceHasLaunchKit(
 
 /**
  * Compact hub Status read model for one SKU — supplier facts + marketing focus.
- * Uses that SKU’s journey flags + supplier panel (no workspace bleed).
+ * Uses journey flags + light hub supplier facts (not full SupplierPanel).
+ *
+ * Query budget (orientation SKU): 2 sample/supplier selects + 1 marketing-kit
+ * existence check. Previously: full getSupplierPanel (~10+ queries including
+ * topic A history, ensureSuppliers, live list, onboarding, …).
  */
 export async function getDashboardStatus(args: {
   workspaceId: string;
@@ -213,12 +217,27 @@ export async function getDashboardStatus(args: {
   batchArrivedReady: boolean;
   /** Per-SKU marketing stage from sku_journeys (not shop side_statuses). */
   sideMarketingStage: string;
+  /** Raw JSON from sku_journeys.batch_arrival_eta. */
+  batchArrivalEtaJson?: string | null;
+  reorderPathSupplierId?: string | null;
+  reorderSupplierId?: string | null;
 }): Promise<DashboardStatusView> {
   await ensureMigrated();
 
-  const panel = args.productAccepted
-    ? await getSupplierPanel(args.workspaceId, args.skuId)
-    : null;
+  const facts = args.productAccepted
+    ? await loadHubSupplierStatusFacts({
+        skuId: args.skuId,
+        batchArrivalEtaJson: args.batchArrivalEtaJson ?? null,
+        reorderPathSupplierId: args.reorderPathSupplierId ?? null,
+        reorderSupplierId: args.reorderSupplierId ?? null,
+      })
+    : {
+        activeSampleStatus: null,
+        supplierName: null,
+        etaFounderSet: false,
+        etaSummaryEn: "",
+        etaSummaryAr: "",
+      };
 
   const sampleApproved =
     args.sampleStatus === "approved" ||
@@ -239,29 +258,19 @@ export async function getDashboardStatus(args: {
     args.batchArrivedReady ||
     ["batch_arrived_ready", "selling"].includes(args.primaryState);
 
-  let supplierName: string | null = null;
-  let activeSampleStatus: string | null = null;
-  if (panel?.sample) {
-    activeSampleStatus = panel.sample.status;
-    supplierName = panel.sample.supplierName || null;
-  } else if (panel?.approvedSampleSupplierName) {
-    supplierName = panel.approvedSampleSupplierName;
-  }
-
   const supplierHref = skuToolHref(args.skuId, "supplier");
   const marketingHref = skuToolHref(args.skuId, "marketing");
 
-  const eta = panel?.batchArrivalEta;
   const supplier = mapSupplierStatusRow({
     productAccepted: args.productAccepted,
     sampleStatus: args.sampleStatus,
-    activeSampleStatus,
-    supplierName,
+    activeSampleStatus: facts.activeSampleStatus,
+    supplierName: facts.supplierName,
     batchOrdered,
     batchArrivedReady,
-    etaFounderSet: eta?.founderSet ?? false,
-    etaSummaryEn: eta?.summaryEn ?? "",
-    etaSummaryAr: eta?.summaryAr ?? "",
+    etaFounderSet: facts.etaFounderSet,
+    etaSummaryEn: facts.etaSummaryEn,
+    etaSummaryAr: facts.etaSummaryAr,
     locale: args.locale,
     href: supplierHref,
   });

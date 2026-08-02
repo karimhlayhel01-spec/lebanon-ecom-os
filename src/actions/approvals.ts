@@ -2,8 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ensureMigrated } from "@/db";
-import { requireUser } from "@/lib/auth";
-import { getWorkspaceForUser } from "@/lib/memory/repos";
+import { requireOnboardedWorkspace } from "@/lib/workspace";
 import {
   createApprovalRequest,
   decideApproval,
@@ -11,14 +10,15 @@ import {
   type DecideApprovalResult,
 } from "@/lib/approvals/engine";
 import { type ApprovalGateId } from "@/lib/constants";
+import { gateTargetState } from "@/lib/approvals/gates";
+import { parseRequiredSkuId } from "@/lib/sku/require-sku-id";
 
 async function requireOwnedApproval(approvalId: string) {
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return null;
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return null;
 
   const approval = await getApproval(approvalId);
-  if (!approval || approval.workspaceId !== workspace.id) return null;
+  if (!approval || approval.workspaceId !== ctx.workspace.id) return null;
   return approval;
 }
 
@@ -33,11 +33,25 @@ export async function openApprovalGateAction(
   requiredAcks?: string[],
 ) {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return;
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return;
 
-  await createApprovalRequest(workspace.id, gateId, { data, requiredAcks });
+  const dataSkuId =
+    data && typeof data.skuId === "string" ? data.skuId : undefined;
+
+  // Transition gates are per-SKU; side-only gates may stay workspace-scoped.
+  let skuId: string | null | undefined = dataSkuId;
+  if (gateTargetState(gateId) != null) {
+    const required = parseRequiredSkuId(dataSkuId);
+    if (!required.ok) return;
+    skuId = required.skuId;
+  }
+
+  await createApprovalRequest(ctx.workspace.id, gateId, {
+    data,
+    requiredAcks,
+    skuId,
+  });
   revalidatePath("/", "layout");
 }
 

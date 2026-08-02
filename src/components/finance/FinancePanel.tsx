@@ -174,10 +174,12 @@ function PreviewBlock({
           disabled={pending || !view.canStartSelling}
           onClick={() =>
             startTransition(async () => {
-              const targetId = skuId || preferredSkuId;
+              const targetId =
+                skuId || preferredSkuId || view.sellableSkus[0]?.id;
+              if (!targetId) return;
               // SKU page only: pin Topic A; SkuSectionFocus owns remount restore.
-              if (targetId) markStayOnFinanceAfterTopicAAction(targetId, pathname);
-              const res = await startSellingAction(skuId || undefined);
+              markStayOnFinanceAfterTopicAAction(targetId, pathname);
+              const res = await startSellingAction(targetId);
               if (res.ok) {
                 // One backup if remount already consumed the flag and we're still off.
                 scrollToTopicAFinanceAnchorIfNeeded("smooth");
@@ -448,11 +450,13 @@ function LiveBlock({
           <p className="mt-2 text-xs text-amber-800">
             {state.error === "missing_week"
               ? t("errWeek")
-              : state.error === "duplicate_week"
-                ? t("errDuplicateWeek")
-                : state.error === "not_selling"
-                  ? t("errNotSelling")
-                  : t("errorGeneric")}
+              : state.error === "invalid_week"
+                ? t("errInvalidWeek")
+                : state.error === "duplicate_week"
+                  ? t("errDuplicateWeek")
+                  : state.error === "not_selling"
+                    ? t("errNotSelling")
+                    : t("errorGeneric")}
           </p>
         )}
         <button

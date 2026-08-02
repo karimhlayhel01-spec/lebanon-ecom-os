@@ -5,8 +5,7 @@ import { eq } from "drizzle-orm";
 import { getLocale } from "next-intl/server";
 import { redirect } from "@/i18n/navigation";
 import { db, ensureMigrated, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
-import { getWorkspaceForUser } from "@/lib/memory/repos";
+import { requireOnboardedWorkspace } from "@/lib/workspace";
 import {
   DISCOVERY_PASS_REASONS,
   type DiscoveryPassReason,
@@ -25,8 +24,9 @@ import {
 import type { AppLocale } from "@/i18n/routing";
 
 async function workspaceForRequest() {
-  const user = await requireUser();
-  return getWorkspaceForUser(user.id);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return null;
+  return ctx.workspace;
 }
 
 export async function startDiscoveryAction() {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  canDecideSample,
+  canMarkSampleReceived,
   canShowBackupInsurance,
   countInFlightSpareSamples,
   findFirstApprovedSample,
@@ -13,6 +15,7 @@ import {
   resolveSupplierCardSampleMode,
   resolveWorkingPathSupplierId,
   sampleFlightGate,
+  sampleFlightInsertDecision,
   shouldPatchJourneySampleStatus,
   supplierCardSampleCta,
 } from "@/lib/supplier/sample-flight";
@@ -145,9 +148,86 @@ describe("spare in-flight count + sampleFlightGate", () => {
   });
 });
 
+describe("sample flight CAS / double-submit rejection", () => {
+  const path = "path-1";
+
+  it("insert decision rejects when gate is spare_cap (2nd click past cap)", () => {
+    const atCap = [
+      { supplierId: path, status: "approved" },
+      { supplierId: "s1", status: "requested" },
+      { supplierId: "s2", status: "received" },
+      { supplierId: "s3", status: "requested" },
+    ];
+    const flight = sampleFlightGate({
+      sampleApproved: true,
+      sampleRows: atCap,
+      pathSupplierId: path,
+      targetSupplierId: "s4",
+    });
+    expect(flight).toBe("spare_cap");
+    expect(sampleFlightInsertDecision(flight)).toEqual({
+      ok: false,
+      error: "spare_cap",
+    });
+  });
+
+  it("insert decision rejects primary double-request while in flight", () => {
+    const flight = sampleFlightGate({
+      sampleApproved: false,
+      sampleRows: [{ supplierId: "a", status: "requested" }],
+      pathSupplierId: null,
+      targetSupplierId: "b",
+    });
+    expect(sampleFlightInsertDecision(flight)).toEqual({
+      ok: false,
+      error: "sample_in_flight",
+    });
+  });
+
+  it("insert decision allows when gate is ok", () => {
+    expect(
+      sampleFlightInsertDecision(
+        sampleFlightGate({
+          sampleApproved: false,
+          sampleRows: [],
+          pathSupplierId: null,
+          targetSupplierId: "a",
+        }),
+      ),
+    ).toEqual({ ok: true });
+  });
+});
+
 describe("shouldPatchJourneySampleStatus", () => {
   it("patches only before path approve", () => {
     expect(shouldPatchJourneySampleStatus(false)).toBe(true);
+    expect(shouldPatchJourneySampleStatus(true)).toBe(false);
+  });
+});
+
+describe("sample status transitions (requested → received → decide)", () => {
+  it("mark received: allows requested and received (checklist update)", () => {
+    expect(canMarkSampleReceived("requested")).toBe(true);
+    expect(canMarkSampleReceived("received")).toBe(true);
+  });
+
+  it("mark received: rejects terminal / decided statuses", () => {
+    expect(canMarkSampleReceived("approved")).toBe(false);
+    expect(canMarkSampleReceived("replace")).toBe(false);
+    expect(canMarkSampleReceived("rejected")).toBe(false);
+  });
+
+  it("decide: only from received (no skip from requested)", () => {
+    expect(canDecideSample("received")).toBe(true);
+    expect(canDecideSample("requested")).toBe(false);
+    expect(canDecideSample("approved")).toBe(false);
+    expect(canDecideSample("replace")).toBe(false);
+    expect(canDecideSample("rejected")).toBe(false);
+  });
+
+  it("spare approve still must not rewrite path sampleStatus (lock intact)", () => {
+    // Same lifecycle gates; path stability remains via shouldPatchJourneySampleStatus.
+    expect(canDecideSample("received")).toBe(true);
     expect(shouldPatchJourneySampleStatus(true)).toBe(false);
   });
 });

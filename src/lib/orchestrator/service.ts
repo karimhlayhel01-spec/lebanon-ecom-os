@@ -4,6 +4,7 @@ import { getJourney } from "@/lib/memory/repos";
 import {
   getSkuJourney,
   listLiveSkus,
+  listSkuJourneysForSkus,
 } from "@/lib/sku/journey";
 import { effectiveJourneyState } from "@/lib/sku/page-sections";
 import { costBasisForSku } from "@/lib/finance/service";
@@ -324,8 +325,10 @@ export async function getShopOrchestration(
   ]);
 
   let anySelling = false;
+  const journeys = await listSkuJourneysForSkus(live.map((s) => s.id));
+  const journeyBySkuId = new Map(journeys.map((j) => [j.skuId, j]));
   for (const sku of live) {
-    const j = await getSkuJourney(sku.id);
+    const j = journeyBySkuId.get(sku.id);
     const state = j
       ? effectiveJourneyState({
           primaryState: j.primaryState,

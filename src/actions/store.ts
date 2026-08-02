@@ -2,8 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ensureMigrated } from "@/db";
-import { requireUser } from "@/lib/auth";
-import { getWorkspaceForUser } from "@/lib/memory/repos";
+import { requireOnboardedWorkspace } from "@/lib/workspace";
 import {
   markStoreReady,
   saveStoreFields,
@@ -12,8 +11,9 @@ import {
 import type { StoreChecklistKey } from "@/lib/constants";
 
 async function workspaceForRequest() {
-  const user = await requireUser();
-  return getWorkspaceForUser(user.id);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return ctx;
+  return { ok: true as const, workspace: ctx.workspace };
 }
 
 export async function toggleStoreChecklistAction(
@@ -21,9 +21,9 @@ export async function toggleStoreChecklistAction(
   value: boolean,
 ) {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, percent: 0 };
-  const res = await toggleChecklistItem(workspace.id, key, value);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, percent: 0 };
+  const res = await toggleChecklistItem(ctx.workspace.id, key, value);
   revalidatePath("/", "layout");
   return res;
 }
@@ -35,14 +35,14 @@ export async function saveStoreFieldsAction(
   formData: FormData,
 ): Promise<StoreFieldsState> {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { error: "not_found" };
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { error: ctx.error };
 
   const storeUrl = String(formData.get("storeUrl") ?? "").trim();
   const whatsappNumber = String(formData.get("whatsappNumber") ?? "").trim();
   const courierChoice = String(formData.get("courierChoice") ?? "").trim();
 
-  await saveStoreFields(workspace.id, {
+  await saveStoreFields(ctx.workspace.id, {
     storeUrl: storeUrl || null,
     whatsappNumber: whatsappNumber || null,
     courierChoice: courierChoice || null,
@@ -53,9 +53,9 @@ export async function saveStoreFieldsAction(
 
 export async function markStoreReadyAction() {
   await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { ok: false, error: "not_found" };
-  const res = await markStoreReady(workspace.id);
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  const res = await markStoreReady(ctx.workspace.id);
   revalidatePath("/", "layout");
   return res;
 }

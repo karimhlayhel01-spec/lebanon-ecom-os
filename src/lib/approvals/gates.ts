@@ -168,6 +168,23 @@ export function evaluateApprovalDecision(
   };
 }
 
+/**
+ * Matches DB partial unique index:
+ * (workspace_id, gate_id, coalesce(sku_id, '')) WHERE status = 'pending'.
+ */
+export function approvalPendingDedupeKey(args: {
+  workspaceId: string;
+  gateId: string;
+  skuId: string | null | undefined;
+}): string {
+  return `${args.workspaceId}|${args.gateId}|${args.skuId ?? ""}`;
+}
+
+/** Conditional UPDATE … WHERE status='pending' claimed exactly one row. */
+export function approvalPendingClaimSucceeded(returningCount: number): boolean {
+  return returningCount === 1;
+}
+
 export type TransitionGuardResult =
   | { ok: true }
   | { ok: false; error: "approval_required"; gate: ApprovalGateId };

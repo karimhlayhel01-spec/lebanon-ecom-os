@@ -6,11 +6,13 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db, ensureMigrated, schema } from "@/db";
 import {
+  createSession,
   destroyAllSessions,
   destroySession,
-  requireUser,
 } from "@/lib/auth";
-import { getWorkspaceForUser } from "@/lib/workspace";
+import {
+  requireOnboardedWorkspace,
+} from "@/lib/workspace";
 import { founderEditWorkspace } from "@/lib/memory/repos";
 import { deleteUserAndWorkspace } from "@/lib/account/delete-user";
 import { isDemoResetEnabled } from "@/lib/demo/config";
@@ -22,6 +24,14 @@ export type SettingsActionState = {
   error?: string;
   success?: string;
 };
+
+/** Settings UI only knows errorGeneric for gate failures. */
+function settingsGateFail(
+  error: "not_found" | "onboarding_required",
+): SettingsActionState {
+  void error;
+  return { error: "errorGeneric" };
+}
 
 const passwordSchema = z.string().min(8).max(200);
 
@@ -54,7 +64,9 @@ export async function changePasswordAction(
   formData: FormData,
 ): Promise<SettingsActionState> {
   await ensureMigrated();
-  const user = await requireUser();
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return settingsGateFail(ctx.error);
+  const user = ctx.user;
 
   const parsed = changePasswordSchema.safeParse({
     currentPassword: formData.get("currentPassword"),
@@ -91,6 +103,11 @@ export async function changePasswordAction(
     .set({ passwordHash })
     .where(eq(schema.users.id, user.id));
 
+  // Same wipe as logoutEverywhere (all sessions + cookie), then mint a fresh
+  // session for this browser so stolen cookies die without forcing re-login here.
+  await destroyAllSessions(user.id);
+  await createSession(user.id);
+
   return { success: "passwordChanged" };
 }
 
@@ -99,11 +116,8 @@ export async function renameWorkspaceAction(
   formData: FormData,
 ): Promise<SettingsActionState> {
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) {
-    return { error: "errorGeneric" };
-  }
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return settingsGateFail(ctx.error);
 
   const parsed = renameSchema.safeParse({
     name: formData.get("name"),
@@ -112,15 +126,16 @@ export async function renameWorkspaceAction(
     return { error: "errorGeneric" };
   }
 
-  await founderEditWorkspace(workspace.id, { name: parsed.data.name });
+  await founderEditWorkspace(ctx.workspace.id, { name: parsed.data.name });
   revalidatePath("/", "layout");
   return { success: "workspaceRenamed" };
 }
 
 export async function logoutEverywhereAction(): Promise<void> {
   await ensureMigrated();
-  const user = await requireUser();
-  await destroyAllSessions(user.id);
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return;
+  await destroyAllSessions(ctx.user.id);
   const locale = await getLocale();
   redirect({ href: "/auth/login", locale });
 }
@@ -130,7 +145,9 @@ export async function deleteAccountAction(
   formData: FormData,
 ): Promise<SettingsActionState> {
   await ensureMigrated();
-  const user = await requireUser();
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return settingsGateFail(ctx.error);
+  const user = ctx.user;
 
   const parsed = deleteAccountSchema.safeParse({
     currentPassword: formData.get("currentPassword"),
@@ -169,7 +186,8 @@ export async function deleteAccountAction(
 
 /**
  * Temporary DEMO control: wipe journey data → empty discovery.
- * Hard no-op unless DEMO_RESET=1|true. Keeps login + onboarding.
+ * Hard no-op unless isDemoResetEnabled() (DEMO_RESET + prod allow gate).
+ * Keeps login + onboarding; wipe runs in one DB transaction.
  */
 export async function demoResetJourneyAction(
   _prev: SettingsActionState,
@@ -180,11 +198,8 @@ export async function demoResetJourneyAction(
   }
 
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) {
-    return { error: "errorGeneric" };
-  }
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return settingsGateFail(ctx.error);
 
   const parsed = demoResetSchema.safeParse({
     confirmToken: formData.get("confirmToken"),
@@ -193,7 +208,7 @@ export async function demoResetJourneyAction(
     return { error: "errorDemoResetConfirm" };
   }
 
-  await resetWorkspaceJourney(workspace.id);
+  await resetWorkspaceJourney(ctx.workspace.id);
   revalidatePath("/", "layout");
   const locale = await getLocale();
   redirect({ href: "/dashboard", locale });

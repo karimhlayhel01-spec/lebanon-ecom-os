@@ -62,13 +62,8 @@ export default async function SkuDetailPage({ params }: Props) {
   if (!card || card.workspaceId !== ctx.workspace.id) notFound();
   if (card.lifecycleStatus === "wiped") notFound();
 
-  // Point active SKU at the page being viewed so supplier/finance actions align.
-  if (ctx.workspace.activeSkuId !== id && card.lifecycleStatus === "live") {
-    await db
-      .update(schema.workspaces)
-      .set({ activeSkuId: id })
-      .where(eq(schema.workspaces.id, ctx.workspace.id));
-  }
+  // Do not mutate workspaces.activeSkuId on GET — multi-tab views must not
+  // race which SKU mutations target. Page/actions pass explicit skuId instead.
 
   const [eff, journey, supplier, orchestration, archiveWarnings] =
     await Promise.all([

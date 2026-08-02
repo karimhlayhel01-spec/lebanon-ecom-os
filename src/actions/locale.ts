@@ -2,11 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { ensureMigrated } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireOnboardedWorkspace } from "@/lib/workspace";
 import {
   founderEditOnboardingProfile,
   founderEditWorkspace,
-  getWorkspaceForUser,
 } from "@/lib/memory/repos";
 import type { AppLocale } from "@/i18n/routing";
 
@@ -15,11 +14,10 @@ export async function setUiLanguageAction(locale: AppLocale) {
   if (locale !== "en" && locale !== "ar") return;
 
   await ensureMigrated();
-  const user = await requireUser();
-  const workspace = await getWorkspaceForUser(user.id);
-  if (!workspace) return;
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return;
 
-  await founderEditOnboardingProfile(workspace.id, { uiLanguage: locale });
-  await founderEditWorkspace(workspace.id, { language: locale });
+  await founderEditOnboardingProfile(ctx.workspace.id, { uiLanguage: locale });
+  await founderEditWorkspace(ctx.workspace.id, { language: locale });
   revalidatePath("/", "layout");
 }

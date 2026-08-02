@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
+import type { DbExecutor } from "@/db/executor";
 import { nowIso } from "@/lib/ids";
 import { enforceFounderEdit } from "@/lib/memory/allowed-fields";
 import {
@@ -13,6 +14,7 @@ import type { JourneyState } from "@/lib/constants";
 import {
   advanceSkuJourney,
   blockSkuJourney,
+  listLiveSkus,
   getSkuJourney,
   pauseSkuJourney,
   resolveActiveSkuId,
@@ -20,6 +22,11 @@ import {
   setShopPaused,
   unblockSkuJourney,
 } from "@/lib/sku/journey";
+import {
+  resolveAdvanceJourneySkuTarget,
+  resolveBlockUnblockSkuTarget,
+} from "@/lib/sku/mutation-sku";
+import { assertSkuOwned } from "@/lib/sku/ownership";
 
 /**
  * Repositories for the Shared Business Memory — the single source of truth for
@@ -214,9 +221,10 @@ function toJourneyView(row: {
 async function runWorkspaceLegacyTransition(
   workspaceId: string,
   plan: (view: JourneyView) => FsmResult,
+  exec: DbExecutor = db,
 ): Promise<FsmResult> {
   await ensureMigrated();
-  const row = await db
+  const row = await exec
     .select()
     .from(schema.journeyStates)
     .where(eq(schema.journeyStates.workspaceId, workspaceId))
@@ -226,7 +234,7 @@ async function runWorkspaceLegacyTransition(
   const result = plan(toJourneyView(row));
   if (!result.ok) return result;
 
-  await db
+  await exec
     .update(schema.journeyStates)
     .set({ ...result.patch, updatedAt: nowIso() })
     .where(eq(schema.journeyStates.id, row.id));
@@ -235,20 +243,31 @@ async function runWorkspaceLegacyTransition(
 }
 
 /**
- * Advance the active SKU journey (or workspace legacy when no live SKU).
- * Prefer `advanceSkuJourney` / skuId overload for multi-SKU callers.
+ * Advance a SKU journey (or workspace legacy when the shop has zero live SKUs).
+ * Fail-closed: never soft-fallback to activeSkuId when live SKUs exist.
  */
 export async function advanceJourney(
   workspaceId: string,
   to: JourneyState,
   skuId?: string,
+  exec: DbExecutor = db,
 ): Promise<FsmResult> {
-  const targetSku = skuId ?? (await resolveActiveSkuId(workspaceId));
-  if (targetSku) {
-    return advanceSkuJourney(targetSku, to);
+  const live = await listLiveSkus(workspaceId, exec);
+  const target = resolveAdvanceJourneySkuTarget({
+    skuId,
+    liveCount: live.length,
+  });
+  if (!target.ok) return { ok: false, error: target.error };
+  if (target.kind === "sku") {
+    const owned = await assertSkuOwned(workspaceId, target.skuId, exec);
+    if (!owned.ok) return { ok: false, error: "invalid_transition" };
+    return advanceSkuJourney(target.skuId, to, exec);
   }
-  return runWorkspaceLegacyTransition(workspaceId, (view) =>
-    planAdvance(view, to),
+  // Legacy only: zero live SKUs — first-accept / empty shop workspace spine.
+  return runWorkspaceLegacyTransition(
+    workspaceId,
+    (view) => planAdvance(view, to),
+    exec,
   );
 }
 
@@ -282,18 +301,47 @@ export async function resumeJourney(workspaceId: string): Promise<FsmResult> {
   };
 }
 
-export async function blockJourney(workspaceId: string, reason: string) {
-  const skuId = await resolveActiveSkuId(workspaceId);
-  if (skuId) return blockSkuJourney(skuId, reason);
-  return runWorkspaceLegacyTransition(workspaceId, (view) =>
-    planBlock(view, reason),
+export async function blockJourney(
+  workspaceId: string,
+  reason: string,
+  skuId?: string,
+  exec: DbExecutor = db,
+): Promise<FsmResult> {
+  const live = await listLiveSkus(workspaceId, exec);
+  const target = resolveBlockUnblockSkuTarget({
+    skuId,
+    liveSkuIds: live.map((s) => s.id),
+  });
+  if (!target.ok) return { ok: false, error: target.error };
+  if (target.kind === "sku") {
+    const owned = await assertSkuOwned(workspaceId, target.skuId, exec);
+    if (!owned.ok) return { ok: false, error: "invalid_transition" };
+    return blockSkuJourney(target.skuId, reason, exec);
+  }
+  return runWorkspaceLegacyTransition(
+    workspaceId,
+    (view) => planBlock(view, reason),
+    exec,
   );
 }
 
-export async function unblockJourney(workspaceId: string) {
-  const skuId = await resolveActiveSkuId(workspaceId);
-  if (skuId) return unblockSkuJourney(skuId);
-  return runWorkspaceLegacyTransition(workspaceId, planUnblock);
+export async function unblockJourney(
+  workspaceId: string,
+  skuId?: string,
+  exec: DbExecutor = db,
+): Promise<FsmResult> {
+  const live = await listLiveSkus(workspaceId, exec);
+  const target = resolveBlockUnblockSkuTarget({
+    skuId,
+    liveSkuIds: live.map((s) => s.id),
+  });
+  if (!target.ok) return { ok: false, error: target.error };
+  if (target.kind === "sku") {
+    const owned = await assertSkuOwned(workspaceId, target.skuId, exec);
+    if (!owned.ok) return { ok: false, error: "invalid_transition" };
+    return unblockSkuJourney(target.skuId, exec);
+  }
+  return runWorkspaceLegacyTransition(workspaceId, planUnblock, exec);
 }
 
 /** Pause one or more SKUs (not shop-wide). */

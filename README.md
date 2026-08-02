@@ -35,7 +35,20 @@ Open [http://localhost:3005](http://localhost:3005) — you will be redirected t
 
 ### Demo reset
 
-Temporary control for testing and live demos (not Wave 2). With `DEMO_RESET=1` (or `true`) in `.env`, ⚙ Settings shows **Demo: reset journey**. Confirm by typing `RESET` — clears SKUs / discovery / supplier / marketing / Topic A back to empty hub discovery while keeping the same login, workspace id, and completed onboarding. Without the flag the control is invisible and the server action is a no-op.
+Temporary control for testing and live demos (not Wave 2). Enable with `DEMO_RESET=1` (or `true`) in `.env`. In **production** (`NODE_ENV=production`) you must also set `DEMO_RESET_ALLOW_PRODUCTION=1` (or `true`) — `DEMO_RESET` alone is ignored. When enabled, ⚙ Settings shows **Demo: reset journey**. Confirm by typing `RESET` — atomically clears SKUs / discovery / supplier / marketing / Topic A back to empty hub discovery while keeping the same login, workspace id, and completed onboarding. Without the flags the control is invisible and the server action is a no-op.
+
+### Auth notes
+
+- Signed-out server actions that call `requireUser` / `requireOnboardedWorkspace` **redirect to login** (same as pages) — they do not throw a raw `UNAUTHORIZED` 500.
+- Login is throttled in-memory: **10 failed attempts / 15 minutes** per email and per client IP (`src/lib/auth/login-rate-limit.ts`). Best-effort only (per process; not shared across instances).
+
+### Postgres integration tests
+
+Critical-path suites live in `src/**/*.integration.test.ts` (IDOR, Topic A week count txn, reorder arrive ledger, demo reset). They **skip when `DATABASE_URL` is unset**. Default `npm test` excludes them (keeps unit CI fast). Run with:
+
+```bash
+npm run test:integration
+```
 
 ### Scripts
 
@@ -44,7 +57,8 @@ Temporary control for testing and live demos (not Wave 2). With `DEMO_RESET=1` (
 | `npm run dev -- -p 3005` | Dev server (port 3005) |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run test` | Vitest tests |
+| `npm run test` | Vitest unit tests (excludes `*.integration.test.ts`) |
+| `npm run test:integration` | Postgres critical-path tests (skips without `DATABASE_URL`) |
 | `npm run db:generate` | Generate SQL migrations from `src/db/schema.ts` |
 | `npm run db:migrate` | Apply pending migrations to `DATABASE_URL` |
 | `npm run db:push` | Push schema directly (handy early-stage; prefer migrate for shared DBs) |

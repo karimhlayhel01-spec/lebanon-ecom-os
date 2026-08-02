@@ -217,7 +217,8 @@ export function OnboardingWizard({
             required
             rows={2}
             className={fieldClass}
-            defaultValue={initialValues?.storageDescription ?? "Home / small storage"}
+            placeholder={t("storageDescriptionPlaceholder")}
+            defaultValue={initialValues?.storageDescription ?? ""}
           />
         </label>
         <label className="flex flex-col gap-1.5 text-sm">
@@ -327,10 +328,8 @@ export function OnboardingWizard({
             required
             rows={3}
             className={fieldClass}
-            defaultValue={
-              initialValues?.codComfort ??
-              "Comfortable with COD; will track refusals."
-            }
+            placeholder={t("codComfortPlaceholder")}
+            defaultValue={initialValues?.codComfort ?? ""}
           />
         </label>
         <label className="flex flex-col gap-1.5 text-sm">

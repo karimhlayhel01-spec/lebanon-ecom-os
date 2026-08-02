@@ -62,6 +62,19 @@ export function countInFlightSpareSamples(
 export type SampleFlightGateResult = "ok" | "sample_in_flight" | "spare_cap";
 
 /**
+ * Map flight-gate result to insert allow/deny (used after FOR UPDATE re-check).
+ * Non-ok covers double-submit past primary single-flight or spare cap.
+ */
+export function sampleFlightInsertDecision(
+  flight: SampleFlightGateResult,
+):
+  | { ok: true }
+  | { ok: false; error: Exclude<SampleFlightGateResult, "ok"> } {
+  if (flight === "ok") return { ok: true };
+  return { ok: false, error: flight };
+}
+
+/**
  * Flight-slot gate for requestSample (before source/warm/path eligibility).
  * - Before path approve: at most one sample in flight (any supplier).
  * - After path approve: up to MAX_SPARE_SAMPLES_IN_FLIGHT spare slots;
@@ -104,6 +117,26 @@ export function sampleFlightGate(args: {
  */
 export function shouldPatchJourneySampleStatus(sampleApproved: boolean): boolean {
   return !sampleApproved;
+}
+
+/**
+ * Server gate for markSampleReceived (path + spare samples share this lifecycle).
+ * - requested → transition to received (+ checklist)
+ * - received → checklist/notes update only (UI "save checklist"; not a re-receive)
+ * Terminal statuses (approved | replace | rejected) are illegal.
+ */
+export function canMarkSampleReceived(status: string): boolean {
+  return status === "requested" || status === "received";
+}
+
+/**
+ * Server gate for decideSample (approve | replace | reject).
+ * Only after received — no skip from requested. Spares use the same rule;
+ * spare approve still must not path-switch (handled separately via
+ * shouldPatchJourneySampleStatus / working-path resolution).
+ */
+export function canDecideSample(status: string): boolean {
+  return status === "received";
 }
 
 /**
