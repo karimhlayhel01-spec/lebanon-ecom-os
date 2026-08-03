@@ -18,6 +18,7 @@ import {
   type CatalogProduct,
   type DemandProvider,
 } from "@/lib/discovery/catalog";
+import { resolveDiscoveryCatalogSource } from "@/lib/discovery/pool";
 import {
   classifyDiscoveryLadder,
   suggestionsForPassReasons,
@@ -155,14 +156,16 @@ type ScoredProduct = {
 /**
  * Score + rank catalog products for a profile. Excludes seen keys. Same Fit /
  * Margin / maxLanded rules as the first session (never-all-blocked ranking).
+ * `catalog` defaults to in-memory CATALOG; pool-v2 callers pass the DB source.
  */
 export function scoreRankCatalog(
   onboarding: OnboardingRow,
   excludeKeys: ReadonlySet<string> = new Set(),
+  catalog: readonly CatalogProduct[] = CATALOG,
 ): ScoredProduct[] {
   const profile = toFitProfile(onboarding);
   const sourceCatalog = selectLandedCostPool(
-    CATALOG,
+    catalog,
     onboarding.maxLandedCost,
   ).filter((p) => !excludeKeys.has(p.key));
 
@@ -206,7 +209,8 @@ export async function countRemainingEligible(
   onboarding: OnboardingRow,
 ): Promise<number> {
   const seen = await getSeenCatalogKeys(workspaceId);
-  return scoreRankCatalog(onboarding, seen).length;
+  const catalog = await resolveDiscoveryCatalogSource();
+  return scoreRankCatalog(onboarding, seen, catalog).length;
 }
 
 async function getExhaustedRounds(workspaceId: string): Promise<number> {
@@ -346,7 +350,8 @@ export async function startDiscoverySession(
   const existing = await getActiveSession(workspaceId);
   if (existing) return existing;
 
-  const scored = scoreRankCatalog(onboarding);
+  const catalog = await resolveDiscoveryCatalogSource();
+  const scored = scoreRankCatalog(onboarding, new Set(), catalog);
   return insertSessionPool(workspaceId, scored);
 }
 
@@ -367,7 +372,8 @@ export async function continueDiscoverySession(
 
   // Score next pool before closing — keep the exhausted session if nothing left (D).
   const seen = await getSeenCatalogKeys(workspaceId);
-  const scored = scoreRankCatalog(onboarding, seen);
+  const catalog = await resolveDiscoveryCatalogSource();
+  const scored = scoreRankCatalog(onboarding, seen, catalog);
   if (scored.length === 0) return { ok: false, error: "catalog_exhausted" };
 
   await db

@@ -399,3 +399,73 @@ export const sessions = pgTable("sessions", {
   expiresAt: text("expires_at").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+/**
+ * Wave 2 Discovery — global product pool (Approach A / Path 1 SoT).
+ * Not workspace-scoped: intake/scoring jobs must never write journey / Topic A / SKU finance.
+ * `catalog.ts` seeds rows until Path 1 ingest is live.
+ */
+export const discoveryProductPool = pgTable("discovery_product_pool", {
+  id: text("id").primaryKey(),
+  /** Stable key for curated seed rows; Path 1 rows may use a generated key. */
+  catalogKey: text("catalog_key").notNull().unique(),
+  nameEn: text("name_en").notNull(),
+  nameAr: text("name_ar").notNull().default(""),
+  category: text("category").notNull(),
+  summaryEn: text("summary_en").notNull().default(""),
+  summaryAr: text("summary_ar").notNull().default(""),
+  differentiationEn: text("differentiation_en").notNull().default(""),
+  differentiationAr: text("differentiation_ar").notNull().default(""),
+  sellPrice: doublePrecision("sell_price").notNull(),
+  productCost: doublePrecision("product_cost").notNull(),
+  intlShip: doublePrecision("intl_ship").notNull(),
+  clearanceTaxes: doublePrecision("clearance_taxes").notNull(),
+  localCourier: doublePrecision("local_courier").notNull(),
+  difficulty: integer("difficulty").notNull().default(0),
+  risk: integer("risk").notNull().default(0),
+  timeNeed: integer("time_need").notNull().default(4),
+  workload: integer("workload").notNull().default(0),
+  storageFootprint: text("storage_footprint").notNull().default("small"),
+  oversized: boolean("oversized").notNull().default(false),
+  tier1Marketplaces: text("tier1_marketplaces").notNull().default("[]"), // JSON
+  sourceUrl: text("source_url"),
+  /** Missing MOQ/sample → neutral in scoring (WAVE-2 §7). */
+  moqHint: integer("moq_hint"),
+  sampleCostHint: doublePrecision("sample_cost_hint"),
+  /** catalog_seed | path1_search | dropship_backup */
+  source: text("source").notNull().default("catalog_seed"),
+  active: boolean("active").notNull().default(true),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * Wave 2 Discovery — Approach A score cache (one row per pool product).
+ * Failed refreshes update status/error only — never wipe last-known scores.
+ */
+export const discoveryProductScores = pgTable("discovery_product_scores", {
+  id: text("id").primaryKey(),
+  poolProductId: text("pool_product_id")
+    .notNull()
+    .unique()
+    .references(() => discoveryProductPool.id),
+  abroadDemandScore: doublePrecision("abroad_demand_score"),
+  lebanonDemandScore: doublePrecision("lebanon_demand_score"),
+  competitionScore: doublePrecision("competition_score"),
+  budgetFightPenalty: doublePrecision("budget_fight_penalty"),
+  compositeScore: doublePrecision("composite_score"),
+  /** whitespace | local_proven | null */
+  demandPath: text("demand_path"),
+  confidence: doublePrecision("confidence"),
+  explainLine: text("explain_line"),
+  lastScoredAt: text("last_scored_at"),
+  /** ok | failed | pending | never */
+  lastScoreStatus: text("last_score_status").notNull().default("never"),
+  lastError: text("last_error"),
+  /** Shadow mode: would exclude under hard filters (log before enforce). */
+  shadowWouldExclude: boolean("shadow_would_exclude").notNull().default(false),
+  shadowExcludeReason: text("shadow_exclude_reason"),
+  rawEvidenceJson: text("raw_evidence_json"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

@@ -24,6 +24,15 @@ export const DISCOVERY_EXHAUSTED_ROUNDS_BEFORE_WHY = 3;
  * discovery pool. This is about per-unit landed cost, NOT total budgetUsd.
  */
 export const MAX_LANDED_SOFT_OVERAGE = 1.2;
+/**
+ * Wave 2 Approach A — max search queries per pool product per score refresh
+ * (abroad + Lebanon + Tier-1 family). Jobs must respect this cap.
+ */
+export const DISCOVERY_SCORE_QUERIES_PER_PRODUCT_MAX = 6;
+/** Soft ceiling for Path 1 intake queries per scheduled run. */
+export const DISCOVERY_INTAKE_QUERIES_PER_RUN_MAX = 40;
+/** When fewer than this many passers remain, use fallback shortlist spirit. */
+export const DISCOVERY_FALLBACK_SHORTLIST_MIN = 5;
 export const INVEST_NEXT_MIN_WEEKS = 4;
 /**
  * Shop Topic A weeks shown on the main Finance panel (newest).

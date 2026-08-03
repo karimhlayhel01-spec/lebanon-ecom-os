@@ -2,6 +2,9 @@
  * FK-safe wipe order for workspace-scoped tables (children → parents).
  * Single source of truth — account delete, demo reset, and SKU wipe import subsets.
  * When adding a workspace-scoped table, insert it here in FK-safe position.
+ *
+ * Global Wave 2 Discovery tables (`discovery_product_pool`, `discovery_product_scores`)
+ * are intentionally excluded — they are shared catalog/score cache, not per-workspace.
  */
 export const WORKSPACE_CASCADE_TABLES = [
   "sample_records",
