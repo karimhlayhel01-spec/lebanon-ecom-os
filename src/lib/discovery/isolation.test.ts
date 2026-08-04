@@ -34,6 +34,8 @@ describe("Wave 2 Discovery isolation", () => {
       "lib/discovery/jobs/score-refresh",
       "runPath1IntakeJob",
       "runScoreRefreshJob",
+      "lib/discovery/providers/serpapi",
+      "createSerpApiProvider",
     ];
     const surfaces = [
       "lib/finance/service.ts",
@@ -58,6 +60,32 @@ describe("Wave 2 Discovery isolation", () => {
     expect(service).not.toContain("search-provider");
     expect(service).not.toContain("getDiscoverySearchProvider");
     expect(service).not.toContain("DISCOVERY_LIVE_SEARCH");
+    expect(service).not.toContain("serpapi");
+    expect(service).not.toContain("SERPAPI");
+    expect(service).not.toContain("scoresFromSearchEvidence");
+    expect(service).not.toContain("buildScoreRefreshQueryPlan");
+  });
+
+  it("Why this pick? explain does not import accept or score writers", () => {
+    const explainDir = [
+      "lib/discovery/explain/service.ts",
+      "lib/discovery/explain/why-pick.ts",
+      "lib/discovery/explain/llm.ts",
+    ];
+    for (const file of explainDir) {
+      const src = read(file);
+      expect(src).not.toContain("acceptProduct");
+      expect(src).not.toContain("applySuccessfulScoreRefresh");
+      expect(src).not.toContain("runScoreRefreshJob");
+    }
+  });
+
+  it("Discovery service does not call score refresh / intake jobs", () => {
+    const service = read("lib/discovery/service.ts");
+    expect(service).not.toContain("runScoreRefreshJob");
+    expect(service).not.toContain("runPath1IntakeJob");
+    expect(service).not.toContain("jobs/score-refresh");
+    expect(service).not.toContain("jobs/intake");
   });
 
   it("score fail helper does not clear numeric fields in source", () => {

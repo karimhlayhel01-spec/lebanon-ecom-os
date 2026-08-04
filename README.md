@@ -63,8 +63,27 @@ npm run test:integration
 | `npm run db:generate` | Generate SQL migrations from `src/db/schema.ts` |
 | `npm run db:migrate` | Apply pending migrations to `DATABASE_URL` |
 | `npm run db:push` | Push schema directly (handy early-stage; prefer migrate for shared DBs) |
+| `npm run discovery:intake` | Wave 2 Path 1 intake job (CLI only — not page load) |
+| `npm run discovery:score` | Wave 2 Approach A score-refresh job (CLI only) |
+| `npm run discovery:refresh` | Run intake then score |
 
-## Database (Postgres)
+## Wave 2 Discovery (Approach A)
+
+Canonical locks: `docs/WAVE-2.md`. Page loads **never** live-search — scheduled/CLI jobs write the pool + score cache; Discovery **reads DB**.
+
+```bash
+npm run db:migrate
+# In .env (example): DISCOVERY_POOL_V2=1 DISCOVERY_LIVE_SEARCH=1 SERPAPI_API_KEY=…
+# Optional: DISCOVERY_WHY_PICK=1  (card “Why this pick?”)
+npm run discovery:intake    # seed + Path 1 upserts when live search + key
+npm run discovery:score     # write discovery_product_scores (optional: -- --limit=25)
+npm run discovery:refresh   # intake then score
+npm run dev -- -p 3005      # shortlist ranks from score cache; dual-gate + Why this pick when flagged
+```
+
+With a large Path 1 pool, prefer `npm run discovery:score -- --limit=50` (or cron batches) so SerpAPI caps stay manageable. Discovery **GET** still never live-searches.
+
+With flags **off**, Discovery stays Wave 1 (in-memory catalog + paste-only accept).
 
 The app requires **`DATABASE_URL`** — a standard Postgres connection string (Neon, local Docker, RDS, etc.).
 

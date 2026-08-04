@@ -12,6 +12,7 @@ import {
 } from "@/lib/discovery/catalog";
 import type { StorageFootprint } from "@/lib/skills/fit";
 import { isDiscoveryPoolV2Enabled } from "@/lib/discovery/flags";
+import type { NormalizedPath1Candidate } from "@/lib/discovery/normalize";
 
 export type PoolProductRow = typeof schema.discoveryProductPool.$inferSelect;
 
@@ -135,6 +136,79 @@ export async function syncCatalogSeedToPool(): Promise<{ upserted: number }> {
   return { upserted };
 }
 
+/**
+ * Upsert Path 1 normalized candidates into the pool (`source: path1_search`).
+ * Does not overwrite `catalog_seed` rows that share a key (seed keys differ).
+ * Isolation: called only from intake jobs — never journey / Finance / accept.
+ */
+export async function upsertPath1PoolCandidates(
+  candidates: readonly NormalizedPath1Candidate[],
+): Promise<{ upserted: number; inserted: number; updated: number }> {
+  await ensureMigrated();
+  const at = nowIso();
+  let inserted = 0;
+  let updated = 0;
+
+  for (const c of candidates) {
+    const existing = await db
+      .select({
+        id: schema.discoveryProductPool.id,
+        source: schema.discoveryProductPool.source,
+      })
+      .from(schema.discoveryProductPool)
+      .where(eq(schema.discoveryProductPool.catalogKey, c.catalogKey))
+      .then((rows) => rows[0]);
+
+    const values = {
+      catalogKey: c.catalogKey,
+      nameEn: c.nameEn,
+      nameAr: c.nameAr,
+      category: c.category,
+      summaryEn: c.summaryEn,
+      summaryAr: c.summaryAr,
+      differentiationEn: c.differentiationEn,
+      differentiationAr: c.differentiationAr,
+      sellPrice: c.sellPrice,
+      productCost: c.productCost,
+      intlShip: c.intlShip,
+      clearanceTaxes: c.clearanceTaxes,
+      localCourier: c.localCourier,
+      difficulty: c.difficulty,
+      risk: c.risk,
+      timeNeed: c.timeNeed,
+      workload: c.workload,
+      storageFootprint: c.storageFootprint,
+      oversized: c.oversized,
+      tier1Marketplaces: c.tier1Marketplaces,
+      sourceUrl: c.sourceUrl,
+      moqHint: c.moqHint,
+      sampleCostHint: c.sampleCostHint,
+      source: c.source,
+      active: c.active,
+      updatedAt: at,
+    };
+
+    if (existing) {
+      // Never clobber curated catalog_seed with a Path 1 collision.
+      if (existing.source === "catalog_seed") continue;
+      await db
+        .update(schema.discoveryProductPool)
+        .set(values)
+        .where(eq(schema.discoveryProductPool.id, existing.id));
+      updated += 1;
+    } else {
+      await db.insert(schema.discoveryProductPool).values({
+        id: newId(),
+        ...values,
+        createdAt: at,
+      });
+      inserted += 1;
+    }
+  }
+
+  return { upserted: inserted + updated, inserted, updated };
+}
+
 /** Active pool rows as CatalogProduct[] (Approach A read path). */
 export async function loadActivePoolAsCatalog(): Promise<CatalogProduct[]> {
   await ensureMigrated();
@@ -143,6 +217,33 @@ export async function loadActivePoolAsCatalog(): Promise<CatalogProduct[]> {
     .from(schema.discoveryProductPool)
     .where(eq(schema.discoveryProductPool.active, true));
   return rows.map(poolRowToCatalogProduct);
+}
+
+/** MOQ / sample hints keyed by catalogKey (missing → neutral in BudgetFight). */
+export async function loadPoolHintsByCatalogKey(): Promise<
+  Map<string, { moqHint: number | null; sampleCostHint: number | null }>
+> {
+  await ensureMigrated();
+  const rows = await db
+    .select({
+      catalogKey: schema.discoveryProductPool.catalogKey,
+      moqHint: schema.discoveryProductPool.moqHint,
+      sampleCostHint: schema.discoveryProductPool.sampleCostHint,
+    })
+    .from(schema.discoveryProductPool)
+    .where(eq(schema.discoveryProductPool.active, true));
+
+  const map = new Map<
+    string,
+    { moqHint: number | null; sampleCostHint: number | null }
+  >();
+  for (const row of rows) {
+    map.set(row.catalogKey, {
+      moqHint: row.moqHint,
+      sampleCostHint: row.sampleCostHint,
+    });
+  }
+  return map;
 }
 
 /**

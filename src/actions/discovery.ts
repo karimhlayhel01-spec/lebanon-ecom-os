@@ -166,3 +166,40 @@ export async function acceptProductAction(
   redirect({ href: `/sku/${result.skuId}`, locale });
   return result;
 }
+
+export type WhyPickActionState = {
+  ok?: boolean;
+  error?: string;
+  body?: string;
+  source?: "template" | "llm";
+  cached?: boolean;
+};
+
+export async function explainWhyThisPickAction(
+  candidateId: string,
+): Promise<WhyPickActionState> {
+  await ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { error: "not_found" };
+
+  const locale = (await getLocale()) as AppLocale;
+  const { explainWhyThisPick } = await import(
+    "@/lib/discovery/explain/service"
+  );
+  const result = await explainWhyThisPick({
+    workspaceId: workspace.id,
+    candidateId,
+    locale: locale === "ar" ? "ar" : "en",
+  });
+
+  if (!result.ok) {
+    return { error: result.error };
+  }
+  // Do not revalidatePath — explain must not reshuffle Discovery / scores.
+  return {
+    ok: true,
+    body: result.result.body,
+    source: result.result.source,
+    cached: result.cached,
+  };
+}

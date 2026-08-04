@@ -7,6 +7,7 @@ import {
   acceptProductAction,
   confirmDemandAction,
   continueDiscoveryAction,
+  explainWhyThisPickAction,
   rejectCandidateAction,
   resolveTier1Action,
   showMoreAction,
@@ -115,7 +116,11 @@ export function DiscoveryBoard({
       ) : (
         <div className="columns-1 gap-4 md:columns-2">
           {view.candidates.map((c) => (
-            <ProductCard key={c.id} c={c} />
+            <ProductCard
+              key={c.id}
+              c={c}
+              whyPickEnabled={view.whyPickEnabled}
+            />
           ))}
         </div>
       )}
@@ -328,7 +333,13 @@ function DiscoveryEmptyLadder({
   );
 }
 
-function ProductCard({ c }: { c: DiscoveryCandidateView }) {
+function ProductCard({
+  c,
+  whyPickEnabled,
+}: {
+  c: DiscoveryCandidateView;
+  whyPickEnabled: boolean;
+}) {
   const t = useTranslations("Discovery");
   const note = useDiscoveryNote();
   const ind = useTranslations("Onboarding");
@@ -336,6 +347,9 @@ function ProductCard({ c }: { c: DiscoveryCandidateView }) {
   const [demandOpen, setDemandOpen] = useState(false);
   const [ack, setAck] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [whyBody, setWhyBody] = useState<string | null>(null);
+  const [whyError, setWhyError] = useState<string | null>(null);
+  const [whyPending, setWhyPending] = useState(false);
 
   const [demandState, demandFormAction, demandPending] = useActionState(
     confirmDemandAction,
@@ -346,6 +360,8 @@ function ProductCard({ c }: { c: DiscoveryCandidateView }) {
   const isOkay = c.strength === "Okay";
   const marginBlockCopy = translateMarginBlock(note, t("blockedMargin"), c);
   const riskReadCopy = c.riskRead ? note(c.riskRead) : null;
+  const pasteConfirmed = c.demandConfirmed || demandState.ok;
+  const systemPass = c.systemDemand?.pass === true;
 
   function accept() {
     setActionError(null);
@@ -367,18 +383,45 @@ function ProductCard({ c }: { c: DiscoveryCandidateView }) {
     });
   }
 
+  function whyThisPick() {
+    setWhyError(null);
+    setWhyPending(true);
+    startTransition(async () => {
+      try {
+        const res = await explainWhyThisPickAction(c.id);
+        if (!res.ok || !res.body) {
+          setWhyError(
+            res.error === "rate_limited"
+              ? t("whyPickRateLimited")
+              : res.error === "feature_off"
+                ? t("whyPickOff")
+                : t("errorGeneric"),
+          );
+        } else {
+          setWhyBody(res.body);
+        }
+      } finally {
+        setWhyPending(false);
+      }
+    });
+  }
+
   const errorMsg =
     actionError === "needs_risk_ack"
       ? t("acceptOkayHint")
       : actionError === "needs_demand"
-        ? t("acceptNeedsDemand")
-        : actionError === "tier1_unresolved"
-          ? t("acceptNeedsTier1")
-          : actionError === "blocked"
-            ? t("acceptBlocked")
-            : actionError
-              ? t("errorGeneric")
-              : null;
+        ? c.dualDemandGate
+          ? t("acceptNeedsPaste")
+          : t("acceptNeedsDemand")
+        : actionError === "needs_system_demand"
+          ? t("acceptNeedsSystemDemand")
+          : actionError === "tier1_unresolved"
+            ? t("acceptNeedsTier1")
+            : actionError === "blocked"
+              ? t("acceptBlocked")
+              : actionError
+                ? t("errorGeneric")
+                : null;
 
   return (
     <article
@@ -438,34 +481,115 @@ function ProductCard({ c }: { c: DiscoveryCandidateView }) {
         </p>
       )}
 
+      {c.softListedHardAcceptBlocked && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <span className="font-semibold">{t("softListedTitle")}: </span>
+          {t("softListedHardAcceptBody")}
+        </p>
+      )}
+
       <div className="rounded-md border border-stone bg-surface-subtle px-3 py-2 text-xs text-stone-dark">
         <span className="font-medium text-ink">{t("differentiation")}: </span>
         {c.differentiation}
       </div>
 
-      {/* Demand */}
-      <div className="text-xs">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-stone-dark">
-            {t("demand")}:{" "}
-            {c.demandConfirmed || demandState.ok ? (
-              <span className="font-semibold text-cedar-deep">
-                {t("demandConfirmed")}
-              </span>
-            ) : (
-              <span className="text-stone-dark">{t("demandNeeded")}</span>
-            )}
-          </span>
-          {!c.demandConfirmed && !demandState.ok && !blocked && (
-            <button
-              type="button"
-              onClick={() => setDemandOpen((v) => !v)}
-              className="rounded-md border border-stone px-2.5 py-1 font-medium text-ink transition hover:bg-sand"
-            >
-              {t("confirmDemand")}
-            </button>
+      {whyPickEnabled && (
+        <div className="text-xs">
+          <button
+            type="button"
+            disabled={whyPending || pending}
+            onClick={whyThisPick}
+            className="rounded-md border border-stone px-2.5 py-1 font-medium text-ink transition hover:bg-sand disabled:opacity-60"
+          >
+            {t("whyPickButton")}
+          </button>
+          {whyError && (
+            <p className="mt-2 text-amber-800">{whyError}</p>
+          )}
+          {whyBody && (
+            <div className="mt-2 rounded-md border border-stone bg-surface-subtle px-3 py-2">
+              <p className="font-semibold text-ink">{t("whyPickTitle")}</p>
+              <p className="mt-1 text-sm leading-relaxed text-ink">{whyBody}</p>
+              <p className="mt-1.5 text-[11px] text-stone-dark">
+                {t("whyPickHonesty")}
+              </p>
+            </div>
           )}
         </div>
+      )}
+
+      {/* Demand — Wave 1 paste; Wave 2 dual-gate keeps paste + system score */}
+      <div className="text-xs">
+        {c.dualDemandGate ? (
+          <div className="mb-2 rounded-md border border-stone bg-surface-subtle px-3 py-2">
+            <p className="font-semibold text-ink">{t("dualGateTitle")}</p>
+            <p className="mt-1 text-stone-dark">{t("dualGateBody")}</p>
+            <ul className="mt-2 space-y-1 text-stone-dark">
+              <li>
+                {systemPass ? "✓" : "○"}{" "}
+                <span className="font-medium text-ink">
+                  {t("dualGateSystemLabel")}:
+                </span>{" "}
+                {systemPass
+                  ? t("dualGateSystemPass", {
+                      path:
+                        c.systemDemand?.demandPath === "local_proven"
+                          ? t("demandPathLocal")
+                          : t("demandPathWhitespace"),
+                    })
+                  : c.systemDemand?.status === "missing"
+                    ? t("dualGateSystemMissing")
+                    : t("dualGateSystemFail")}
+              </li>
+              <li>
+                {pasteConfirmed ? "✓" : "○"}{" "}
+                <span className="font-medium text-ink">
+                  {t("dualGatePasteLabel")}:
+                </span>{" "}
+                {pasteConfirmed
+                  ? t("demandConfirmed")
+                  : t("dualGatePasteNeeded")}
+              </li>
+            </ul>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-stone-dark">
+              {t("demand")}:{" "}
+              {pasteConfirmed ? (
+                <span className="font-semibold text-cedar-deep">
+                  {t("demandConfirmed")}
+                </span>
+              ) : (
+                <span className="text-stone-dark">{t("demandNeeded")}</span>
+              )}
+            </span>
+            {!pasteConfirmed && !blocked && (
+              <button
+                type="button"
+                onClick={() => setDemandOpen((v) => !v)}
+                className="rounded-md border border-stone px-2.5 py-1 font-medium text-ink transition hover:bg-sand"
+              >
+                {t("confirmDemand")}
+              </button>
+            )}
+          </div>
+        )}
+
+        {c.dualDemandGate && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-stone-dark">{t("dualGatePasteCtaHint")}</span>
+            {!pasteConfirmed && !blocked && (
+              <button
+                type="button"
+                onClick={() => setDemandOpen((v) => !v)}
+                className="rounded-md border border-stone px-2.5 py-1 font-medium text-ink transition hover:bg-sand"
+              >
+                {t("confirmDemand")}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Saved / just-confirmed demand summary (not a hollow "Confirmed" badge). */}
         {(c.demandSummary || (demandState.ok && demandState.summary)) && (
@@ -482,7 +606,7 @@ function ProductCard({ c }: { c: DiscoveryCandidateView }) {
           </div>
         )}
 
-        {demandOpen && !c.demandConfirmed && !demandState.ok && (
+        {demandOpen && !pasteConfirmed && (
           <form
             action={demandFormAction}
             className="mt-2 flex flex-col gap-2 rounded-md border border-stone bg-surface p-3"

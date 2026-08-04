@@ -172,3 +172,32 @@ export async function getScoreForPoolProduct(
     .where(eq(schema.discoveryProductScores.poolProductId, poolProductId))
     .then((rows) => rows[0]);
 }
+
+/**
+ * Active pool scores keyed by catalogKey — Approach A shortlist read path.
+ */
+export async function loadScoresByCatalogKey(): Promise<
+  Map<string, ScoreRow>
+> {
+  await ensureMigrated();
+  const rows = await db
+    .select({
+      catalogKey: schema.discoveryProductPool.catalogKey,
+      score: schema.discoveryProductScores,
+    })
+    .from(schema.discoveryProductScores)
+    .innerJoin(
+      schema.discoveryProductPool,
+      eq(
+        schema.discoveryProductScores.poolProductId,
+        schema.discoveryProductPool.id,
+      ),
+    )
+    .where(eq(schema.discoveryProductPool.active, true));
+
+  const map = new Map<string, ScoreRow>();
+  for (const row of rows) {
+    map.set(row.catalogKey, row.score);
+  }
+  return map;
+}

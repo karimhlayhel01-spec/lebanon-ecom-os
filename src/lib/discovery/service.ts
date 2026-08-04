@@ -18,7 +18,24 @@ import {
   type CatalogProduct,
   type DemandProvider,
 } from "@/lib/discovery/catalog";
-import { resolveDiscoveryCatalogSource } from "@/lib/discovery/pool";
+import { resolveDiscoveryCatalogSource, loadPoolHintsByCatalogKey, loadActivePoolAsCatalog } from "@/lib/discovery/pool";
+import {
+  isDiscoveryPoolV2Enabled,
+  isSoftCompetitionBudgetEnabled,
+} from "@/lib/discovery/flags";
+import { loadScoresByCatalogKey } from "@/lib/discovery/scores";
+import {
+  evaluateDualAcceptGate,
+  evaluateSystemDemandGate,
+  isDualDemandGateEnabled,
+  isSoftListedHardAcceptBlocked,
+  type SystemDemandGateResult,
+} from "@/lib/discovery/dual-gate";
+import { isWhyPickFeatureEnabled } from "@/lib/discovery/explain/llm";
+import {
+  rankWave2Shortlist,
+  type Wave2RankedProduct,
+} from "@/lib/discovery/scoring/rank";
 import {
   classifyDiscoveryLadder,
   suggestionsForPassReasons,
@@ -151,12 +168,22 @@ type ScoredProduct = {
   landedCost: number;
   fit: ReturnType<typeof computeFit>;
   margin: ReturnType<typeof computeMargin>;
+  /** Wave 2 listing strength when pool v2 ranking applied. */
+  strength?: "Strong" | "Okay";
+  riskRead?: string | null;
+  notRecommended?: boolean;
+  wave2?: {
+    compositeScore: number;
+    explain: Wave2RankedProduct["explain"];
+    fallbackUsed: boolean;
+  };
 };
 
 /**
  * Score + rank catalog products for a profile. Excludes seen keys. Same Fit /
  * Margin / maxLanded rules as the first session (never-all-blocked ranking).
  * `catalog` defaults to in-memory CATALOG; pool-v2 callers pass the DB source.
+ * Wave 1 path — used when DISCOVERY_POOL_V2 is off.
  */
 export function scoreRankCatalog(
   onboarding: OnboardingRow,
@@ -204,13 +231,69 @@ export function scoreRankCatalog(
   return scored;
 }
 
+/**
+ * Wave 2 Approach A: read score cache + composite skills when pool v2 is on.
+ * Flags off → identical to Wave 1 `scoreRankCatalog`.
+ */
+export async function scoreRankForDiscovery(
+  onboarding: OnboardingRow,
+  excludeKeys: ReadonlySet<string> = new Set(),
+): Promise<ScoredProduct[]> {
+  const catalog = await resolveDiscoveryCatalogSource();
+
+  if (!isDiscoveryPoolV2Enabled()) {
+    return scoreRankCatalog(onboarding, excludeKeys, catalog);
+  }
+
+  const sourceCatalog = selectLandedCostPool(
+    catalog,
+    onboarding.maxLandedCost,
+  ).filter((p) => !excludeKeys.has(p.key));
+
+  const [scoresByKey, hintsByKey] = await Promise.all([
+    loadScoresByCatalogKey(),
+    loadPoolHintsByCatalogKey(),
+  ]);
+
+  const ranked = rankWave2Shortlist(
+    {
+      ...toFitProfile(onboarding),
+      budgetUsd: onboarding.budgetUsd,
+      monthlyFollowOnBudget: onboarding.monthlyFollowOnBudget,
+    },
+    sourceCatalog,
+    scoresByKey,
+    hintsByKey,
+    isSoftCompetitionBudgetEnabled(),
+  );
+
+  return ranked.map((r) => ({
+    p: r.p,
+    landedCost: r.landedCost,
+    fit: {
+      ...r.fit,
+      strength: r.strength,
+      riskRead: r.riskRead,
+      notRecommended: r.notRecommended,
+    },
+    margin: r.margin,
+    strength: r.strength,
+    riskRead: r.riskRead,
+    notRecommended: r.notRecommended,
+    wave2: {
+      compositeScore: r.compositeScore,
+      explain: r.explain,
+      fallbackUsed: r.fallbackUsed,
+    },
+  }));
+}
+
 export async function countRemainingEligible(
   workspaceId: string,
   onboarding: OnboardingRow,
 ): Promise<number> {
   const seen = await getSeenCatalogKeys(workspaceId);
-  const catalog = await resolveDiscoveryCatalogSource();
-  return scoreRankCatalog(onboarding, seen, catalog).length;
+  return (await scoreRankForDiscovery(onboarding, seen)).length;
 }
 
 async function getExhaustedRounds(workspaceId: string): Promise<number> {
@@ -301,7 +384,7 @@ async function insertSessionPool(
   });
 
   await db.insert(schema.productCandidates).values(
-    pool.map(({ p, fit, margin }, i) => ({
+    pool.map(({ p, fit, margin, strength, riskRead, notRecommended, wave2 }, i) => ({
       id: newId(),
       workspaceId,
       sessionId,
@@ -315,17 +398,31 @@ async function insertSessionPool(
       localCourier: p.localCourier,
       marginBefore: margin.marginBefore,
       marginAfter: margin.marginAfter,
+      // Wave 1 accept gate — hard Shared Margin skill (unchanged this pass).
       marginsPass: margin.pass,
       marginBlockReason: margin.blockReason,
       fitScore: fit.score,
-      fitBreakdown: JSON.stringify({ dims: fit.breakdown, catalogKey: p.key }),
-      strength: fit.strength,
-      riskRead: fit.riskRead,
+      fitBreakdown: JSON.stringify({
+        dims: fit.breakdown,
+        catalogKey: p.key,
+        ...(wave2
+          ? {
+              wave2: {
+                compositeScore: wave2.compositeScore,
+                fallbackUsed: wave2.fallbackUsed,
+                explain: wave2.explain,
+              },
+            }
+          : {}),
+      }),
+      strength: strength ?? fit.strength,
+      riskRead: riskRead !== undefined ? riskRead : fit.riskRead,
       differentiation: p.en.differentiation,
       tier1Conflict: p.tier1Marketplaces.length > 0,
       tier1Marketplaces: JSON.stringify(p.tier1Marketplaces),
       oversizedHardBlock: p.oversized,
-      notRecommended: fit.notRecommended,
+      notRecommended:
+        notRecommended !== undefined ? notRecommended : fit.notRecommended,
       demandConfirmed: false,
       status: "shown" as const,
       rank: i,
@@ -350,8 +447,7 @@ export async function startDiscoverySession(
   const existing = await getActiveSession(workspaceId);
   if (existing) return existing;
 
-  const catalog = await resolveDiscoveryCatalogSource();
-  const scored = scoreRankCatalog(onboarding, new Set(), catalog);
+  const scored = await scoreRankForDiscovery(onboarding, new Set());
   return insertSessionPool(workspaceId, scored);
 }
 
@@ -372,8 +468,7 @@ export async function continueDiscoverySession(
 
   // Score next pool before closing — keep the exhausted session if nothing left (D).
   const seen = await getSeenCatalogKeys(workspaceId);
-  const catalog = await resolveDiscoveryCatalogSource();
-  const scored = scoreRankCatalog(onboarding, seen, catalog);
+  const scored = await scoreRankForDiscovery(onboarding, seen);
   if (scored.length === 0) return { ok: false, error: "catalog_exhausted" };
 
   await db
@@ -578,6 +673,7 @@ export type AcceptResult =
         | "blocked"
         | "tier1_unresolved"
         | "needs_demand"
+        | "needs_system_demand"
         | "needs_risk_ack"
         | "error";
     };
@@ -587,6 +683,9 @@ export type AcceptResult =
  * approval the SKU journey advances to supplier_sample and Topic B basics +
  * active SKU + side status are written. Works for first SKU (workspace in
  * discovery) and for add-SKU (additional live SKUs while others continue).
+ *
+ * Wave 2 dual-gate (POOL_V2): founder paste AND system demand/score.
+ * Wave 1 (flag off): paste only.
  */
 export async function acceptProduct(
   workspaceId: string,
@@ -618,8 +717,37 @@ export async function acceptProduct(
   if (candidate.tier1Conflict) {
     return { ok: false, error: "tier1_unresolved" };
   }
-  if (!candidate.demandConfirmed) {
-    return { ok: false, error: "needs_demand" };
+
+  let catalogKey = "";
+  try {
+    catalogKey = JSON.parse(candidate.fitBreakdown).catalogKey ?? "";
+  } catch {
+    catalogKey = "";
+  }
+
+  let systemScore: Parameters<typeof evaluateDualAcceptGate>[0]["system"] =
+    null;
+  if (isDualDemandGateEnabled() && catalogKey) {
+    const scoresByKey = await loadScoresByCatalogKey();
+    const row = scoresByKey.get(catalogKey);
+    if (row) {
+      systemScore = {
+        abroadDemandScore: row.abroadDemandScore,
+        lebanonDemandScore: row.lebanonDemandScore,
+        demandPath: row.demandPath,
+        compositeScore: row.compositeScore,
+        lastScoreStatus: row.lastScoreStatus,
+        confidence: row.confidence,
+      };
+    }
+  }
+
+  const dual = evaluateDualAcceptGate({
+    pasteConfirmed: candidate.demandConfirmed,
+    system: systemScore,
+  });
+  if (!dual.ok && dual.error) {
+    return { ok: false, error: dual.error };
   }
 
   const requiredAcks = candidate.strength === "Okay" ? ["okay_risk_read"] : [];
@@ -629,7 +757,12 @@ export async function acceptProduct(
   }
 
   const approval = await createApprovalRequest(workspaceId, "accept_product", {
-    data: { candidateId, productName: candidate.name },
+    data: {
+      candidateId,
+      productName: candidate.name,
+      dualDemandGate: dual.dualEnabled,
+      systemDemandPath: dual.system.demandPath,
+    },
     requiredAcks,
     // skuId filled after insert — advance via workspace until SKU exists, then
     // we create the sku journey at supplier_sample directly (gate still records).
@@ -689,13 +822,6 @@ export async function acceptProduct(
     candidate.localCourier;
   const now = nowIso();
   const skuId = newId();
-
-  let catalogKey = "";
-  try {
-    catalogKey = JSON.parse(candidate.fitBreakdown).catalogKey ?? "";
-  } catch {
-    catalogKey = "";
-  }
 
   const sections = buildSkuSections({
     name: candidate.name,
@@ -820,6 +946,15 @@ export type DiscoveryCandidateView = {
    * import `marginsPass` / moneySnapshot — never unlock via local-only margins.
    */
   sourceCostHint: SourceCostHint | null;
+  /** Wave 2 dual-gate active (POOL_V2). */
+  dualDemandGate: boolean;
+  /** System demand/score gate status when dual-gate on. */
+  systemDemand: SystemDemandGateResult | null;
+  /**
+   * Soft-margin listing but hard Wave 1 margins fail accept —
+   * UI must say so explicitly (not silent).
+   */
+  softListedHardAcceptBlocked: boolean;
 };
 
 export type DiscoveryView = {
@@ -833,6 +968,8 @@ export type DiscoveryView = {
   ladder: DiscoveryLadder | null;
   exhaustedRounds: number;
   remainingEligible: number;
+  /** WAVE-2 §6.1 Why this pick? button (DISCOVERY_WHY_PICK). */
+  whyPickEnabled: boolean;
 };
 
 export async function getDiscoveryView(
@@ -903,14 +1040,34 @@ export async function getDiscoveryView(
     }
   }
 
+  const dualEnabled = isDualDemandGateEnabled();
+  const scoresByKey = dualEnabled
+    ? await loadScoresByCatalogKey()
+    : new Map();
+
+  // Pool rows cover Path 1 keys missing from curated catalog.ts (seed/fallback).
+  const poolByKey = new Map<string, CatalogProduct>();
+  if (isDiscoveryPoolV2Enabled()) {
+    const poolProducts = await loadActivePoolAsCatalog();
+    for (const p of poolProducts) poolByKey.set(p.key, p);
+  }
+
   const candidates: DiscoveryCandidateView[] = visible.map((r) => {
     let catalogKey = "";
+    let softMarginBand: string | null = null;
     try {
-      catalogKey = JSON.parse(r.fitBreakdown).catalogKey ?? "";
+      const breakdown = JSON.parse(r.fitBreakdown);
+      catalogKey = breakdown.catalogKey ?? "";
+      softMarginBand =
+        breakdown?.wave2?.explain?.softMarginBand ??
+        breakdown?.wave2?.softMarginBand ??
+        null;
     } catch {
       catalogKey = "";
     }
-    const product = getCatalogProduct(catalogKey);
+    const product =
+      getCatalogProduct(catalogKey) ??
+      (catalogKey ? poolByKey.get(catalogKey) : undefined);
     const text = product
       ? localizedProduct(product, locale)
       : { name: r.name, summary: r.summary, differentiation: r.differentiation };
@@ -922,6 +1079,22 @@ export async function getDiscoveryView(
     } catch {
       tier1Marketplaces = [];
     }
+
+    const scoreRow = catalogKey ? scoresByKey.get(catalogKey) : undefined;
+    const systemDemand = dualEnabled
+      ? evaluateSystemDemandGate(
+          scoreRow
+            ? {
+                abroadDemandScore: scoreRow.abroadDemandScore,
+                lebanonDemandScore: scoreRow.lebanonDemandScore,
+                demandPath: scoreRow.demandPath,
+                compositeScore: scoreRow.compositeScore,
+                lastScoreStatus: scoreRow.lastScoreStatus,
+                confidence: scoreRow.confidence,
+              }
+            : null,
+        )
+      : null;
 
     return {
       id: r.id,
@@ -951,6 +1124,13 @@ export async function getDiscoveryView(
             onboarding?.monthlyFollowOnBudget ?? 0,
           )
         : null,
+      dualDemandGate: dualEnabled,
+      systemDemand,
+      softListedHardAcceptBlocked: isSoftListedHardAcceptBlocked({
+        marginsPass: r.marginsPass,
+        oversized: r.oversizedHardBlock,
+        softMarginBand,
+      }),
     };
   });
 
@@ -967,5 +1147,6 @@ export async function getDiscoveryView(
     ladder,
     exhaustedRounds,
     remainingEligible,
+    whyPickEnabled: isWhyPickFeatureEnabled(),
   };
 }

@@ -13,7 +13,10 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "discovery:intake": "tsx scripts/discovery-jobs.ts intake",
+    "discovery:score": "tsx scripts/discovery-jobs.ts score",
+    "discovery:refresh": "tsx scripts/discovery-jobs.ts refresh"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

@@ -5,9 +5,11 @@ import path from "path";
 import postgres from "postgres";
 import * as schema from "./schema";
 
-/** Load `.env` for CLI scripts (tsx seed / migrate); Next.js already injects env. */
+/** Load `.env` for CLI scripts (tsx jobs / migrate); Next.js already injects env.
+ * Always merges keys that are unset in the process — do not skip the whole file
+ * when DATABASE_URL is already present (Wave 2 flags live in .env too).
+ */
 function loadDotEnv() {
-  if (process.env.DATABASE_URL) return;
   const envPath = path.join(process.cwd(), ".env");
   if (!existsSync(envPath)) return;
   try {
@@ -108,3 +110,9 @@ export async function ensureMigrated(): Promise<void> {
 }
 
 export { schema };
+
+/** Close the Postgres client — needed so CLI scripts exit cleanly. */
+export async function closeDb(): Promise<void> {
+  await client.end({ timeout: 5 });
+}
+
