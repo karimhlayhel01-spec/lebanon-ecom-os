@@ -12,8 +12,8 @@ import {
 } from "@/lib/discovery/ladder";
 import {
   acceptProduct,
-  confirmDemand,
   continueDiscoverySession,
+  refreshDiscoverySuggestions,
   rejectCandidate,
   resolveTier1,
   showMore,
@@ -70,6 +70,23 @@ export async function continueDiscoveryAction() {
   return result;
 }
 
+export async function refreshSuggestionsAction() {
+  await ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false as const, error: "not_found" };
+
+  const onboarding = await db
+    .select()
+    .from(schema.onboardingProfiles)
+    .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
+    .then((rows) => rows[0]);
+  if (!onboarding) return { ok: false as const, error: "not_found" };
+
+  const result = await refreshDiscoverySuggestions(workspace.id, onboarding);
+  revalidatePath("/", "layout");
+  return result;
+}
+
 export type PassFeedbackState = {
   ok?: boolean;
   error?: string;
@@ -92,42 +109,6 @@ export async function submitDiscoveryPassFeedbackAction(
   });
   revalidatePath("/", "layout");
   return result.ok ? { ok: true } : { error: result.error };
-}
-
-export type DemandActionState = {
-  ok?: boolean;
-  error?: string;
-  /** Saved DemandProvider summary — shown immediately after confirm. */
-  summary?: string;
-};
-
-export async function confirmDemandAction(
-  _prev: DemandActionState,
-  formData: FormData,
-): Promise<DemandActionState> {
-  await ensureMigrated();
-  const workspace = await workspaceForRequest();
-  if (!workspace) return { error: "not_found" };
-
-  const candidateId = String(formData.get("candidateId") ?? "");
-  const url = String(formData.get("url") ?? "").trim();
-  const note = String(formData.get("note") ?? "").trim();
-  const screenshotNote = String(formData.get("screenshotNote") ?? "").trim();
-  const locale = (await getLocale()) as AppLocale;
-
-  const result = await confirmDemand(
-    workspace.id,
-    candidateId,
-    {
-      url: url || undefined,
-      note: note || undefined,
-      screenshotNote: screenshotNote || undefined,
-    },
-    locale,
-  );
-
-  revalidatePath("/", "layout");
-  return { ok: result.ok, error: result.error, summary: result.summary };
 }
 
 export async function resolveTier1Action(
@@ -172,7 +153,15 @@ export type WhyPickActionState = {
   error?: string;
   body?: string;
   source?: "template" | "llm";
+  honestyKey?:
+    | "whySuggestedHonestyLive"
+    | "whySuggestedHonestyEstimate"
+    | "whySuggestedHonesty";
   cached?: boolean;
+  /** Server WHY_PICK_CACHE_VERSION so client can invalidate stale body. */
+  cacheVersion?: string;
+  /** Fail-closed missing Gemini key (§6.1). */
+  missingKey?: boolean;
 };
 
 export async function explainWhyThisPickAction(
@@ -186,6 +175,9 @@ export async function explainWhyThisPickAction(
   const { explainWhyThisPick } = await import(
     "@/lib/discovery/explain/service"
   );
+  const { WHY_PICK_CACHE_VERSION } = await import(
+    "@/lib/discovery/explain/cache"
+  );
   const result = await explainWhyThisPick({
     workspaceId: workspace.id,
     candidateId,
@@ -193,13 +185,83 @@ export async function explainWhyThisPickAction(
   });
 
   if (!result.ok) {
-    return { error: result.error };
+    return {
+      error: result.error,
+      missingKey: result.error === "missing_key",
+      cacheVersion: WHY_PICK_CACHE_VERSION,
+    };
   }
   // Do not revalidatePath — explain must not reshuffle Discovery / scores.
   return {
     ok: true,
     body: result.result.body,
     source: result.result.source,
+    honestyKey:
+      result.result.honestyKey === "whySuggestedHonestyLive" ||
+      result.result.honestyKey === "whySuggestedHonestyEstimate"
+        ? result.result.honestyKey
+        : "whySuggestedHonesty",
     cached: result.cached,
+    cacheVersion: WHY_PICK_CACHE_VERSION,
+  };
+}
+
+export type CompareActionState = {
+  ok?: boolean;
+  error?: string;
+  body?: string;
+  honestyKey?:
+    | "whySuggestedHonestyLive"
+    | "whySuggestedHonestyEstimate"
+    | "whySuggestedHonesty";
+  cached?: boolean;
+  cacheVersion?: string;
+  missingKey?: boolean;
+  advisedCandidateId?: string;
+  advisedCatalogKey?: string;
+  advisedName?: string;
+};
+
+export async function compareWorthConsideringAction(
+  candidateIds: string[],
+): Promise<CompareActionState> {
+  await ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { error: "not_found" };
+
+  const locale = (await getLocale()) as AppLocale;
+  const { explainWorthConsideringCompare } = await import(
+    "@/lib/discovery/explain/compare-service"
+  );
+  const { COMPARE_CACHE_VERSION } = await import(
+    "@/lib/discovery/explain/cache"
+  );
+  const result = await explainWorthConsideringCompare({
+    workspaceId: workspace.id,
+    candidateIds,
+    locale: locale === "ar" ? "ar" : "en",
+  });
+
+  if (!result.ok) {
+    return {
+      error: result.error,
+      missingKey: result.error === "missing_key",
+      cacheVersion: COMPARE_CACHE_VERSION,
+    };
+  }
+  // Do not revalidatePath — compare must not reshuffle Discovery / scores.
+  return {
+    ok: true,
+    body: result.result.body,
+    honestyKey:
+      result.result.honestyKey === "whySuggestedHonestyLive" ||
+      result.result.honestyKey === "whySuggestedHonestyEstimate"
+        ? result.result.honestyKey
+        : "whySuggestedHonesty",
+    cached: result.cached,
+    cacheVersion: COMPARE_CACHE_VERSION,
+    advisedCandidateId: result.result.advisedCandidateId,
+    advisedCatalogKey: result.result.advisedCatalogKey,
+    advisedName: result.result.advisedName,
   };
 }

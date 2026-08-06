@@ -94,6 +94,11 @@ describe("runScoreRefreshJob live evidence (mock provider)", () => {
       rawEvidenceJson?: string;
     };
     expect(JSON.stringify(snap)).toContain("heuristic");
+    const raw = JSON.parse(snap.rawEvidenceJson!) as Record<string, unknown>;
+    expect(raw.source).toBe("heuristic_seed");
+    expect(raw).not.toHaveProperty("abroad");
+    expect(raw).not.toHaveProperty("lebanon");
+    expect(raw).not.toHaveProperty("tier1Found");
   });
 
   it("persists live scores from mocked provider under flag + enforces cap", async () => {
@@ -150,10 +155,22 @@ describe("runScoreRefreshJob live evidence (mock provider)", () => {
       lebanonDemandScore: number;
       demandPath: string | null;
       confidence: number;
+      rawEvidenceJson: string;
     };
     expect(snap.abroadDemandScore).toBeGreaterThan(0.3);
     expect(snap.demandPath).toBeTruthy();
     expect(snap.confidence).toBeGreaterThan(0.3);
+    const raw = JSON.parse(snap.rawEvidenceJson) as {
+      source: string;
+      abroad: { count: number; results: { domain: string }[] };
+      lebanon: { count: number; results: { domain: string }[] };
+      tier1Found: string[];
+    };
+    expect(raw.source).toBe("live_search");
+    expect(raw.abroad.count).toBeGreaterThan(0);
+    expect(raw.abroad.results[0].domain).toBe("amazon.com");
+    expect(raw.lebanon.count).toBeGreaterThan(0);
+    expect(raw.tier1Found).toEqual([]);
   });
 
   it("counts empty-evidence and still writes scores (shadow log)", async () => {

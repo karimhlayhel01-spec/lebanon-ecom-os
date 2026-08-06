@@ -106,7 +106,7 @@ export function buildExplainLine(parts: {
   fallbackUsed: boolean;
 }): string {
   if (parts.fallbackUsed) {
-    return "Fallback shortlist: best Fit + soft margin while Wave 2 passers are thin.";
+    return "Thin accept-ready shortlist — edit onboarding if the list feels empty.";
   }
   const pathBit =
     parts.path === "whitespace"
@@ -116,7 +116,7 @@ export function buildExplainLine(parts: {
         : "neutral demand";
   const marginBit =
     parts.softMarginBand === "soft_ok"
-      ? "; margins tight vs target"
+      ? "; margins under hard accept targets"
       : parts.softMarginBand === "far_below"
         ? "; margins far below target"
         : "";

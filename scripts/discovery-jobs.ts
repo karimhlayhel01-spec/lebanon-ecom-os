@@ -15,7 +15,10 @@ import {
   isDiscoveryPoolV2Enabled,
   isSoftCompetitionBudgetEnabled,
 } from "@/lib/discovery/flags";
-import { isWhyPickFeatureEnabled } from "@/lib/discovery/explain/llm";
+import {
+  isGeminiConfigured,
+  isSuggestionExplainEnabled,
+} from "@/lib/discovery/explain/llm";
 import { resolveSerpApiKey } from "@/lib/discovery/providers/serpapi";
 
 type Command = "intake" | "score" | "refresh";
@@ -52,7 +55,10 @@ function printFlagBanner() {
   console.log(
     `  DISCOVERY_SOFT_COMPETITION_BUDGET=${isSoftCompetitionBudgetEnabled() ? "soft" : "hard-shadow"}`,
   );
-  console.log(`  DISCOVERY_WHY_PICK=${isWhyPickFeatureEnabled() ? "on" : "off"}`);
+  console.log(
+    `  suggestion explain (POOL_V2)=${isSuggestionExplainEnabled() ? "on" : "off"}`,
+  );
+  console.log(`  Gemini key=${isGeminiConfigured() ? "present" : "missing"}`);
   console.log(`  SerpAPI key=${hasKey ? "present" : "missing"}`);
   console.log("");
 }

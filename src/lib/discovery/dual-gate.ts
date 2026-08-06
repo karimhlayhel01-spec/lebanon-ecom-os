@@ -1,11 +1,17 @@
 /**
- * Wave 2 dual-gate demand confirm (WAVE-2 §7).
- * When DISCOVERY_POOL_V2 is on: accept needs system demand/score AND founder paste.
- * When flag off: Wave 1 paste-only. Paste UI stays until a later trusted rollout.
+ * Wave 2 Discovery accept demand gate — system skill scores only.
+ * Founder paste demand confirm is REMOVED (WAVE-2 §6.1 / §7).
  */
 
-import { isDiscoveryPoolV2Enabled } from "@/lib/discovery/flags";
+import {
+  isDiscoveryLiveSearchEnabled,
+  isDiscoveryPoolV2Enabled,
+} from "@/lib/discovery/flags";
 import { scoreDemand } from "@/lib/discovery/scoring/demand";
+import {
+  heuristicScoresFromPoolProduct,
+  type HeuristicPoolFields,
+} from "@/lib/discovery/scoring/heuristics";
 
 /** Minimum demand skill score to pass the system gate (calibration). */
 export const SYSTEM_DEMAND_GATE_MIN = 0.35;
@@ -28,26 +34,74 @@ export type SystemDemandGateResult = {
   reason: string | null;
 };
 
-export type DualAcceptError =
-  | "needs_demand"
-  | "needs_system_demand";
+export type AcceptDemandError =
+  | "needs_system_demand_missing"
+  | "needs_system_demand_weak";
 
-export type DualAcceptCheck = {
-  dualEnabled: boolean;
-  pasteConfirmed: boolean;
+export type AcceptDemandCheck = {
+  /** True when POOL_V2 requires system score for accept. */
+  systemGateEnabled: boolean;
   system: SystemDemandGateResult;
   ok: boolean;
-  error: DualAcceptError | null;
+  error: AcceptDemandError | null;
 };
 
-/** Dual-gate is tied to pool/score cache (Approach A). Flag off → Wave 1 paste only. */
-export function isDualDemandGateEnabled(): boolean {
+/** System demand gate when pool/score cache is the Discovery SoT. */
+export function isSystemDemandGateEnabled(): boolean {
   return isDiscoveryPoolV2Enabled();
+}
+
+/** @deprecated Use isSystemDemandGateEnabled — paste dual-gate removed. */
+export function isDualDemandGateEnabled(): boolean {
+  return isSystemDemandGateEnabled();
+}
+
+/**
+ * Heuristic seed scores when LIVE_SEARCH is off and the Approach A cache row
+ * is missing / unusable (common after Path 1 intake before `discovery:score`).
+ */
+export function systemScoreFromHeuristicProduct(
+  product: HeuristicPoolFields,
+): SystemDemandGateInput {
+  const snap = heuristicScoresFromPoolProduct(product);
+  return {
+    abroadDemandScore: snap.abroadDemandScore,
+    lebanonDemandScore: snap.lebanonDemandScore,
+    demandPath: snap.demandPath,
+    compositeScore: snap.compositeScore,
+    lastScoreStatus: "ok",
+    confidence: snap.confidence,
+  };
+}
+
+/**
+ * Prefer usable score-cache rows; when LIVE_SEARCH is off and cache is missing,
+ * fall back to deterministic heuristics from the pool product (read path only).
+ */
+export function resolveSystemDemandInput(opts: {
+  cache: SystemDemandGateInput | null | undefined;
+  heuristicProduct?: HeuristicPoolFields | null;
+  liveSearchEnabled?: boolean;
+}): SystemDemandGateInput | null {
+  const live =
+    opts.liveSearchEnabled !== undefined
+      ? opts.liveSearchEnabled
+      : isDiscoveryLiveSearchEnabled();
+  const cache = opts.cache ?? null;
+  if (cache) {
+    const status = evaluateSystemDemandGate(cache).status;
+    if (status !== "missing") return cache;
+  }
+  if (!live && opts.heuristicProduct) {
+    return systemScoreFromHeuristicProduct(opts.heuristicProduct);
+  }
+  return cache;
 }
 
 /**
  * System demand/score gate — dual path (whitespace OR local-proven).
- * Missing score cache → fail-closed while dual-gate is on.
+ * Missing score cache → fail-closed while pool v2 is on.
+ * Heuristic or live rows with numeric scores / lastScoreStatus=ok count as scored.
  */
 export function evaluateSystemDemandGate(
   input: SystemDemandGateInput | null | undefined,
@@ -79,7 +133,10 @@ export function evaluateSystemDemandGate(
       status: "missing",
       demandPath: input.demandPath ?? null,
       demandScore: null,
-      reason: "score_cache_missing",
+      reason:
+        input.lastScoreStatus === "failed"
+          ? "score_refresh_failed"
+          : "score_cache_missing",
     };
   }
 
@@ -108,60 +165,44 @@ export function evaluateSystemDemandGate(
 }
 
 /**
- * Dual-gate accept check (pure). Paste-only when dual disabled.
- * Prefer paste error first when both missing (clearer Wave 1-compatible copy).
+ * Accept demand check — paste never required.
+ * POOL_V2 off → no system score required (Wave 1 catalog path).
+ * POOL_V2 on → system demand/score must pass.
+ * Missing vs weak are distinct errors for founder-facing copy.
  */
-export function evaluateDualAcceptGate(input: {
-  pasteConfirmed: boolean;
+export function evaluateAcceptDemandGate(input: {
   system: SystemDemandGateInput | null | undefined;
-  dualEnabled?: boolean;
-}): DualAcceptCheck {
-  const dualEnabled =
-    input.dualEnabled !== undefined
-      ? input.dualEnabled
-      : isDualDemandGateEnabled();
+  systemGateEnabled?: boolean;
+}): AcceptDemandCheck {
+  const systemGateEnabled =
+    input.systemGateEnabled !== undefined
+      ? input.systemGateEnabled
+      : isSystemDemandGateEnabled();
   const system = evaluateSystemDemandGate(input.system);
 
-  if (!dualEnabled) {
-    if (!input.pasteConfirmed) {
-      return {
-        dualEnabled: false,
-        pasteConfirmed: false,
-        system,
-        ok: false,
-        error: "needs_demand",
-      };
-    }
+  if (!systemGateEnabled) {
     return {
-      dualEnabled: false,
-      pasteConfirmed: true,
+      systemGateEnabled: false,
       system,
       ok: true,
       error: null,
     };
   }
 
-  if (!input.pasteConfirmed) {
-    return {
-      dualEnabled: true,
-      pasteConfirmed: false,
-      system,
-      ok: false,
-      error: "needs_demand",
-    };
-  }
   if (!system.pass) {
     return {
-      dualEnabled: true,
-      pasteConfirmed: true,
+      systemGateEnabled: true,
       system,
       ok: false,
-      error: "needs_system_demand",
+      error:
+        system.status === "missing"
+          ? "needs_system_demand_missing"
+          : "needs_system_demand_weak",
     };
   }
+
   return {
-    dualEnabled: true,
-    pasteConfirmed: true,
+    systemGateEnabled: true,
     system,
     ok: true,
     error: null,
@@ -169,14 +210,56 @@ export function evaluateDualAcceptGate(input: {
 }
 
 /**
- * Soft-margin listing vs hard accept mismatch (WAVE-2 §5.2 vs Wave 1 accept).
- * True when listed under soft band but hard Shared Margin skill fails accept.
+ * @deprecated Paste dual-gate removed — use evaluateAcceptDemandGate.
+ * Kept for a short transition; ignores pasteConfirmed.
  */
-export function isSoftListedHardAcceptBlocked(input: {
+export function evaluateDualAcceptGate(input: {
+  pasteConfirmed?: boolean;
+  system: SystemDemandGateInput | null | undefined;
+  dualEnabled?: boolean;
+}): AcceptDemandCheck & { dualEnabled: boolean; pasteConfirmed: boolean } {
+  const check = evaluateAcceptDemandGate({
+    system: input.system,
+    systemGateEnabled: input.dualEnabled,
+  });
+  return {
+    ...check,
+    dualEnabled: check.systemGateEnabled,
+    pasteConfirmed: true,
+  };
+}
+
+/**
+ * Soft-margin listing vs hard accept mismatch — retired.
+ * Shortlist is accept-ready only (WAVE-2 §5.2); soft_ok is never listed.
+ * Kept for a short transition; always false.
+ */
+export function isSoftListedHardAcceptBlocked(_input: {
   marginsPass: boolean;
   oversized: boolean;
   softMarginBand?: string | null;
 }): boolean {
-  if (input.oversized || input.marginsPass) return false;
-  return input.softMarginBand === "soft_ok";
+  return false;
+}
+
+/**
+ * Accept-ready for Discovery shortlist (WAVE-2 §5.2 / §7).
+ * Same gates Accept would need — excluding Tier-1 customize / Okay risk-ack
+ * (those stay on otherwise accept-ready cards).
+ */
+export function isAcceptReadyForShortlist(input: {
+  marginsPass: boolean;
+  oversized: boolean;
+  /** Fit notRecommended → exclude (same spirit as prior core passers). */
+  fitNotRecommended?: boolean;
+  system: SystemDemandGateInput | null | undefined;
+  systemGateEnabled?: boolean;
+}): boolean {
+  if (input.oversized || !input.marginsPass) return false;
+  if (input.fitNotRecommended) return false;
+  const demand = evaluateAcceptDemandGate({
+    system: input.system,
+    systemGateEnabled: input.systemGateEnabled,
+  });
+  return demand.ok;
 }

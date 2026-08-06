@@ -228,7 +228,35 @@ describe("computeComposite", () => {
     });
     expect(r.competition.level).toBe("high");
     expect(r.listingStrength).toBe("Okay");
+    expect(r.okayReason).toBe("high_competition");
     expect(r.listable).toBe(true);
+  });
+
+  it("marks soft_ok (under hard margins) as not listable", () => {
+    const margin = computeMargin({
+      sellPrice: 100,
+      productCost: 34,
+      intlShip: 0,
+      clearanceTaxes: 0,
+      localCourier: 0,
+      monthlyFollowOnBudget: 0,
+    });
+    expect(margin.pass).toBe(false);
+    const r = computeComposite({
+      abroadDemandScore: 0.9,
+      lebanonDemandScore: 0.1,
+      competitionScore: 0.1,
+      confidence: 0.8,
+      fit: fitOk(),
+      margin,
+      budgetUsd: 5000,
+      monthlyFollowOnBudget: 500,
+      softCompetitionBudget: true,
+      category: "home_kitchen",
+      evidenceSource: "neutral",
+    });
+    expect(r.softMargin.band).toBe("soft_ok");
+    expect(r.listable).toBe(false);
   });
 
   it("marks far_below soft margin as not listable", () => {
@@ -346,9 +374,9 @@ function stubScore(partial: Partial<ScoreRow> & { id: string }): ScoreRow {
   };
 }
 
-describe("rankWave2Shortlist fallback", () => {
-  it("falls back when fewer than 5 passers with Fit + soft-margin message", () => {
-    // Only 2 products with usable margins; rest far_below via huge cost.
+describe("rankWave2Shortlist accept-ready only", () => {
+  it("does not soft-fill when fewer than 5 passers — empty or accept-ready only", () => {
+    // Only 2 products with hard margins; rest far_below via huge cost.
     const catalog = [
       stubProduct("a", "home_kitchen"),
       stubProduct("b", "beauty_personal_care"),
@@ -384,16 +412,17 @@ describe("rankWave2Shortlist fallback", () => {
       scores,
       new Map(),
       true,
+      { systemGateEnabled: true, liveSearchEnabled: true },
     );
 
-    expect(ranked.length).toBeGreaterThanOrEqual(2);
-    expect(ranked.some((r) => r.fallbackUsed)).toBe(true);
-    expect(ranked[0].explain.fallbackMessage).toMatch(/Fewer than 5/);
+    expect(ranked.map((r) => r.p.key).sort()).toEqual(["a", "b"]);
+    expect(ranked.every((r) => r.margin.pass)).toBe(true);
+    expect(ranked.every((r) => !r.fallbackUsed)).toBe(true);
     expect(ranked.filter((r) => r.explain.softMarginBand === "far_below").length).toBe(0);
     expect(DISCOVERY_FALLBACK_SHORTLIST_MIN).toBe(5);
   });
 
-  it("keeps high-competition products listable as Okay", () => {
+  it("keeps high-competition products listable as Okay when accept-ready", () => {
     const catalog = [
       stubProduct("hi", "phone_tech_accessories", {
         tier1Marketplaces: ["Ishtari", "EGLOW"],
@@ -425,8 +454,11 @@ describe("rankWave2Shortlist fallback", () => {
       scores,
       new Map(),
       true,
+      { systemGateEnabled: true, liveSearchEnabled: true },
     );
     expect(ranked[0].strength).toBe("Okay");
+    expect(ranked[0].okayReason).toBe("high_competition");
+    expect(ranked[0].riskRead).toBe("@listing.highCompetition");
     expect(ranked[0].notRecommended).toBe(false);
   });
 });

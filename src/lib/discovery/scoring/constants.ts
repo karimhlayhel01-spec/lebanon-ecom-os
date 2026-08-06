@@ -1,17 +1,17 @@
 /**
  * Wave 2 Discovery scoring calibration (Pass 1).
- * Soft-margin band widths are implementation detail (WAVE-2 §5.2) — not product locks.
+ * Soft-margin band widths are implementation detail for scoring/explain —
+ * shortlist listing requires hard Wave 1 70%/35% (WAVE-2 §5.2).
  *
  * Wave 1 hard accept targets remain 70% / 35% (`MARGIN_*` in `@/lib/constants`).
- * Soft listing allows a slightly-under band; far below is not recommended.
  */
 
-/** Listing OK when before-ads margin is at least this (5pp under Wave 1 70%). */
+/** soft_ok scoring band floor (before ads) — not a listing gate. */
 export const SOFT_MARGIN_BEFORE_LIST_MIN = 0.65;
-/** Listing OK when after-ads margin is at least this (5pp under Wave 1 35%). */
+/** soft_ok scoring band floor (after ads) — not a listing gate. */
 export const SOFT_MARGIN_AFTER_LIST_MIN = 0.3;
 /**
- * Far-below floor — below either → do not recommend for Discovery listing.
+ * Far-below floor — below either → weak scoring band (never listed).
  * ~15pp under Wave 1 before / ~13pp under after.
  */
 export const SOFT_MARGIN_BEFORE_FLOOR = 0.55;

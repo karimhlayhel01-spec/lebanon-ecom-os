@@ -66,11 +66,15 @@ describe("Wave 2 Discovery isolation", () => {
     expect(service).not.toContain("buildScoreRefreshQueryPlan");
   });
 
-  it("Why this pick? explain does not import accept or score writers", () => {
+  it("Why we suggested this explain does not import accept or score writers", () => {
     const explainDir = [
       "lib/discovery/explain/service.ts",
       "lib/discovery/explain/why-pick.ts",
       "lib/discovery/explain/llm.ts",
+      "lib/discovery/explain/compare-service.ts",
+      "lib/discovery/explain/compare.ts",
+      "lib/discovery/explain/compare-llm.ts",
+      "lib/discovery/compare/pick.ts",
     ];
     for (const file of explainDir) {
       const src = read(file);
@@ -80,12 +84,51 @@ describe("Wave 2 Discovery isolation", () => {
     }
   });
 
+  it("compare path is advice-only and does not write scores", () => {
+    const compareService = read("lib/discovery/explain/compare-service.ts");
+    expect(compareService).toContain("explainWorthConsideringCompare");
+    expect(compareService).toContain("pickCompareWinner");
+    expect(compareService).not.toContain(".insert(");
+    expect(compareService).not.toContain(".update(");
+    expect(compareService).not.toContain("acceptProduct");
+    const actions = read("actions/discovery.ts");
+    expect(actions).toContain("compareWorthConsideringAction");
+    expect(actions).toContain("Do not revalidatePath — compare");
+    const board = read("components/discovery/DiscoveryBoard.tsx");
+    expect(board).toContain("worthConsidering");
+    expect(board).toContain("compareWorthConsideringAction");
+    expect(board).toContain("revalidateWorthConsideringMarks");
+  });
+
   it("Discovery service does not call score refresh / intake jobs", () => {
     const service = read("lib/discovery/service.ts");
     expect(service).not.toContain("runScoreRefreshJob");
     expect(service).not.toContain("runPath1IntakeJob");
     expect(service).not.toContain("jobs/score-refresh");
     expect(service).not.toContain("jobs/intake");
+  });
+
+  it("Discovery view path does not full-scan the active product pool", () => {
+    // getDiscoveryView must resolve Path 1 text via keyed batch only
+    // (loadPoolProductsByCatalogKeys), not the full-pool loader (~800 rows).
+    const service = read("lib/discovery/service.ts");
+    expect(service).not.toContain("loadActivePoolAsCatalog");
+    expect(service).toContain("loadPoolProductsByCatalogKeys");
+    const viewFn = service.slice(service.indexOf("export async function getDiscoveryView"));
+    expect(viewFn).toContain("loadPoolProductsByCatalogKeys");
+    expect(viewFn).toContain("visibleCatalogKeys");
+  });
+
+  it("POOL_V2 refresh suggestions closes session and re-scores with seen keys", () => {
+    const service = read("lib/discovery/service.ts");
+    expect(service).toContain("export async function refreshDiscoverySuggestions");
+    expect(service).toContain("canRefreshSuggestions");
+    const actions = read("actions/discovery.ts");
+    expect(actions).toContain("refreshSuggestionsAction");
+    expect(actions).toContain("refreshDiscoverySuggestions");
+    const board = read("components/discovery/DiscoveryBoard.tsx");
+    expect(board).toContain("refreshSuggestionsAction");
+    expect(board).toContain("canRefreshSuggestions");
   });
 
   it("score fail helper does not clear numeric fields in source", () => {

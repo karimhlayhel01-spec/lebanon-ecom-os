@@ -28,14 +28,14 @@ describe("curated catalog", () => {
     expect(keys.size).toBe(CATALOG.length);
   });
 
-  it("has enough acceptable products so the first page is never all-blocked", () => {
+  it("has enough acceptable products so the first page can be accept-ready", () => {
     const evaluated = evaluate();
     const acceptable = evaluated.filter((e) => e.acceptable);
-    // Ranking pushes acceptable products first; >= 5 guarantees a clean page.
+    // Ranking lists accept-ready only; >= 5 supports a full first page.
     expect(acceptable.length).toBeGreaterThanOrEqual(5);
   });
 
-  it("still includes blocked and oversized products for realism", () => {
+  it("still includes blocked and oversized products in catalog for realism", () => {
     const evaluated = evaluate();
     expect(evaluated.some((e) => !e.margin.pass)).toBe(true);
     expect(evaluated.some((e) => e.p.oversized)).toBe(true);

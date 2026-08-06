@@ -60,6 +60,15 @@ const GULF_HOST_HINTS = [
   "extra.com",
 ];
 
+export const MARKET_EVIDENCE_RESULT_CAP = 5;
+export const MARKET_EVIDENCE_TEXT_MAX = 120;
+
+export type BoundedMarketResult = {
+  domain: string;
+  title: string;
+  seller: string | null;
+};
+
 export type ScoreRefreshProductFields = {
   nameEn: string;
   category: string;
@@ -83,6 +92,61 @@ function clamp01(n: number): number {
 
 function itemBlob(item: SearchResultItem): string {
   return `${item.title} ${item.url} ${item.snippet ?? ""} ${item.merchant ?? ""}`.toLowerCase();
+}
+
+function trimEvidenceText(value: string | null | undefined): string {
+  return (value ?? "").replace(/\s+/g, " ").trim().slice(0, MARKET_EVIDENCE_TEXT_MAX);
+}
+
+function domainFromUrl(raw: string): string {
+  try {
+    return new URL(raw).hostname.toLowerCase().replace(/^www\./, "").slice(0, 100);
+  } catch {
+    return "";
+  }
+}
+
+/** Bounded, deduplicated facts only — no snippets or full result payloads. */
+export function boundedMarketResults(
+  items: readonly SearchResultItem[],
+): BoundedMarketResult[] {
+  const out: BoundedMarketResult[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const domain = domainFromUrl(item.url);
+    const title = trimEvidenceText(item.title);
+    const seller = trimEvidenceText(item.merchant) || null;
+    if (!domain || !title) continue;
+    const key = `${domain}\u0000${title.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ domain, title, seller });
+    if (out.length >= MARKET_EVIDENCE_RESULT_CAP) break;
+  }
+  return out;
+}
+
+export function tier1NamesFromItems(
+  items: readonly SearchResultItem[],
+): string[] {
+  const known = [
+    { name: "Ishtari", needles: ["ishtari"] },
+    { name: "EGLOW", needles: ["eglow"] },
+    { name: "Platza", needles: ["platza"] },
+  ];
+  const found: string[] = [];
+  for (const item of items) {
+    const blob = itemBlob(item);
+    const knownHit = known.find((entry) =>
+      entry.needles.some((needle) => blob.includes(needle)),
+    );
+    const name =
+      (knownHit?.name ?? trimEvidenceText(item.merchant)) ||
+      domainFromUrl(item.url);
+    if (name && !found.includes(name)) found.push(name);
+    if (found.length >= MARKET_EVIDENCE_RESULT_CAP) break;
+  }
+  return found;
 }
 
 function isGulfPrimaryHit(item: SearchResultItem): boolean {
@@ -257,6 +321,10 @@ export function scoresFromSearchEvidence(input: {
   const explainLine = emptyEvidence
     ? `Live search empty for ${input.productName} — low-confidence scores; last-known kept on future fail.`
     : `Live scores for ${input.productName} (${demand.path ?? "neutral"}; competition ${competition.level}).`;
+  const abroadResults = boundedMarketResults(input.abroadItems);
+  const lebanonResults = boundedMarketResults(input.lebanonItems);
+  const localCompetitionResults = boundedMarketResults(input.localItems);
+  const tier1Found = tier1NamesFromItems(input.tier1Items);
 
   return {
     abroadDemandScore,
@@ -277,12 +345,26 @@ export function scoresFromSearchEvidence(input: {
       source: "live_search",
       provider: "SerpAPI",
       queriesUsed: input.queriesUsed,
+      confidence,
       hitCounts: {
         abroad: input.abroadItems.length,
         lebanon: input.lebanonItems.length,
         tier1: input.tier1Items.length,
         local: input.localItems.length,
       },
+      abroad: {
+        count: input.abroadItems.length,
+        results: abroadResults,
+      },
+      lebanon: {
+        count: input.lebanonItems.length,
+        results: lebanonResults,
+      },
+      localCompetition: {
+        count: input.localItems.length,
+        results: localCompetitionResults,
+      },
+      tier1Found,
       emptyEvidence,
       softCompetitionBudget: input.softCompetitionBudget,
       demandPath: demand.path,

@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import {
+  DISCOVERY_FALLBACK_SHORTLIST_MIN,
   DISCOVERY_INITIAL_COUNT,
   DISCOVERY_SESSION_CAP,
   DISCOVERY_SHOW_MORE_MAX,
@@ -12,30 +13,39 @@ import { computeFit, type FitProfile } from "@/lib/skills/fit";
 import { computeMargin } from "@/lib/skills/margin";
 import {
   CATALOG,
-  curatedDemandProvider,
   getCatalogProduct,
   localizedProduct,
   type CatalogProduct,
-  type DemandProvider,
 } from "@/lib/discovery/catalog";
-import { resolveDiscoveryCatalogSource, loadPoolHintsByCatalogKey, loadActivePoolAsCatalog } from "@/lib/discovery/pool";
 import {
+  resolveDiscoveryCatalogSource,
+  loadPoolHintsByCatalogKey,
+  loadPoolProductsByCatalogKeys,
+} from "@/lib/discovery/pool";
+import {
+  isDiscoveryLiveSearchEnabled,
   isDiscoveryPoolV2Enabled,
   isSoftCompetitionBudgetEnabled,
 } from "@/lib/discovery/flags";
 import { loadScoresByCatalogKey } from "@/lib/discovery/scores";
+
 import {
-  evaluateDualAcceptGate,
+  evaluateAcceptDemandGate,
   evaluateSystemDemandGate,
-  isDualDemandGateEnabled,
-  isSoftListedHardAcceptBlocked,
+  isAcceptReadyForShortlist,
+  isSystemDemandGateEnabled,
+  resolveSystemDemandInput,
   type SystemDemandGateResult,
 } from "@/lib/discovery/dual-gate";
-import { isWhyPickFeatureEnabled } from "@/lib/discovery/explain/llm";
+import {
+  isGeminiConfigured,
+  isSuggestionExplainEnabled,
+} from "@/lib/discovery/explain/llm";
 import {
   rankWave2Shortlist,
   type Wave2RankedProduct,
 } from "@/lib/discovery/scoring/rank";
+import type { OkayReason } from "@/lib/discovery/scoring/composite";
 import {
   classifyDiscoveryLadder,
   suggestionsForPassReasons,
@@ -89,6 +99,18 @@ function toFitProfile(onboarding: OnboardingRow): FitProfile {
 
 export function landedCostOf(p: CatalogProduct): number {
   return p.productCost + p.intlShip + p.clearanceTaxes + p.localCourier;
+}
+
+/** Pool/catalog fields needed for LIVE_SEARCH-off heuristic demand gate. */
+function heuristicFieldsFromProduct(p: CatalogProduct) {
+  return {
+    catalogKey: p.key,
+    category: p.category,
+    difficulty: p.difficulty,
+    risk: p.risk,
+    tier1Marketplaces: JSON.stringify(p.tier1Marketplaces),
+    nameEn: p.en.name,
+  };
 }
 
 /**
@@ -171,19 +193,22 @@ type ScoredProduct = {
   /** Wave 2 listing strength when pool v2 ranking applied. */
   strength?: "Strong" | "Okay";
   riskRead?: string | null;
+  /** Wave 2: why Okay (confidence / competition / Fit / multiple). */
+  okayReason?: OkayReason | null;
   notRecommended?: boolean;
   wave2?: {
     compositeScore: number;
     explain: Wave2RankedProduct["explain"];
     fallbackUsed: boolean;
+    okayReason: OkayReason | null;
   };
 };
 
 /**
- * Score + rank catalog products for a profile. Excludes seen keys. Same Fit /
- * Margin / maxLanded rules as the first session (never-all-blocked ranking).
+ * Score + rank catalog products for a profile. Excludes seen keys.
+ * Shortlist = accept-ready only (hard margins + !oversized) — Wave 1 path
+ * when DISCOVERY_POOL_V2 is off. No blocked cards for browsing.
  * `catalog` defaults to in-memory CATALOG; pool-v2 callers pass the DB source.
- * Wave 1 path — used when DISCOVERY_POOL_V2 is off.
  */
 export function scoreRankCatalog(
   onboarding: OnboardingRow,
@@ -196,37 +221,40 @@ export function scoreRankCatalog(
     onboarding.maxLandedCost,
   ).filter((p) => !excludeKeys.has(p.key));
 
-  const scored = sourceCatalog.map((p) => {
-    const landedCost = landedCostOf(p);
-    const fit = computeFit(profile, {
-      category: p.category,
-      landedCost,
-      difficulty: p.difficulty,
-      risk: p.risk,
-      timeNeed: p.timeNeed,
-      workload: p.workload,
-      storageFootprint: p.storageFootprint,
-    });
-    const margin = computeMargin({
-      sellPrice: p.sellPrice,
-      productCost: p.productCost,
-      intlShip: p.intlShip,
-      clearanceTaxes: p.clearanceTaxes,
-      localCourier: p.localCourier,
-      monthlyFollowOnBudget: onboarding.monthlyFollowOnBudget,
-    });
-    return { p, landedCost, fit, margin };
-  });
+  const scored = sourceCatalog
+    .map((p) => {
+      const landedCost = landedCostOf(p);
+      const fit = computeFit(profile, {
+        category: p.category,
+        landedCost,
+        difficulty: p.difficulty,
+        risk: p.risk,
+        timeNeed: p.timeNeed,
+        workload: p.workload,
+        storageFootprint: p.storageFootprint,
+      });
+      const margin = computeMargin({
+        sellPrice: p.sellPrice,
+        productCost: p.productCost,
+        intlShip: p.intlShip,
+        clearanceTaxes: p.clearanceTaxes,
+        localCourier: p.localCourier,
+        monthlyFollowOnBudget: onboarding.monthlyFollowOnBudget,
+      });
+      return { p, landedCost, fit, margin };
+    })
+    .filter(
+      (s) =>
+        isAcceptReadyForShortlist({
+          marginsPass: s.margin.pass,
+          oversized: s.p.oversized,
+          fitNotRecommended: s.fit.notRecommended,
+          system: null,
+          systemGateEnabled: false,
+        }),
+    );
 
-  scored.sort((a, b) => {
-    const aAcc = a.margin.pass && !a.p.oversized ? 0 : 1;
-    const bAcc = b.margin.pass && !b.p.oversized ? 0 : 1;
-    if (aAcc !== bAcc) return aAcc - bAcc;
-    if (a.fit.notRecommended !== b.fit.notRecommended) {
-      return a.fit.notRecommended ? 1 : -1;
-    }
-    return b.fit.score - a.fit.score;
-  });
+  scored.sort((a, b) => b.fit.score - a.fit.score);
 
   return scored;
 }
@@ -265,6 +293,10 @@ export async function scoreRankForDiscovery(
     scoresByKey,
     hintsByKey,
     isSoftCompetitionBudgetEnabled(),
+    {
+      systemGateEnabled: true,
+      liveSearchEnabled: isDiscoveryLiveSearchEnabled(),
+    },
   );
 
   return ranked.map((r) => ({
@@ -279,11 +311,13 @@ export async function scoreRankForDiscovery(
     margin: r.margin,
     strength: r.strength,
     riskRead: r.riskRead,
+    okayReason: r.okayReason,
     notRecommended: r.notRecommended,
     wave2: {
       compositeScore: r.compositeScore,
       explain: r.explain,
       fallbackUsed: r.fallbackUsed,
+      okayReason: r.okayReason,
     },
   }));
 }
@@ -369,7 +403,7 @@ async function insertSessionPool(
   scored: ScoredProduct[],
 ): Promise<typeof schema.discoverySessions.$inferSelect | undefined> {
   const pool = scored.slice(0, DISCOVERY_SESSION_CAP);
-  if (pool.length === 0) return undefined;
+  // Empty accept-ready pool is allowed — UI shows Edit onboarding (WAVE-2 §8).
 
   const sessionId = newId();
   const createdAt = nowIso();
@@ -383,60 +417,65 @@ async function insertSessionPool(
     createdAt,
   });
 
-  await db.insert(schema.productCandidates).values(
-    pool.map(({ p, fit, margin, strength, riskRead, notRecommended, wave2 }, i) => ({
-      id: newId(),
-      workspaceId,
-      sessionId,
-      name: p.en.name,
-      category: p.category,
-      summary: p.en.summary,
-      sellPrice: p.sellPrice,
-      productCost: p.productCost,
-      intlShip: p.intlShip,
-      clearanceTaxes: p.clearanceTaxes,
-      localCourier: p.localCourier,
-      marginBefore: margin.marginBefore,
-      marginAfter: margin.marginAfter,
-      // Wave 1 accept gate — hard Shared Margin skill (unchanged this pass).
-      marginsPass: margin.pass,
-      marginBlockReason: margin.blockReason,
-      fitScore: fit.score,
-      fitBreakdown: JSON.stringify({
-        dims: fit.breakdown,
-        catalogKey: p.key,
-        ...(wave2
-          ? {
-              wave2: {
-                compositeScore: wave2.compositeScore,
-                fallbackUsed: wave2.fallbackUsed,
-                explain: wave2.explain,
-              },
-            }
-          : {}),
-      }),
-      strength: strength ?? fit.strength,
-      riskRead: riskRead !== undefined ? riskRead : fit.riskRead,
-      differentiation: p.en.differentiation,
-      tier1Conflict: p.tier1Marketplaces.length > 0,
-      tier1Marketplaces: JSON.stringify(p.tier1Marketplaces),
-      oversizedHardBlock: p.oversized,
-      notRecommended:
-        notRecommended !== undefined ? notRecommended : fit.notRecommended,
-      demandConfirmed: false,
-      status: "shown" as const,
-      rank: i,
-      createdAt,
-    })),
-  );
+  if (pool.length > 0) {
+    await db.insert(schema.productCandidates).values(
+      pool.map(({ p, fit, margin, strength, riskRead, okayReason, notRecommended, wave2 }, i) => ({
+        id: newId(),
+        workspaceId,
+        sessionId,
+        name: p.en.name,
+        category: p.category,
+        summary: p.en.summary,
+        sellPrice: p.sellPrice,
+        productCost: p.productCost,
+        intlShip: p.intlShip,
+        clearanceTaxes: p.clearanceTaxes,
+        localCourier: p.localCourier,
+        marginBefore: margin.marginBefore,
+        marginAfter: margin.marginAfter,
+        // Wave 1 accept gate — hard Shared Margin skill (unchanged this pass).
+        marginsPass: margin.pass,
+        marginBlockReason: margin.blockReason,
+        fitScore: fit.score,
+        fitBreakdown: JSON.stringify({
+          dims: fit.breakdown,
+          catalogKey: p.key,
+          ...(wave2
+            ? {
+                wave2: {
+                  compositeScore: wave2.compositeScore,
+                  fallbackUsed: wave2.fallbackUsed,
+                  explain: wave2.explain,
+                  okayReason: wave2.okayReason ?? okayReason ?? null,
+                },
+              }
+            : okayReason
+              ? { okayReason }
+              : {}),
+        }),
+        strength: strength ?? fit.strength,
+        riskRead: riskRead !== undefined ? riskRead : fit.riskRead,
+        differentiation: p.en.differentiation,
+        tier1Conflict: p.tier1Marketplaces.length > 0,
+        tier1Marketplaces: JSON.stringify(p.tier1Marketplaces),
+        oversizedHardBlock: p.oversized,
+        notRecommended:
+          notRecommended !== undefined ? notRecommended : fit.notRecommended,
+        demandConfirmed: false,
+        status: "shown" as const,
+        rank: i,
+        createdAt,
+      })),
+    );
+  }
 
   return getActiveSession(workspaceId);
 }
 
 /**
- * Start a discovery session: score the curated catalog against the founder's
- * ability profile + Shared Margin skill, rank so acceptable products come
- * first (never an all-blocked page), and reveal the first 5.
+ * Start a discovery session: score against the founder's profile + hard
+ * margin / demand gates, shortlist accept-ready products only, reveal first 5.
+ * Zero accept-ready → empty session + Edit onboarding in the UI.
  */
 export async function startDiscoverySession(
   workspaceId: string,
@@ -445,7 +484,9 @@ export async function startDiscoverySession(
   await ensureMigrated();
 
   const existing = await getActiveSession(workspaceId);
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
 
   const scored = await scoreRankForDiscovery(onboarding, new Set());
   return insertSessionPool(workspaceId, scored);
@@ -466,19 +507,76 @@ export async function continueDiscoverySession(
 
   await maybeCountExhaustion(workspaceId);
 
-  // Score next pool before closing — keep the exhausted session if nothing left (D).
+
+  const result = await closeAndOpenScoredSession(
+    workspaceId,
+    onboarding,
+    existing.id,
+  );
+  return result.ok ? { ok: true } : result;
+}
+
+/**
+ * POOL_V2 only — founder-triggered resync from live pool + Approach A scores.
+ *
+ * Rules (see docs/WAVE-2.md §10.3 / README):
+ * - Closes the active session and inserts a new shortlist from `scoreRankForDiscovery`.
+ * - Excludes workspace-seen catalog keys (shown / rejected / accepted) — same as Continue.
+ * - Does **not** increment exhausted-round ladder.
+ * - Reject / show-more / accept on the new session behave as usual.
+ * - Flag off → `{ error: "pool_v2_off" }` (UI hidden).
+ */
+export async function refreshDiscoverySuggestions(
+  workspaceId: string,
+  onboarding: OnboardingRow,
+): Promise<
+  | { ok: true; sessionId: string }
+  | {
+      ok: false;
+      error: "no_session" | "catalog_exhausted" | "pool_v2_off";
+    }
+> {
+  if (!isDiscoveryPoolV2Enabled()) {
+    return { ok: false, error: "pool_v2_off" };
+  }
+
+  await ensureMigrated();
+
+  const existing = await getActiveSession(workspaceId);
+  if (!existing) return { ok: false, error: "no_session" };
+
+  const result = await closeAndOpenScoredSession(
+    workspaceId,
+    onboarding,
+    existing.id,
+    "post-fix",
+  );
+  return result;
+}
+
+async function closeAndOpenScoredSession(
+  workspaceId: string,
+  onboarding: OnboardingRow,
+  existingSessionId: string,
+  runId = "pre-fix",
+): Promise<
+  | { ok: true; sessionId: string }
+  | { ok: false; error: "catalog_exhausted" }
+> {
+  // Score next pool before closing. Empty accept-ready → still open empty
+  // session so the UI can show Edit onboarding (not keep soft-listed leftovers).
+  void runId;
   const seen = await getSeenCatalogKeys(workspaceId);
   const scored = await scoreRankForDiscovery(onboarding, seen);
-  if (scored.length === 0) return { ok: false, error: "catalog_exhausted" };
 
   await db
     .update(schema.discoverySessions)
     .set({ status: "closed" })
-    .where(eq(schema.discoverySessions.id, existing.id));
+    .where(eq(schema.discoverySessions.id, existingSessionId));
 
   const session = await insertSessionPool(workspaceId, scored);
   if (!session) return { ok: false, error: "catalog_exhausted" };
-  return { ok: true };
+  return { ok: true, sessionId: session.id };
 }
 
 export async function submitDiscoveryPassFeedback(
@@ -543,50 +641,6 @@ export async function getCandidateOwned(
     .then((rows) => rows[0]);
   if (!row || row.workspaceId !== workspaceId) return undefined;
   return row;
-}
-
-export async function confirmDemand(
-  workspaceId: string,
-  candidateId: string,
-  input: { url?: string; note?: string; screenshotNote?: string },
-  locale: AppLocale,
-  provider: DemandProvider = curatedDemandProvider,
-): Promise<{ ok: boolean; error?: string; summary?: string }> {
-  await ensureMigrated();
-  const candidate = await getCandidateOwned(workspaceId, candidateId);
-  if (!candidate) return { ok: false, error: "not_found" };
-
-  if (!input.url && !input.note && !input.screenshotNote) {
-    return { ok: false, error: "empty_signal" };
-  }
-
-  const { summary } = provider.summarize({
-    productName: candidate.name,
-    category: candidate.category,
-    url: input.url,
-    note: input.note,
-    screenshotNote: input.screenshotNote,
-    locale,
-  });
-
-  await db.insert(schema.demandSignals).values({
-    id: newId(),
-    workspaceId,
-    productCandidateId: candidateId,
-    url: input.url ?? null,
-    note: input.note ?? null,
-    screenshotNote: input.screenshotNote ?? null,
-    aiSummary: summary,
-    founderConfirmed: true,
-    createdAt: nowIso(),
-  });
-
-  await db
-    .update(schema.productCandidates)
-    .set({ demandConfirmed: true })
-    .where(eq(schema.productCandidates.id, candidateId));
-
-  return { ok: true, summary };
 }
 
 export async function resolveTier1(
@@ -672,7 +726,9 @@ export type AcceptResult =
         | "wrong_state"
         | "blocked"
         | "tier1_unresolved"
-        | "needs_demand"
+        | "needs_system_demand_missing"
+        | "needs_system_demand_weak"
+        /** @deprecated Prefer needs_system_demand_missing / _weak */
         | "needs_system_demand"
         | "needs_risk_ack"
         | "error";
@@ -684,8 +740,8 @@ export type AcceptResult =
  * active SKU + side status are written. Works for first SKU (workspace in
  * discovery) and for add-SKU (additional live SKUs while others continue).
  *
- * Wave 2 dual-gate (POOL_V2): founder paste AND system demand/score.
- * Wave 1 (flag off): paste only.
+ * Paste demand confirm is REMOVED. Wave 2 (POOL_V2): system demand/score gate.
+ * Wave 1 (flag off): margins / Tier-1 / oversized only (no paste).
  */
 export async function acceptProduct(
   workspaceId: string,
@@ -725,29 +781,34 @@ export async function acceptProduct(
     catalogKey = "";
   }
 
-  let systemScore: Parameters<typeof evaluateDualAcceptGate>[0]["system"] =
+  let systemScore: Parameters<typeof evaluateAcceptDemandGate>[0]["system"] =
     null;
-  if (isDualDemandGateEnabled() && catalogKey) {
+  if (isSystemDemandGateEnabled() && catalogKey) {
     const scoresByKey = await loadScoresByCatalogKey();
     const row = scoresByKey.get(catalogKey);
-    if (row) {
-      systemScore = {
-        abroadDemandScore: row.abroadDemandScore,
-        lebanonDemandScore: row.lebanonDemandScore,
-        demandPath: row.demandPath,
-        compositeScore: row.compositeScore,
-        lastScoreStatus: row.lastScoreStatus,
-        confidence: row.confidence,
-      };
-    }
+    const cache = row
+      ? {
+          abroadDemandScore: row.abroadDemandScore,
+          lebanonDemandScore: row.lebanonDemandScore,
+          demandPath: row.demandPath,
+          compositeScore: row.compositeScore,
+          lastScoreStatus: row.lastScoreStatus,
+          confidence: row.confidence,
+        }
+      : null;
+    const product =
+      getCatalogProduct(catalogKey) ??
+      (await loadPoolProductsByCatalogKeys([catalogKey])).get(catalogKey);
+    systemScore = resolveSystemDemandInput({
+      cache,
+      heuristicProduct: product ? heuristicFieldsFromProduct(product) : null,
+      liveSearchEnabled: isDiscoveryLiveSearchEnabled(),
+    });
   }
 
-  const dual = evaluateDualAcceptGate({
-    pasteConfirmed: candidate.demandConfirmed,
-    system: systemScore,
-  });
-  if (!dual.ok && dual.error) {
-    return { ok: false, error: dual.error };
+  const demandGate = evaluateAcceptDemandGate({ system: systemScore });
+  if (!demandGate.ok && demandGate.error) {
+    return { ok: false, error: demandGate.error };
   }
 
   const requiredAcks = candidate.strength === "Okay" ? ["okay_risk_read"] : [];
@@ -760,8 +821,8 @@ export async function acceptProduct(
     data: {
       candidateId,
       productName: candidate.name,
-      dualDemandGate: dual.dualEnabled,
-      systemDemandPath: dual.system.demandPath,
+      systemDemandGate: demandGate.systemGateEnabled,
+      systemDemandPath: demandGate.system.demandPath,
     },
     requiredAcks,
     // skuId filled after insert — advance via workspace until SKU exists, then
@@ -933,11 +994,16 @@ export type DiscoveryCandidateView = {
   oversized: boolean;
   fitScore: number;
   strength: "Strong" | "Okay";
-  /** `@fit.*` note key (or legacy English); UI translates. */
+  /**
+   * Why overall recommendation is Okay (Wave 2). Null when Strong or Wave 1 Fit-only.
+   */
+  okayReason: OkayReason | null;
+  /** `@fit.*` / `@listing.*` note key (or legacy English); UI translates. */
   riskRead: string | null;
   notRecommended: boolean;
+  /** @deprecated Paste demand confirm removed — kept for schema/read compat. */
   demandConfirmed: boolean;
-  /** Saved DemandProvider aiSummary (founder-confirmed signal). Null until confirmed. */
+  /** @deprecated Paste summaries no longer shown on cards. */
   demandSummary: string | null;
   tier1Conflict: boolean;
   tier1Marketplaces: string[];
@@ -946,16 +1012,20 @@ export type DiscoveryCandidateView = {
    * import `marginsPass` / moneySnapshot — never unlock via local-only margins.
    */
   sourceCostHint: SourceCostHint | null;
-  /** Wave 2 dual-gate active (POOL_V2). */
+  /** Wave 2 system demand/score gate active (POOL_V2). */
+  systemDemandGate: boolean;
+  /** @deprecated Alias of systemDemandGate (paste dual-gate removed). */
   dualDemandGate: boolean;
-  /** System demand/score gate status when dual-gate on. */
+  /** System demand/score gate status when POOL_V2 on. */
   systemDemand: SystemDemandGateResult | null;
   /**
-   * Soft-margin listing but hard Wave 1 margins fail accept —
-   * UI must say so explicitly (not silent).
+   * @deprecated Soft-list browsing removed — always false (accept-ready only).
    */
   softListedHardAcceptBlocked: boolean;
 };
+
+/** Soft Edit-onboarding banner when accept-ready shortlist is empty or thin. */
+export type EditOnboardingBanner = "zero_accept_ready" | "thin_accept_ready";
 
 export type DiscoveryView = {
   sessionId: string;
@@ -968,8 +1038,22 @@ export type DiscoveryView = {
   ladder: DiscoveryLadder | null;
   exhaustedRounds: number;
   remainingEligible: number;
-  /** WAVE-2 §6.1 Why this pick? button (DISCOVERY_WHY_PICK). */
+  /**
+   * WAVE-2 §8 — Edit onboarding when profile/budget/Fit leaves 0 or too few
+   * accept-ready products (never strand on blocked cards).
+   */
+  editOnboardingBanner: EditOnboardingBanner | null;
+  /** WAVE-2 §6.1 “Why we suggested this” (POOL_V2) — Gemini required. */
+  suggestionExplainEnabled: boolean;
+  /** True when GEMINI_API_KEY / DISCOVERY_EXPLAIN_GEMINI_API_KEY is set. */
+  geminiConfigured: boolean;
+  /** @deprecated Use suggestionExplainEnabled. */
   whyPickEnabled: boolean;
+  /**
+   * POOL_V2: founder can close this session and resync shortlist from live
+   * pool + Approach A scores (excludes seen keys).
+   */
+  canRefreshSuggestions: boolean;
 };
 
 export async function getDiscoveryView(
@@ -1011,59 +1095,69 @@ export async function getDiscoveryView(
     ? await countRemainingEligible(workspaceId, onboarding)
     : 0;
   const exhaustedRounds = await getExhaustedRounds(workspaceId);
-  const ladder = classifyDiscoveryLadder({
-    visibleCount: visible.length,
-    canShowMore,
-    remainingEligible,
-    exhaustedRounds,
-  });
 
-  // Latest demand aiSummary per confirmed candidate (written by confirmDemand).
-  const confirmedIds = visible
-    .filter((r) => r.demandConfirmed)
-    .map((r) => r.id);
-  const demandSummaryByCandidate = new Map<string, string>();
-  if (confirmedIds.length > 0) {
-    const signals = await db
-      .select({
-        productCandidateId: schema.demandSignals.productCandidateId,
-        aiSummary: schema.demandSignals.aiSummary,
-      })
-      .from(schema.demandSignals)
-      .where(inArray(schema.demandSignals.productCandidateId, confirmedIds))
-      .orderBy(desc(schema.demandSignals.createdAt))
-      ;
-    for (const s of signals) {
-      if (!demandSummaryByCandidate.has(s.productCandidateId)) {
-        demandSummaryByCandidate.set(s.productCandidateId, s.aiSummary);
-      }
-    }
-  }
-
-  const dualEnabled = isDualDemandGateEnabled();
-  const scoresByKey = dualEnabled
+  const systemGateEnabled = isSystemDemandGateEnabled();
+  const suggestionEnabled = isSuggestionExplainEnabled();
+  const geminiConfigured = isGeminiConfigured();
+  const canRefreshSuggestions = isDiscoveryPoolV2Enabled();
+  const scoresByKey = systemGateEnabled
     ? await loadScoresByCatalogKey()
     : new Map();
 
-  // Pool rows cover Path 1 keys missing from curated catalog.ts (seed/fallback).
-  const poolByKey = new Map<string, CatalogProduct>();
-  if (isDiscoveryPoolV2Enabled()) {
-    const poolProducts = await loadActivePoolAsCatalog();
-    for (const p of poolProducts) poolByKey.set(p.key, p);
-  }
-
-  const candidates: DiscoveryCandidateView[] = visible.map((r) => {
-    let catalogKey = "";
-    let softMarginBand: string | null = null;
+  // Path 1 keys missing from catalog.ts: resolve text for visible cards only
+  // (keyed batch — O(visible), not a full active-pool scan on the view path).
+  const visibleCatalogKeys: string[] = [];
+  for (const r of visible) {
     try {
       const breakdown = JSON.parse(r.fitBreakdown);
+      const key = breakdown.catalogKey;
+      if (typeof key === "string" && key.length > 0) visibleCatalogKeys.push(key);
+    } catch {
+      /* ignore malformed breakdown */
+    }
+  }
+  const poolByKey = isDiscoveryPoolV2Enabled()
+    ? await loadPoolProductsByCatalogKeys(visibleCatalogKeys)
+    : new Map<string, CatalogProduct>();
+
+  const mapped = visible.map((r) => {
+    let catalogKey = "";
+    let okayReason: OkayReason | null = null;
+    try {
+      const breakdown = JSON.parse(r.fitBreakdown) as {
+        catalogKey?: string;
+        okayReason?: string;
+        wave2?: { okayReason?: string };
+      };
       catalogKey = breakdown.catalogKey ?? "";
-      softMarginBand =
-        breakdown?.wave2?.explain?.softMarginBand ??
-        breakdown?.wave2?.softMarginBand ??
-        null;
+      const raw =
+        breakdown.wave2?.okayReason ?? breakdown.okayReason ?? null;
+      if (
+        raw === "fit_risk" ||
+        raw === "low_evidence_confidence" ||
+        raw === "high_competition"
+      ) {
+        okayReason = raw;
+      }
     } catch {
       catalogKey = "";
+    }
+    // Legacy sessions: infer Okay reason from riskRead note when missing.
+    if (!okayReason && r.strength === "Okay") {
+      if (r.riskRead === "@listing.lowEvidenceConfidence") {
+        okayReason = "low_evidence_confidence";
+      } else if (r.riskRead === "@listing.highCompetition") {
+        okayReason = "high_competition";
+      } else if (r.riskRead === "@listing.multipleOkay") {
+        // Old rows could store a combined reason. Prefer the concrete
+        // competition mitigation; the live score below can refine this.
+        okayReason = "high_competition";
+      } else if (
+        r.riskRead === "@fit.moderateOkay" ||
+        r.riskRead === "@fit.riskOverTolerance"
+      ) {
+        okayReason = "fit_risk";
+      }
     }
     const product =
       getCatalogProduct(catalogKey) ??
@@ -1081,22 +1175,67 @@ export async function getDiscoveryView(
     }
 
     const scoreRow = catalogKey ? scoresByKey.get(catalogKey) : undefined;
-    const systemDemand = dualEnabled
-      ? evaluateSystemDemandGate(
-          scoreRow
-            ? {
-                abroadDemandScore: scoreRow.abroadDemandScore,
-                lebanonDemandScore: scoreRow.lebanonDemandScore,
-                demandPath: scoreRow.demandPath,
-                compositeScore: scoreRow.compositeScore,
-                lastScoreStatus: scoreRow.lastScoreStatus,
-                confidence: scoreRow.confidence,
-              }
+    const cache = scoreRow
+      ? {
+          abroadDemandScore: scoreRow.abroadDemandScore,
+          lebanonDemandScore: scoreRow.lebanonDemandScore,
+          demandPath: scoreRow.demandPath,
+          compositeScore: scoreRow.compositeScore,
+          lastScoreStatus: scoreRow.lastScoreStatus,
+          confidence: scoreRow.confidence,
+        }
+      : null;
+    const resolvedSystem = systemGateEnabled
+      ? resolveSystemDemandInput({
+          cache,
+          heuristicProduct: product
+            ? heuristicFieldsFromProduct(product)
             : null,
-        )
+          liveSearchEnabled: isDiscoveryLiveSearchEnabled(),
+        })
+      : null;
+    const systemDemand = systemGateEnabled
+      ? evaluateSystemDemandGate(resolvedSystem)
       : null;
 
-    return {
+    const acceptReady = isAcceptReadyForShortlist({
+      marginsPass: r.marginsPass,
+      oversized: r.oversizedHardBlock,
+      fitNotRecommended: r.notRecommended,
+      system: resolvedSystem,
+      systemGateEnabled,
+    });
+
+    // Heal legacy Wave 2 rows: Fit Strong + Okay listing used @fit.moderateOkay
+    // when confidence/competition capped strength (misleading copy).
+    let riskRead = r.riskRead;
+    if (
+      r.strength === "Okay" &&
+      r.fitScore >= 70 &&
+      (riskRead === "@fit.moderateOkay" || !okayReason)
+    ) {
+      const conf =
+        scoreRow?.confidence != null && Number.isFinite(scoreRow.confidence)
+          ? scoreRow.confidence
+          : null;
+      const competitionHigh =
+        scoreRow?.competitionScore != null &&
+        Number.isFinite(scoreRow.competitionScore) &&
+        scoreRow.competitionScore >= 0.66;
+      const lowConf = conf != null && conf < 0.5;
+      if (lowConf && competitionHigh) {
+        okayReason = "high_competition";
+        riskRead = "@listing.highCompetition";
+      } else if (lowConf) {
+        okayReason = "low_evidence_confidence";
+        riskRead = "@listing.lowEvidenceConfidence";
+      } else if (competitionHigh) {
+        okayReason = "high_competition";
+        riskRead = "@listing.highCompetition";
+      }
+    }
+
+    const view: DiscoveryCandidateView = {
       id: r.id,
       name: text.name,
       summary: text.summary,
@@ -1112,10 +1251,11 @@ export async function getDiscoveryView(
       oversized: r.oversizedHardBlock,
       fitScore: r.fitScore,
       strength: r.strength as "Strong" | "Okay",
-      riskRead: r.riskRead,
+      okayReason,
+      riskRead,
       notRecommended: r.notRecommended,
       demandConfirmed: r.demandConfirmed,
-      demandSummary: demandSummaryByCandidate.get(r.id) ?? null,
+      demandSummary: null,
       tier1Conflict: r.tier1Conflict,
       tier1Marketplaces,
       sourceCostHint: product
@@ -1124,15 +1264,34 @@ export async function getDiscoveryView(
             onboarding?.monthlyFollowOnBudget ?? 0,
           )
         : null,
-      dualDemandGate: dualEnabled,
+      systemDemandGate: systemGateEnabled,
+      dualDemandGate: systemGateEnabled,
       systemDemand,
-      softListedHardAcceptBlocked: isSoftListedHardAcceptBlocked({
-        marginsPass: r.marginsPass,
-        oversized: r.oversizedHardBlock,
-        softMarginBand,
-      }),
+      softListedHardAcceptBlocked: false,
     };
+    return { view, acceptReady };
   });
+
+  // Accept-ready only on the page — hide legacy soft-listed / blocked leftovers.
+  const candidates = mapped.filter((m) => m.acceptReady).map((m) => m.view);
+
+  const acceptReadyVisible = candidates.length;
+  const ladder = classifyDiscoveryLadder({
+    visibleCount: acceptReadyVisible,
+    canShowMore: acceptReadyVisible > 0 ? canShowMore : false,
+    remainingEligible,
+    exhaustedRounds,
+  });
+
+  let editOnboardingBanner: EditOnboardingBanner | null = null;
+  if (acceptReadyVisible === 0 && remainingEligible <= 0) {
+    editOnboardingBanner = "zero_accept_ready";
+  } else if (
+    acceptReadyVisible > 0 &&
+    acceptReadyVisible + remainingEligible < DISCOVERY_FALLBACK_SHORTLIST_MIN
+  ) {
+    editOnboardingBanner = "thin_accept_ready";
+  }
 
   return {
     sessionId: freshSession.id,
@@ -1141,12 +1300,16 @@ export async function getDiscoveryView(
       freshSession.productsShown,
       cap,
     ),
-    canShowMore,
+    canShowMore: acceptReadyVisible > 0 ? canShowMore : false,
     sessionCap: cap,
     candidates,
     ladder,
     exhaustedRounds,
     remainingEligible,
-    whyPickEnabled: isWhyPickFeatureEnabled(),
+    editOnboardingBanner,
+    suggestionExplainEnabled: suggestionEnabled,
+    geminiConfigured,
+    whyPickEnabled: suggestionEnabled,
+    canRefreshSuggestions,
   };
 }

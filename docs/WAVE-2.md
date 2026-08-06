@@ -5,7 +5,7 @@ Product and engineering locks for Wave 2.
 
 This document starts with the **Discovery agent** slice (winning product pick). Other Wave 2 surfaces (Founder Consultant, Shopify sync, ads, supplier email MCP, etc.) are out of scope here until locked separately.
 
-**Status:** Discovery agent listing + **Path 1 product pool intake** + card **“Why this pick?”** explain (LLM optional, not scoring brain) — **LOCKED** (founder discussion). Not implemented until a Build pass says otherwise.
+**Status:** Discovery agent listing + **Path 1 product pool intake** + card **“Why we suggested this”** explain + **worth-considering compare (max 3)** (**required Gemini** narrates; skills pick winner) — **LOCKED** (founder discussion).
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -19,14 +19,14 @@ This document starts with the **Discovery agent** slice (winning product pick). 
 - Research is **automated** (no manual catalog tags, no founder market homework).
 - Founder mainly **accepts or rejects** shortlisted products.
 - Focus is **winning products**, not brand discovery (brand text in a title is incidental).
-- Paste **demand confirm** (URL / note / screenshot) is **planned for removal** after automation is trusted (dual-gate rollout first — see §7).
+- Paste **demand confirm** (URL / note / screenshot) is **REMOVED** — accept uses **system skill gates only** (see §6.1 / §7).
 - **Founder Consultant / LLM chat** — **parked**; not part of this Discovery lock.
 
 **No commercial marketplace / courier / Alibaba partner agreements required** for this slice (founder has no live Alibaba business → official Alibaba Open Platform access is **out**).
 
 **External dependencies (expected):**
 - **Web / shopping search SaaS API key(s)** for (a) Path 1 product intake and (b) demand/competition scoring
-- Optional LLM key later for §6.1 “Why this pick?” explain copy only — **not** for pass/fail scoring
+- **Required Gemini (Google AI) API key** for card “Why we suggested this” explain copy only — **not** for pass/fail scoring
 - Optional later: dropship-catalog SaaS API as a **backup** pool source (not required to start)
 
 ---
@@ -40,8 +40,8 @@ A scheduled/robot intake uses a **normal web/shopping search API** (API key, no 
 ```text
 Internet (search / shopping API)
    → product pool in Postgres (names, price seeds, category, source URL…)
-   → locked Lebanon win scoring (demand × competition × budget × Fit × soft margin)
-   → Discovery shortlist
+   → locked Lebanon win scoring (demand × competition × budget × Fit × soft margin scoring)
+   → Discovery shortlist (accept-ready only)
    → founder accept / reject
 ```
 
@@ -88,12 +88,13 @@ A listed product must make sense on:
 | **Competition** | Who are they up against locally? |
 | **Budget** | Can they afford **this fight** (stock + marketing when crowded)? |
 | **Fit** | Can *this* founder operate it? (existing Wave 1 skill) |
-| **Soft margin** | Near 70% before / 35% after — slightly under OK for listing |
+| **Soft margin** | Hard **≥70% before / ≥35% after** for shortlist listing (same as accept) |
 
 Plus ordered polish: sample/first-batch affordability, shortlist diversity, confidence, “why listed” explainability.
 
 **Core formula (locked):**  
-`demand × competition × budget × Fit` + **soft margin** (+ polish, ordered so they don’t fight the core).
+`demand × competition × budget × Fit` + **soft margin scoring** (+ polish, ordered so they don’t fight the core).  
+**Shortlist listing** = accept-ready only (hard margins + demand gate + !oversized) — see §5.2 / §7.
 
 ---
 
@@ -122,7 +123,7 @@ A product may qualify via **either**:
 
 ### 3.4 Not demand sources (this lock)
 
-- Founder-pasted URL / note / screenshot (to be removed after dual-gate)
+- Founder-pasted URL / note / screenshot (**removed** — not used for accept or scoring)
 - Manual “abroad hot” editorial flags on catalog rows
 - Shopify / Meta Ads / courier partner feeds
 - Commercial Tier-1 seller APIs
@@ -175,11 +176,11 @@ Still gates ability to operate the product.
 
 ### 5.2 Soft margin (Discovery listing policy)
 
-- Targets remain **~70% before ads / ~35% after ads**.
-- For **listing**, treat as a **band**: slightly under may still appear (typically **Okay** + short “margins tight vs target” note).
-- Far below → do not recommend.
-- Exact band width (e.g. 65%/30% vs 68%/33%) is an implementation calibration detail — not frozen to a number in this lock.
-- **Note:** Wave 1 code may still hard-gate margin on accept until a Build pass changes it; this lock is the Wave 2 Discovery **intent**.
+- Targets remain **≥70% before ads / ≥35% after ads** — **same hard bar as accept**.
+- **Shortlist = accept-ready only.** A card appears iff Accept would not return `blocked` / `needs_system_demand_missing` / `needs_system_demand_weak` (hard margins pass, not oversized, system demand gate pass when `DISCOVERY_POOL_V2` is on).
+- Do **not** list soft_ok / soft-margin-only / hard-margin-fail / oversized / weak-demand cards “for browsing.”
+- Soft-margin bands (`pass` / `soft_ok` / `far_below`) may still exist for **scoring / explain** — they do **not** unlock listing for under-target margins.
+- Tier-1 customize/drop and Okay risk-ack remain on otherwise accept-ready cards.
 
 ---
 
@@ -192,20 +193,38 @@ Applied **after** core pass/rank — must not cancel core winners without priori
 3. **Explainability** — why listed (skills payload → founder-facing copy; see §6.1)  
 4. **Confidence** — low automation confidence → Okay / fewer slots, not fake Strong  
 
-### 6.1 Card “Why this pick?” — explain only (**LOCKED**)
+### 6.1 Card “Why we suggested this” — explain only (**LOCKED**)
 
-Optional LLM (or deterministic template until an LLM key exists) that narrates **already computed** skill outputs. **Not** a scoring brain.
+**Required Gemini** (Google AI / Generative Language) narrates **already computed** skill outputs — market demand + competition + why listed. **Not** a scoring brain. No template-only product UX for this paragraph.
 
 | Rule | Detail |
 | --- | --- |
-| **Control** | Per Discovery product card button (e.g. **“Why this pick?”**) |
-| **Output** | One **small paragraph** — same visual footprint as today’s **confirm-demand** summary block (title + ~2–3 sentence `text-sm` body + short honesty note). Not an essay. |
-| **Grounding** | Skill payloads only (Fit, soft margin, demand/competition/budget when those scores exist). **Must not invent** demand, competition, or abroad facts missing from the payload. |
+| **Control** | Always-visible (or clearly placed / toggleable) callout on each Discovery card where paste demand used to live |
+| **Output** | One modal paragraph — title + **4–6 complete sentences**, targeting **~900–1100 characters** (validator tolerance starts at 800; hard max 1100), plus a short honesty note. Longer than the prior demand-summary footprint, but still not chat or an essay. |
+| **Grounding** | Fit, hard-margin planning, and curated differentiation may always be narrated. **Concrete market specifics** (counts, domains/titles, seller or Tier-1 names, abroad/Lebanon footprint) require bounded `rawEvidenceJson` facts from `source: "live_search"` with the relevant count &gt;0. `heuristic_seed` / neutral never cite market specifics. |
+| **Okay alignment** | Typed reason is exactly `fit_risk`, `low_evidence_confidence`, or `high_competition`. The yellow note and Gemini paragraph must state the same real reason; Strong Fit must never be described as moderate because confidence or competition capped the recommendation. |
+| **Mitigation** | An Okay paragraph ends with a concrete mitigation for that reason (small sample / modest ads / curated differentiation / do not scale on an estimate alone), then a clear accept-to-sample vs skip choice. Strong recommendations do not receive an Okay scare sentence. |
 | **Never changes** | Strong / Okay, shortlist rank, accept / reject gates, Human Approvals |
-| **Distinct from demand confirm** | Different title from the demand-summary callout; honesty line makes clear this is **explanation, not a score** |
-| **Optional key** | Hide or no-op without LLM key; cache per candidate/session; rate-limit spam |
-| **Build timing** | Prefer with or after Wave 2 scoring skills so copy can cite real Path 1 evidence; until then Fit/margin-only explanations are OK — do **not** fake “US traction + Lebanon gap” |
+| **Honesty** | Explanation, **not** a score; distinct from any accept-gate messaging. Note says whether copy uses saved live-search evidence or is estimate-only. |
+| **Approach A evidence** | Score-refresh jobs persist capped evidence only (up to 5 short domain/title/seller facts per leg + actual Tier-1 names); Discovery GET reads it and **never live-searches**. No snippets/full HTML. |
+| **Required key** | `GEMINI_API_KEY` or `DISCOVERY_EXPLAIN_GEMINI_API_KEY` via `.env` only. Missing key → fail-closed UI (“configure key”), never silent invent |
+| **No paste** | Founder paste demand confirm is **removed**; accept does **not** require paste |
 | **Non-goal** | Not Founder Consultant chat, not Tier-1 customize coach, not pass/fail |
+
+### 6.2 Worth considering compare (max 3) — skills pick, Gemini explains (**LOCKED**)
+
+Founder marks shown Discovery cards as **worth considering**. Skills pick the advised test among the marks; Gemini only narrates that advice.
+
+| Rule | Detail |
+| --- | --- |
+| **Marks** | Per-card checkbox; **max 3** marks per active session. Clear copy when a 4th mark is blocked. |
+| **Compare box** | Sticky/compare tray shows selected names. **Compare** enabled only with **2–3** marks. |
+| **Session scope** | Marks are session-scoped. Refresh suggestions / new session clears them. Rejected or no-longer-visible cards are dropped from the selection (no stale compare). |
+| **Winner** | Deterministic skills ranking **among selected only** (Wave 2 composite when present, else Fit; stable ties by session rank / id). Expose advised `candidateId` + `catalogKey`. **Gemini does not override.** |
+| **Output** | Modal brief: why the advised product wins vs the other 1–2; short opportunity thesis per product; Fit/budget/margins; differentiation; main uncertainty; recommended sample-first test. Live vs Estimate honesty. Advice only — **Accept remains free choice on any card**. Never “you must accept X.” |
+| **Grounding** | Same as §6.1 — no invented market facts; live specifics only from saved `live_search` evidence. |
+| **Rate / fail-closed** | Shares explain rate-limit patterns with §6.1; missing Gemini key → fail-closed UI. |
+| **Never changes** | Accept gates, shortlist rank, Human Approvals, Consultant chat |
 
 ---
 
@@ -218,18 +237,18 @@ These are part of the engineering contract, not optional nice-to-haves:
 | **Cache-first (Approach A)** | Score catalog on a **schedule**; Discovery **reads DB**; do not live-search every page load |
 | **Last-known score** | On search API failure, keep previous scores — don’t empty Discovery |
 | **Query caps** | Limit queries per product per refresh (abroad + Lebanon + Tier-1 family) |
-| **Downrank before hard hide** | Weak scores sink; hard hide only worst tail / Fit fail / far-below margin / oversized |
+| **Downrank before hard hide** | Weak scores sink in ranking; **shortlist never includes** non-accept-ready (hard margin fail / soft_ok / far-below / oversized / demand-fail) |
 | **Shadow / feature flags** | Log “would exclude” before enforcing hard filters; flag soft vs hard competition×budget |
 | **Dual demand paths** | Whitespace OR local-proven — never require every AND at once |
 | **Missing data = neutral** | Incomplete MOQ/sample → don’t exclude |
 | **Competition×budget** | Rank penalty first; harden later using empty/accept metrics |
-| **Fallback shortlist** | If &lt;5 passers → best Fit + soft-margin + clear message |
-| **Edit onboarding** | When profile/budget/Fit starves the list (see §8) |
-| **Paste demand confirm** | Dual-gate with system score until trusted → then remove |
-| **No LLM/MCP in pass/fail** | Skills score; LLM optional only for §6.1 “Why this pick?” explain copy; MCP optional wrapper later |
+| **Accept-ready shortlist** | List **only** products Accept would not block on margins / oversized / system demand. **No** soft-margin fill of non-accept cards |
+| **Edit onboarding** | When 0 (or below usable threshold) accept-ready products for this profile — empty shortlist + Edit onboarding note (see §8). Never strand on a page of blocked cards |
+| **Paste demand confirm** | **REMOVED** — accept uses system skill gates only (demand/competition/Fit/hard-margin/Tier-1/oversized); no founder paste |
+| **No LLM/MCP in pass/fail** | Skills score; **required Gemini** only for §6.1 “Why we suggested this” and §6.2 compare briefs — never the shortlist / compare winner brain; MCP optional wrapper later |
 | **Measure** | Empty rate, accept rate, edit-onboarding rate — tune thresholds from data |
 
-**Never-all-blocked spirit:** Discovery must not strand the founder with a dead end when the catalog still has Fit-plausible items; use fallback + edit onboarding.
+**Never strand the founder:** when the pool has only weak / non-accept-ready products, show an **empty shortlist + Edit onboarding** — not soft-listed blocked cards.
 
 ---
 
@@ -240,13 +259,14 @@ Keep Wave 1 ladder behavior; extend gently for Wave 2 scores:
 | Show Edit onboarding | Why |
 | --- | --- |
 | Discovery empty ladder **why_pass** | After repeated rejects — suggestions from pass reasons |
-| Discovery **catalog_exhausted** | Nothing left for this profile |
-| Soft banner when Wave 2 scores leave **too few** products and blocker is **budget/Fit** | Profile is filtering out fights they can’t fund |
+| Discovery **catalog_exhausted** | Nothing accept-ready left for this profile |
+| **0 accept-ready** (or below usable threshold) — soft banner / note | Profile budget/Fit/demand gates leave no (or too few) accept-ready products — never fill with blocked cards |
+| Soft banner when Wave 2 scores leave **too few** accept-ready products and blocker is **budget/Fit** | Profile is filtering out fights they can’t fund |
 | ⚙ Settings — always | Escape hatch |
 
 | Do **not** hard-nag | Why |
 | --- | --- |
-| Normal shortlist of ~5 good products | Don’t interrupt browsing |
+| Normal shortlist of ~5 accept-ready products | Don’t interrupt browsing |
 | Low search confidence alone | Data issue, not onboarding |
 | Every Okay / Tier-1 customize | Product strategy, not profile edit |
 
@@ -326,24 +346,31 @@ Supplier agent: 3+2 options, sample-first, …
 | **Skills** | Deterministic (or rule-based) scoring — unit-testable; source of pass/rank truth |
 | **Discovery agent** | Orchestrates shortlist UI; does **not** bypass Human Approvals on accept |
 | **MCP** | Optional later tool wrapper around the **same** API clients — not required for Approach A |
-| **LLM** | Optional §6.1 “Why this pick?” paragraph only — **not** the shortlist pass/fail brain |
+| **LLM** | **Required** §6.1 “Why we suggested this” + §6.2 compare briefs via **Gemini** — **not** the shortlist / compare-winner pass/fail brain |
 | **Cursor MCP / Browser** | Builder/ops aids only — **not** the production catalog for founders |
 
 ### 10.1 Interface evolution note
 
-Wave 1 `DemandProvider` today is largely `summarize(founder signal)`.  
+Wave 1 `DemandProvider` / paste confirm is **retired** for Discovery accept.  
 Wave 2 needs:
 - **Pool intake** (Path 1) replacing static-only `catalog.ts` as SoT  
 - **Catalog-level assessment** (e.g. `assessLebanonDemand` / abroad / competition scores) feeding Discovery **before** shortlist  
+- **Gemini explain** narrating those skill payloads on the card  
 
 Extend seams without requiring founder paste.
 
 ### 10.2 Env (expected when implementing)
 
 - `DATABASE_URL` (existing)
-- Search / shopping provider key(s) (name TBD at Build — e.g. SerpAPI / Bing / Google PSE / Brave) — document in `.env.example` as commented placeholders
-- Optional: LLM key only if §6.1 “Why this pick?” explain-copy is built
+- Search / shopping provider key(s) (e.g. SerpAPI) — document in `.env.example` as commented placeholders
+- **Required for suggestion copy:** `GEMINI_API_KEY` or `DISCOVERY_EXPLAIN_GEMINI_API_KEY` (never commit secrets)
 - Optional later: dropship catalog API key as backup intake
+
+### 10.3 Session vs pool resync (implementation)
+
+Approach A jobs update the **global** pool/score tables. An **active** Discovery session still shows the shortlist frozen at session start (reject / show-more / seen-key rules unchanged).
+
+When `DISCOVERY_POOL_V2` is on, the UI exposes **Refresh suggestions**: close the active session → re-rank from current pool + scores → open a new session. Workspace-seen catalog keys remain excluded (same as Continue). Refresh does not bump exhausted rounds.
 
 ---
 
@@ -361,8 +388,10 @@ Extend seams without requiring founder paste.
 - Using Gulf as primary abroad signal  
 - Hard-hiding all Tier-1 collisions  
 - Relying on Cursor-only MCP/browser as the live product feed for end users  
-- Using LLM as Fit / demand / competition / pass-fail scorer (explain paragraph only — §6.1)  
-- Treating “Why this pick?” as Founder Consultant chat or Tier-1 customize coach  
+- Using LLM as Fit / demand / competition / pass-fail scorer (explain + compare briefs only — §6.1 / §6.2)  
+- Treating “Why we suggested this” or compare as Founder Consultant chat or Tier-1 customize coach  
+- Letting Gemini override the skills-picked compare winner (§6.2)  
+- Requiring founder paste demand confirm for Discovery accept  
 
 ---
 
@@ -372,7 +401,12 @@ Extend seams without requiring founder paste.
 | --- | --- |
 | 2026-08-02 | Initial Wave 2 doc: Discovery agent listing + sources + engineering + risk tricks **LOCKED** |
 | 2026-08-03 | **Path 1** product pool intake **LOCKED** (search/shopping API; no Alibaba official; winning products not brands; catalog.ts seed/fallback; Supplier remains post-accept) |
-| 2026-08-03 | Card **“Why this pick?”** explain **LOCKED** (§6.1): demand-summary-sized paragraph from skill payloads only; optional LLM; never pass/fail; build with/after Wave 2 scores preferred |
+| 2026-08-03 | Card **“Why this pick?”** explain **LOCKED** (§6.1): demand-summary-sized paragraph from skill payloads only; optional LLM; never pass/fail |
+| 2026-08-04 | **Paste demand confirm REMOVED**; accept = system skill gates only; §6.1 **required Gemini** “Why we suggested this” (market + competition); no LLM in pass/fail |
+| 2026-08-04 | **Shortlist = accept-ready only** — supersedes soft-margin listing band + soft-margin fallback fill; 0 accept-ready → empty + Edit onboarding (§5.2 / §7 / §8) |
+| 2026-08-05 | §6.1 **grounded market evidence** — jobs persist bounded live-search facts; Gemini may cite concrete market specifics only from those facts; heuristic/neutral copy is explicitly estimate-only |
+| 2026-08-05 | §6.1 body expanded to **4–6 complete sentences (~900–1100 chars; 800-char validator tolerance / 1100 hard max)**; yellow Okay note and Gemini now share one typed reason and reason-matched mitigation; opportunity thesis follows grounded evidence → Fit/budget → economics → differentiation → uncertainty → test; cache bumped to `v7-confidence-thesis-900-1100` |
+| 2026-08-05 | §6.2 **Worth considering compare (max 3)** **LOCKED** — skills pick among marks; Gemini explains advice only; Accept remains free choice; compare cache `v1-worth-considering-compare` |
 
 ---
 

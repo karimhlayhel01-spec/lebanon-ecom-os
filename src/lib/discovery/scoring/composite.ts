@@ -51,6 +51,15 @@ export type CompositeInput = {
   fallbackMessage?: string | null;
 };
 
+/**
+ * Why listing strength is Okay (Wave 2 caps vs genuine Fit risk).
+ * Distinct from Fit.score — Fit number stays operational truth.
+ */
+export type OkayReason =
+  | "fit_risk"
+  | "low_evidence_confidence"
+  | "high_competition";
+
 export type CompositeResult = {
   compositeScore: number;
   demand: DemandSkillResult;
@@ -60,10 +69,46 @@ export type CompositeResult = {
   polish: PolishResult;
   /** Listing strength after high-competition / low-confidence caps. */
   listingStrength: "Strong" | "Okay";
-  /** Far-below soft margin or Fit notRecommended → exclude from core passers. */
+  /**
+   * Why listing is Okay when listingStrength === "Okay"; null when Strong.
+   * Never invents Fit-moderate copy for confidence/competition caps.
+   */
+  okayReason: OkayReason | null;
+  /** Hard margin pass + Fit OK → accept-ready core (soft_ok / far_below excluded). */
   listable: boolean;
   explain: ExplainPayload;
 };
+
+/** Map Okay reason → Discovery.notes.* translation key (or Fit riskRead). */
+export function riskReadForOkayReason(
+  reason: OkayReason | null,
+  fitRiskRead: string | null,
+): string | null {
+  if (!reason) return null;
+  switch (reason) {
+    case "fit_risk":
+      return fitRiskRead ?? "@fit.moderateOkay";
+    case "low_evidence_confidence":
+      return "@listing.lowEvidenceConfidence";
+    case "high_competition":
+      return "@listing.highCompetition";
+  }
+}
+
+export function resolveOkayReason(input: {
+  listingStrength: "Strong" | "Okay";
+  fitStrength: "Strong" | "Okay";
+  capStrengthOkay: boolean;
+  competitionHigh: boolean;
+}): OkayReason | null {
+  if (input.listingStrength !== "Okay") return null;
+  // Keep one actionable founder-facing reason. Genuine Fit risk is primary;
+  // otherwise competition is more concrete than a concurrent confidence cap.
+  if (input.fitStrength === "Okay") return "fit_risk";
+  if (input.competitionHigh) return "high_competition";
+  if (input.capStrengthOkay) return "low_evidence_confidence";
+  return "fit_risk";
+}
 
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
@@ -111,16 +156,20 @@ export function computeComposite(input: CompositeInput): CompositeResult {
     core + softAddon + polish.adjustment,
   );
 
+  // Shortlist = accept-ready only: hard Wave 1 margins (band "pass"), not soft_ok.
   const listable =
-    !input.fit.notRecommended && softMargin.band !== "far_below";
+    !input.fit.notRecommended && softMargin.band === "pass";
 
   let listingStrength: "Strong" | "Okay" = input.fit.strength;
   if (competition.level === "high" || polish.capStrengthOkay) {
     listingStrength = "Okay";
   }
-  if (softMargin.band === "soft_ok") {
-    listingStrength = "Okay";
-  }
+  const okayReason = resolveOkayReason({
+    listingStrength,
+    fitStrength: input.fit.strength,
+    capStrengthOkay: polish.capStrengthOkay,
+    competitionHigh: competition.level === "high",
+  });
 
   const fallbackUsed = Boolean(input.fallbackUsed);
   const explainLine = buildExplainLine({
@@ -158,6 +207,7 @@ export function computeComposite(input: CompositeInput): CompositeResult {
     softMargin,
     polish,
     listingStrength,
+    okayReason,
     listable,
     explain,
   };

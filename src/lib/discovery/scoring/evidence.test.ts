@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DISCOVERY_SCORE_QUERIES_PER_PRODUCT_MAX } from "@/lib/constants";
 import {
+  MARKET_EVIDENCE_RESULT_CAP,
   buildScoreRefreshQueryPlan,
   scoreAbroadDemandFromItems,
   scoreCompetitionFromItems,
@@ -188,5 +189,53 @@ describe("evidence → demand / competition scores", () => {
     });
     expect(hard.shadowWouldExclude).toBe(true);
     expect(hard.shadowExcludeReason).toBe("high_competition_hard_mode_shadow");
+  });
+
+  it("persists bounded domains/titles and actual Tier-1 names only", () => {
+    const abroadItems = Array.from({ length: 8 }, (_, i) => ({
+      title: `  Result ${i} ${"x".repeat(180)}  `,
+      url: `https://www.shop${i}.com/product`,
+    }));
+    const snapshot = scoresFromSearchEvidence({
+      productName: "Bounded",
+      abroadItems,
+      lebanonItems: [
+        {
+          title: "Lebanon listing",
+          url: "https://www.localshop.lb/p",
+          merchant: "Local Shop",
+        },
+      ],
+      tier1Items: [
+        { title: "Ishtari listing", url: "https://ishtari.com/p" },
+        { title: "Other seller", url: "https://othermarket.com/p" },
+      ],
+      localItems: [
+        { title: "Beirut competitor", url: "https://beirutshop.com/p" },
+      ],
+      poolTier1Json: JSON.stringify(["EGLOW"]),
+      softCompetitionBudget: true,
+      queriesUsed: 6,
+    });
+    const raw = JSON.parse(snapshot.rawEvidenceJson!) as {
+      confidence: number;
+      abroad: { count: number; results: { domain: string; title: string }[] };
+      lebanon: { results: { domain: string; seller: string | null }[] };
+      localCompetition: { results: { domain: string }[] };
+      tier1Found: string[];
+    };
+    expect(raw.confidence).toBe(snapshot.confidence);
+    expect(raw.abroad.count).toBe(8);
+    expect(raw.abroad.results).toHaveLength(MARKET_EVIDENCE_RESULT_CAP);
+    expect(raw.abroad.results[0].domain).toBe("shop0.com");
+    expect(raw.abroad.results[0].title.length).toBeLessThanOrEqual(120);
+    expect(raw.lebanon.results[0]).toMatchObject({
+      domain: "localshop.lb",
+      seller: "Local Shop",
+    });
+    expect(raw.localCompetition.results[0].domain).toBe("beirutshop.com");
+    expect(raw.tier1Found).toEqual(["Ishtari", "othermarket.com"]);
+    // Pool metadata alone is not proof that a marketplace appeared live.
+    expect(raw.tier1Found).not.toContain("EGLOW");
   });
 });

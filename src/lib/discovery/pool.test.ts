@@ -3,6 +3,7 @@ import { CATALOG } from "@/lib/discovery/catalog";
 import {
   poolRowToCatalogProduct,
   resolveDiscoveryCatalogSource,
+  loadPoolProductsByCatalogKeys,
 } from "@/lib/discovery/pool";
 import type { PoolProductRow } from "@/lib/discovery/pool";
 
@@ -49,6 +50,15 @@ describe("poolRowToCatalogProduct", () => {
     expect(mapped.en.name).toBe(sample.en.name);
     expect(mapped.sellPrice).toBe(sample.sellPrice);
     expect(mapped.tier1Marketplaces).toEqual(sample.tier1Marketplaces);
+  });
+});
+
+describe("loadPoolProductsByCatalogKeys", () => {
+  it("returns empty map without querying when no keys (view O(visible))", async () => {
+    const map = await loadPoolProductsByCatalogKeys([]);
+    expect(map.size).toBe(0);
+    const deduped = await loadPoolProductsByCatalogKeys(["", ""]);
+    expect(deduped.size).toBe(0);
   });
 });
 

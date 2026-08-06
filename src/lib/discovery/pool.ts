@@ -3,7 +3,7 @@
  * Writers live only in pool/jobs modules — never journey / Finance / accept paths.
  */
 
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import {
@@ -209,7 +209,7 @@ export async function upsertPath1PoolCandidates(
   return { upserted: inserted + updated, inserted, updated };
 }
 
-/** Active pool rows as CatalogProduct[] (Approach A read path). */
+/** Active pool rows as CatalogProduct[] (Approach A read path — scoring / jobs). */
 export async function loadActivePoolAsCatalog(): Promise<CatalogProduct[]> {
   await ensureMigrated();
   const rows = await db
@@ -217,6 +217,30 @@ export async function loadActivePoolAsCatalog(): Promise<CatalogProduct[]> {
     .from(schema.discoveryProductPool)
     .where(eq(schema.discoveryProductPool.active, true));
   return rows.map(poolRowToCatalogProduct);
+}
+
+/**
+ * Batch-load pool products by catalogKey (O(keys), not full active pool).
+ * Discovery view uses this so Path 1 names missing from catalog.ts resolve
+ * without scanning ~hundreds of pool rows on every dashboard render.
+ */
+export async function loadPoolProductsByCatalogKeys(
+  catalogKeys: readonly string[],
+): Promise<Map<string, CatalogProduct>> {
+  const unique = [...new Set(catalogKeys.filter((k) => k.length > 0))];
+  const map = new Map<string, CatalogProduct>();
+  if (unique.length === 0) return map;
+
+  await ensureMigrated();
+  const rows = await db
+    .select()
+    .from(schema.discoveryProductPool)
+    .where(inArray(schema.discoveryProductPool.catalogKey, unique));
+
+  for (const row of rows) {
+    map.set(row.catalogKey, poolRowToCatalogProduct(row));
+  }
+  return map;
 }
 
 /** MOQ / sample hints keyed by catalogKey (missing → neutral in BudgetFight). */

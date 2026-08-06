@@ -1,23 +1,25 @@
 /**
- * §6.1 Why this pick? orchestration — read-only vs Discovery scores/gates.
+ * §6.1 “Why we suggested this” — Gemini narrates skill payloads (not a scoring brain).
  */
 
 import { eq } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import {
   checkWhyPickRateLimit,
+  deleteCachedWhyPick,
   getCachedWhyPick,
   recordWhyPickRateHit,
   setCachedWhyPick,
   whyPickCacheKey,
 } from "@/lib/discovery/explain/cache";
 import {
-  isWhyPickFeatureEnabled,
-  narrateWhyPickWithLlm,
-  resolveExplainLlmApiKey,
+  isGeminiConfigured,
+  isSuggestionExplainEnabled,
+  narrateSuggestionWithGemini,
+  resolveGeminiApiKey,
 } from "@/lib/discovery/explain/llm";
 import {
-  buildDeterministicWhyPick,
+  isCompleteSuggestionBody,
   skillPayloadFromCandidateMeta,
   type WhyPickLocale,
   type WhyPickResult,
@@ -30,24 +32,34 @@ export type WhyPickServiceResult =
       ok: false;
       error:
         | "feature_off"
+        | "missing_key"
         | "not_found"
         | "rate_limited"
         | "no_session"
+        | "api_error"
+        | "ungrounded"
+        | "empty"
         | "error";
     };
 
-function parseEvidenceSource(raw: string | null | undefined): string | null {
-  if (!raw) return null;
+function parseScoreEvidence(
+  raw: string | null | undefined,
+): { source: string | null; evidence: Record<string, unknown> | null } {
+  if (!raw) return { source: null, evidence: null };
   try {
-    const parsed = JSON.parse(raw) as { source?: string };
-    return typeof parsed.source === "string" ? parsed.source : null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      source: typeof parsed.source === "string" ? parsed.source : null,
+      evidence: parsed,
+    };
   } catch {
-    return null;
+    return { source: null, evidence: null };
   }
 }
 
 /**
- * Build (or return cached) Why this pick? paragraph for a candidate.
+ * Build (or return cached) suggestion paragraph for a candidate.
+ * Requires Gemini key — fail closed (no template product UX).
  * Does not write productCandidates / scores / approvals.
  */
 export async function explainWhyThisPick(input: {
@@ -55,8 +67,13 @@ export async function explainWhyThisPick(input: {
   candidateId: string;
   locale: WhyPickLocale;
 }): Promise<WhyPickServiceResult> {
-  if (!isWhyPickFeatureEnabled()) {
+  if (!isSuggestionExplainEnabled()) {
     return { ok: false, error: "feature_off" };
+  }
+
+  const apiKey = resolveGeminiApiKey();
+  if (!apiKey) {
+    return { ok: false, error: "missing_key" };
   }
 
   await ensureMigrated();
@@ -80,8 +97,11 @@ export async function explainWhyThisPick(input: {
     input.locale,
   );
   const cached = getCachedWhyPick(cacheKey);
-  if (cached) {
-    return { ok: true, result: cached, cached: true };
+  if (cached && cached.body) {
+    if (isCompleteSuggestionBody(cached.body)) {
+      return { ok: true, result: cached, cached: true };
+    }
+    deleteCachedWhyPick(cacheKey);
   }
 
   const rate = checkWhyPickRateLimit(input.workspaceId);
@@ -97,38 +117,71 @@ export async function explainWhyThisPick(input: {
   }
 
   let scoreEvidenceSource: string | null = null;
+  let scoreEvidence: Record<string, unknown> | null = null;
+  let curatedDifferentiation = candidate.differentiation?.trim() || null;
+  let scoreCache: {
+    demandPath?: string | null;
+    competitionScore?: number | null;
+    budgetFightPenalty?: number | null;
+  } | null = null;
   if (catalogKey) {
     const poolRow = await db
-      .select({ id: schema.discoveryProductPool.id })
+      .select({
+        id: schema.discoveryProductPool.id,
+        differentiationEn: schema.discoveryProductPool.differentiationEn,
+        differentiationAr: schema.discoveryProductPool.differentiationAr,
+      })
       .from(schema.discoveryProductPool)
       .where(eq(schema.discoveryProductPool.catalogKey, catalogKey))
       .then((rows) => rows[0]);
     if (poolRow) {
       const score = await getScoreForPoolProduct(poolRow.id);
-      scoreEvidenceSource = parseEvidenceSource(score?.rawEvidenceJson);
+      const parsedEvidence = parseScoreEvidence(score?.rawEvidenceJson);
+      scoreEvidenceSource = parsedEvidence.source;
+      scoreEvidence = parsedEvidence.evidence;
+      curatedDifferentiation =
+        (input.locale === "ar"
+          ? poolRow.differentiationAr
+          : poolRow.differentiationEn
+        )?.trim() ||
+        curatedDifferentiation;
+      if (score) {
+        scoreCache = {
+          demandPath: score.demandPath,
+          competitionScore: score.competitionScore,
+          budgetFightPenalty: score.budgetFightPenalty,
+        };
+      }
     }
   }
 
   const payload = skillPayloadFromCandidateMeta({
     productName: candidate.name,
+    category: candidate.category,
     fitScore: candidate.fitScore,
     strength: candidate.strength === "Strong" ? "Strong" : "Okay",
     fitBreakdownJson: candidate.fitBreakdown,
+    marginBefore: candidate.marginBefore,
+    marginAfter: candidate.marginAfter,
+    curatedDifferentiation,
     scoreEvidenceSource,
+    scoreEvidence,
+    scoreCache,
   });
 
-  const apiKey = resolveExplainLlmApiKey();
-  let result: WhyPickResult;
-  if (apiKey) {
-    result = await narrateWhyPickWithLlm(payload, input.locale, { apiKey });
-  } else {
-    result = buildDeterministicWhyPick(payload, input.locale);
+  const narrated = await narrateSuggestionWithGemini(payload, input.locale, {
+    apiKey,
+  });
+  if (!narrated.ok) {
+    return { ok: false, error: narrated.error };
   }
 
   recordWhyPickRateHit(input.workspaceId);
-  setCachedWhyPick(cacheKey, result);
-  return { ok: true, result, cached: false };
+  setCachedWhyPick(cacheKey, narrated.result);
+  return { ok: true, result: narrated.result, cached: false };
 }
+
+export { isGeminiConfigured, isSuggestionExplainEnabled };
 
 /** Snapshot helper for tests — proves explain path does not expose mutators. */
 export const WHY_PICK_READ_ONLY_SEAM = true as const;

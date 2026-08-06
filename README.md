@@ -74,16 +74,26 @@ Canonical locks: `docs/WAVE-2.md`. Page loads **never** live-search — schedule
 ```bash
 npm run db:migrate
 # In .env (example): DISCOVERY_POOL_V2=1 DISCOVERY_LIVE_SEARCH=1 SERPAPI_API_KEY=…
-# Optional: DISCOVERY_WHY_PICK=1  (card “Why this pick?”)
+# Required for card explain: GEMINI_API_KEY=… (or DISCOVERY_EXPLAIN_GEMINI_API_KEY)
 npm run discovery:intake    # seed + Path 1 upserts when live search + key
 npm run discovery:score     # write discovery_product_scores (optional: -- --limit=25)
 npm run discovery:refresh   # intake then score
-npm run dev -- -p 3005      # shortlist ranks from score cache; dual-gate + Why this pick when flagged
+npm run dev -- -p 3005      # shortlist ranks from score cache; system demand gate + Gemini explain when flagged
 ```
 
 With a large Path 1 pool, prefer `npm run discovery:score -- --limit=50` (or cron batches) so SerpAPI caps stay manageable. Discovery **GET** still never live-searches.
 
-With flags **off**, Discovery stays Wave 1 (in-memory catalog + paste-only accept).
+With flags **off**, Discovery stays Wave 1 (in-memory catalog; accept uses margins / Tier-1 / oversized — no paste).
+
+### Session resync (POOL_V2)
+
+Active Discovery sessions freeze a shortlist at start. Path 1 intake / score jobs do **not** rewrite an open session. When `DISCOVERY_POOL_V2=1`, founders can use **Refresh suggestions** on the Discovery board to:
+
+1. Close the active session  
+2. Re-score from the current Postgres pool + Approach A score cache  
+3. Open a new session  
+
+**Seen keys** (any catalog key already shown / rejected / accepted in the workspace) stay excluded — same rule as **Continue discovery**. Reject, show-more, and accept on the new session are unchanged. Refresh does **not** increment the exhausted-round ladder.
 
 The app requires **`DATABASE_URL`** — a standard Postgres connection string (Neon, local Docker, RDS, etc.).
 

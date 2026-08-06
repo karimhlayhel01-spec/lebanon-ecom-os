@@ -1,6 +1,7 @@
 /**
- * SoftMargin skill — Discovery listing band around Wave 1 70%/35%. WAVE-2 §5.2.
- * Hard accept gates stay on computeMargin.pass (unchanged this pass).
+ * SoftMargin skill — margin band for composite scoring / explain. WAVE-2 §5.2.
+ * Shortlist listing requires band "pass" (hard 70%/35%); soft_ok is scoring
+ * signal only — never listed for browsing.
  */
 
 import type { MarginResult } from "@/lib/skills/margin";
@@ -22,10 +23,10 @@ export type SoftMarginResult = {
 };
 
 /**
- * Map hard margin math onto soft listing policy.
- * - pass: meets Wave 1 hard targets (same as margin.pass)
- * - soft_ok: within soft listing band (slightly under) → Okay + note
- * - far_below: under floor → do not recommend
+ * Map hard margin math onto soft-margin scoring bands.
+ * - pass: meets Wave 1 hard targets (same as margin.pass) → listable
+ * - soft_ok: slightly under hard targets → scoring addon only, not listed
+ * - far_below: under floor → not listed
  */
 export function computeSoftMargin(margin: MarginResult): SoftMarginResult {
   const { marginBefore, marginAfter, pass } = margin;

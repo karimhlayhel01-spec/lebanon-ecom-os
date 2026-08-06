@@ -1,30 +1,50 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import {
+  useActionState,
+  useEffect,
+  useId,
+  useState,
+  useSyncExternalStore,
+  useTransition,
+} from "react";
+import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import {
   acceptProductAction,
-  confirmDemandAction,
+  compareWorthConsideringAction,
   continueDiscoveryAction,
   explainWhyThisPickAction,
+  refreshSuggestionsAction,
   rejectCandidateAction,
   resolveTier1Action,
   showMoreAction,
   submitDiscoveryPassFeedbackAction,
-  type DemandActionState,
   type PassFeedbackState,
 } from "@/actions/discovery";
 import {
+  DISCOVERY_COMPARE_MAX,
+  DISCOVERY_COMPARE_MIN,
   MARGIN_AFTER_ADS_MIN,
   MARGIN_BEFORE_ADS_MIN,
 } from "@/lib/constants";
+import {
+  revalidateWorthConsideringMarks,
+  toggleWorthConsideringMark,
+} from "@/lib/discovery/compare/pick";
+import {
+  COMPARE_CACHE_VERSION,
+  WHY_PICK_CACHE_VERSION,
+} from "@/lib/discovery/explain/cache";
+import { isCompleteCompareBody } from "@/lib/discovery/explain/compare";
 import {
   DISCOVERY_PASS_REASONS,
   suggestionsForPassReasons,
   type DiscoveryLadder,
   type DiscoveryPassReason,
 } from "@/lib/discovery/ladder";
+import { isCompleteSuggestionBody } from "@/lib/discovery/explain/why-pick";
 import type {
   DiscoveryCandidateView,
   DiscoveryView,
@@ -33,8 +53,6 @@ import type {
 function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
 }
-
-const demandInitial: DemandActionState = {};
 
 /** Translate `@fit.*` / `@margin.*` note keys; legacy English falls through as-is. */
 function useDiscoveryNote() {
@@ -82,9 +100,128 @@ export function DiscoveryBoard({
   const t = useTranslations("Discovery");
   const empty = view.candidates.length === 0;
   const isAdd = mode === "addSku";
+  const [refreshPending, startRefresh] = useTransition();
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [markSessionId, setMarkSessionId] = useState(view.sessionId);
+  const [worthIds, setWorthIds] = useState<string[]>([]);
+  const [worthMaxHint, setWorthMaxHint] = useState(false);
+  const [comparePending, startCompare] = useTransition();
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareBody, setCompareBody] = useState<string | null>(null);
+  const [compareCacheVersion, setCompareCacheVersion] = useState<string | null>(
+    null,
+  );
+  const [compareHonestyKey, setCompareHonestyKey] = useState<
+    | "whySuggestedHonesty"
+    | "whySuggestedHonestyLive"
+    | "whySuggestedHonestyEstimate"
+  >("whySuggestedHonestyEstimate");
+  const [compareError, setCompareError] = useState<string | null>(null);
+  const [advisedName, setAdvisedName] = useState<string | null>(null);
+
+  // Session-scoped marks: reset on new session; prune rejected/hidden cards.
+  if (markSessionId !== view.sessionId) {
+    setMarkSessionId(view.sessionId);
+    setWorthIds([]);
+    setWorthMaxHint(false);
+    setCompareOpen(false);
+    setCompareBody(null);
+    setCompareCacheVersion(null);
+    setAdvisedName(null);
+    setCompareError(null);
+  } else {
+    const pruned = revalidateWorthConsideringMarks(
+      worthIds,
+      view.candidates.map((c) => c.id),
+    );
+    if (pruned.length !== worthIds.length) {
+      setWorthIds(pruned);
+    }
+  }
+
+  const selectedCards = view.candidates.filter((c) => worthIds.includes(c.id));
+  const canCompare =
+    selectedCards.length >= DISCOVERY_COMPARE_MIN &&
+    selectedCards.length <= DISCOVERY_COMPARE_MAX;
+
+  function toggleWorth(candidateId: string) {
+    setWorthMaxHint(false);
+    setWorthIds((prev) => {
+      const next = toggleWorthConsideringMark(prev, candidateId);
+      if (next.blockedAtMax) setWorthMaxHint(true);
+      return next.ids;
+    });
+  }
+
+  function clearWorth() {
+    setWorthIds([]);
+    setWorthMaxHint(false);
+    setCompareOpen(false);
+    setCompareBody(null);
+    setCompareError(null);
+    setAdvisedName(null);
+  }
+
+  function runCompare() {
+    setCompareError(null);
+    setCompareOpen(true);
+    const versionOk = compareCacheVersion === COMPARE_CACHE_VERSION;
+    const bodyOk =
+      Boolean(compareBody) && versionOk && isCompleteCompareBody(compareBody!);
+    if (bodyOk && canCompare) return;
+    if (compareBody && !bodyOk) {
+      setCompareBody(null);
+      setCompareCacheVersion(null);
+      setAdvisedName(null);
+    }
+    if (!view.geminiConfigured) {
+      setCompareError(t("compareMissingKey"));
+      return;
+    }
+    if (!canCompare) {
+      setCompareError(t("compareInvalid"));
+      return;
+    }
+    startCompare(async () => {
+      const res = await compareWorthConsideringAction(worthIds);
+      const complete =
+        Boolean(res.ok && res.body) && isCompleteCompareBody(res.body!);
+      if (!res.ok || !res.body || !complete) {
+        setCompareBody(null);
+        setCompareCacheVersion(null);
+        setAdvisedName(null);
+        setCompareError(
+          res.error === "missing_key" || res.missingKey
+            ? t("compareMissingKey")
+            : res.error === "rate_limited"
+              ? t("whyPickRateLimited")
+              : res.error === "feature_off"
+                ? t("compareOff")
+                : res.error === "stale_selection"
+                  ? t("compareStale")
+                  : res.error === "invalid_selection"
+                    ? t("compareInvalid")
+                    : res.error === "api_error"
+                      ? t("compareApiError")
+                      : t("compareFailed"),
+        );
+      } else {
+        setCompareBody(res.body);
+        setCompareCacheVersion(res.cacheVersion ?? COMPARE_CACHE_VERSION);
+        setAdvisedName(res.advisedName ?? null);
+        setCompareHonestyKey(
+          res.honestyKey === "whySuggestedHonestyLive"
+            ? "whySuggestedHonestyLive"
+            : res.honestyKey === "whySuggestedHonesty"
+              ? "whySuggestedHonesty"
+              : "whySuggestedHonestyEstimate",
+        );
+      }
+    });
+  }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-24">
       <div className="surface-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -102,14 +239,57 @@ export function DiscoveryBoard({
               {isAdd ? t("addSkuIntro") : t("intro")}
             </p>
           </div>
-          <span className="whitespace-nowrap rounded-full border border-stone bg-sand px-3 py-1 text-xs font-medium text-stone-dark">
-            {t("sessionCount", {
-              shown: view.productsShown,
-              cap: view.sessionCap,
-            })}
-          </span>
+          <div className="flex flex-col items-end gap-2">
+            <span className="whitespace-nowrap rounded-full border border-stone bg-sand px-3 py-1 text-xs font-medium text-stone-dark">
+              {t("sessionCount", {
+                shown: view.productsShown,
+                cap: view.sessionCap,
+              })}
+            </span>
+            {view.canRefreshSuggestions ? (
+              <div className="text-end">
+                <button
+                  type="button"
+                  disabled={refreshPending}
+                  title={t("refreshSuggestionsHint")}
+                  onClick={() =>
+                    startRefresh(async () => {
+                      setRefreshError(null);
+                      const result = await refreshSuggestionsAction();
+                      if (!result.ok) {
+                        setRefreshError(
+                          result.error === "catalog_exhausted"
+                            ? t("refreshSuggestionsExhausted")
+                            : t("errorGeneric"),
+                        );
+                      } else {
+                        // New session — clear marks immediately (sessionId effect also clears).
+                        setWorthIds([]);
+                        setWorthMaxHint(false);
+                        setCompareOpen(false);
+                        setCompareBody(null);
+                        setAdvisedName(null);
+                      }
+                    })
+                  }
+                  className="rounded-md border border-stone bg-surface px-3 py-1.5 text-xs font-semibold text-ink transition hover:bg-sand disabled:opacity-60"
+                >
+                  {refreshPending
+                    ? t("refreshSuggestionsPending")
+                    : t("refreshSuggestions")}
+                </button>
+                {refreshError ? (
+                  <p className="mt-1 text-xs text-cedar-deep">{refreshError}</p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
+
+      {view.editOnboardingBanner ? (
+        <EditOnboardingNote banner={view.editOnboardingBanner} />
+      ) : null}
 
       {empty && view.ladder ? (
         <DiscoveryEmptyLadder ladder={view.ladder} view={view} />
@@ -119,7 +299,10 @@ export function DiscoveryBoard({
             <ProductCard
               key={c.id}
               c={c}
-              whyPickEnabled={view.whyPickEnabled}
+              suggestionExplainEnabled={view.suggestionExplainEnabled}
+              geminiConfigured={view.geminiConfigured}
+              worthConsidering={worthIds.includes(c.id)}
+              onToggleWorth={() => toggleWorth(c.id)}
             />
           ))}
         </div>
@@ -146,6 +329,130 @@ export function DiscoveryBoard({
           )}
         </div>
       )}
+
+      {!empty && view.suggestionExplainEnabled ? (
+        <WorthConsideringCompareBox
+          selected={selectedCards}
+          maxHint={worthMaxHint}
+          canCompare={canCompare}
+          comparePending={comparePending}
+          geminiConfigured={view.geminiConfigured}
+          onClear={clearWorth}
+          onCompare={runCompare}
+        />
+      ) : null}
+
+      {compareOpen ? (
+        <CompareResultModal
+          title={t("compareResultTitle")}
+          advisedName={advisedName}
+          body={compareBody}
+          honesty={t(compareHonestyKey)}
+          adviceNote={t("compareAdviceNote")}
+          advisedLabel={t("compareAdvisedLabel")}
+          error={compareError}
+          loading={comparePending}
+          loadingLabel={t("compareLoading")}
+          closeLabel={t("compareClose")}
+          onClose={() => setCompareOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function WorthConsideringCompareBox({
+  selected,
+  maxHint,
+  canCompare,
+  comparePending,
+  geminiConfigured,
+  onClear,
+  onCompare,
+}: {
+  selected: DiscoveryCandidateView[];
+  maxHint: boolean;
+  canCompare: boolean;
+  comparePending: boolean;
+  geminiConfigured: boolean;
+  onClear: () => void;
+  onCompare: () => void;
+}) {
+  const t = useTranslations("Discovery");
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone bg-surface/95 px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] backdrop-blur">
+      <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
+            {t("compareBoxTitle")}
+          </p>
+          {selected.length === 0 ? (
+            <p className="mt-0.5 text-sm text-stone-dark">{t("compareBoxEmpty")}</p>
+          ) : (
+            <>
+              <p className="mt-0.5 text-sm text-ink">
+                {t("compareBoxCount", { count: selected.length })}
+                {selected.length < DISCOVERY_COMPARE_MIN
+                  ? ` — ${t("compareBoxNeedMore")}`
+                  : null}
+              </p>
+              <p className="mt-0.5 truncate text-xs text-stone-dark">
+                {selected.map((c) => c.name).join(" · ")}
+              </p>
+            </>
+          )}
+          {maxHint ? (
+            <p className="mt-1 text-xs text-amber-800">{t("worthConsideringMax")}</p>
+          ) : null}
+          {!geminiConfigured ? (
+            <p className="mt-1 text-xs text-amber-800">{t("compareMissingKey")}</p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {selected.length > 0 ? (
+            <button
+              type="button"
+              onClick={onClear}
+              className="rounded-md border border-stone px-3 py-1.5 text-sm font-medium text-ink transition hover:bg-sand"
+            >
+              {t("compareClear")}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={!canCompare || comparePending || !geminiConfigured}
+            onClick={onCompare}
+            className="rounded-md bg-cedar px-4 py-1.5 text-sm font-semibold text-foam shadow-sm transition hover:bg-cedar-deep disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {comparePending ? t("compareLoading") : t("compareButton")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditOnboardingNote({
+  banner,
+}: {
+  banner: NonNullable<DiscoveryView["editOnboardingBanner"]>;
+}) {
+  const t = useTranslations("Discovery");
+  const isZero = banner === "zero_accept_ready";
+  return (
+    <div className="rounded-md border border-sea/30 bg-sea/5 px-4 py-3">
+      <p className="text-sm font-medium text-ink">
+        {isZero ? t("editOnboardingZeroTitle") : t("editOnboardingThinTitle")}
+      </p>
+      <p className="mt-1 max-w-2xl text-sm text-stone-dark">
+        {isZero ? t("editOnboardingZeroBody") : t("editOnboardingThinBody")}
+      </p>
+      <Link
+        href="/onboarding?edit=1"
+        className="mt-3 inline-flex rounded-md border border-stone bg-surface px-4 py-2 text-sm font-semibold text-ink transition hover:bg-sand"
+      >
+        {t("editOnboardingCta")}
+      </Link>
     </div>
   );
 }
@@ -335,33 +642,61 @@ function DiscoveryEmptyLadder({
 
 function ProductCard({
   c,
-  whyPickEnabled,
+  suggestionExplainEnabled,
+  geminiConfigured,
+  worthConsidering,
+  onToggleWorth,
 }: {
   c: DiscoveryCandidateView;
-  whyPickEnabled: boolean;
+  suggestionExplainEnabled: boolean;
+  geminiConfigured: boolean;
+  worthConsidering: boolean;
+  onToggleWorth: () => void;
 }) {
   const t = useTranslations("Discovery");
   const note = useDiscoveryNote();
   const ind = useTranslations("Onboarding");
   const [pending, startTransition] = useTransition();
-  const [demandOpen, setDemandOpen] = useState(false);
   const [ack, setAck] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [whyBody, setWhyBody] = useState<string | null>(null);
+  const [whyCacheVersion, setWhyCacheVersion] = useState<string | null>(null);
+  const [whyHonestyKey, setWhyHonestyKey] = useState<
+    | "whySuggestedHonesty"
+    | "whySuggestedHonestyLive"
+    | "whySuggestedHonestyEstimate"
+  >("whySuggestedHonestyEstimate");
+  const [whyOpen, setWhyOpen] = useState(false);
   const [whyError, setWhyError] = useState<string | null>(null);
   const [whyPending, setWhyPending] = useState(false);
-
-  const [demandState, demandFormAction, demandPending] = useActionState(
-    confirmDemandAction,
-    demandInitial,
-  );
 
   const blocked = c.oversized || !c.marginsPass;
   const isOkay = c.strength === "Okay";
   const marginBlockCopy = translateMarginBlock(note, t("blockedMargin"), c);
-  const riskReadCopy = c.riskRead ? note(c.riskRead) : null;
-  const pasteConfirmed = c.demandConfirmed || demandState.ok;
+  const riskReadCopy = c.riskRead
+    ? note(c.riskRead, { fitScore: c.fitScore })
+    : null;
   const systemPass = c.systemDemand?.pass === true;
+
+  function systemDemandCopy(): string {
+    if (systemPass) {
+      return t("dualGateSystemPass", {
+        path:
+          c.systemDemand?.demandPath === "local_proven"
+            ? t("demandPathLocal")
+            : t("demandPathWhitespace"),
+      });
+    }
+    if (c.systemDemand?.status === "missing") {
+      if (c.systemDemand?.reason === "score_refresh_failed") {
+        return t.has("dualGateSystemFailedRefresh")
+          ? t("dualGateSystemFailedRefresh")
+          : t("dualGateSystemMissing");
+      }
+      return t("dualGateSystemMissing");
+    }
+    return t("dualGateSystemFail");
+  }
 
   function accept() {
     setActionError(null);
@@ -383,22 +718,58 @@ function ProductCard({
     });
   }
 
-  function whyThisPick() {
+  function whySuggested() {
     setWhyError(null);
+    setWhyOpen(true);
+    const versionOk = whyCacheVersion === WHY_PICK_CACHE_VERSION;
+    const bodyOk =
+      Boolean(whyBody) &&
+      versionOk &&
+      isCompleteSuggestionBody(whyBody!);
+    if (bodyOk) return;
+    if (whyBody && !bodyOk) {
+      setWhyBody(null);
+      setWhyCacheVersion(null);
+    }
+    if (!geminiConfigured) {
+      setWhyError(t("whySuggestedMissingKey"));
+      return;
+    }
     setWhyPending(true);
     startTransition(async () => {
       try {
         const res = await explainWhyThisPickAction(c.id);
-        if (!res.ok || !res.body) {
+        const complete =
+          Boolean(res.ok && res.body) &&
+          isCompleteSuggestionBody(res.body!);
+        if (!res.ok || !res.body || !complete) {
+          setWhyBody(null);
+          setWhyCacheVersion(null);
           setWhyError(
-            res.error === "rate_limited"
-              ? t("whyPickRateLimited")
-              : res.error === "feature_off"
-                ? t("whyPickOff")
-                : t("errorGeneric"),
+            res.error === "missing_key" || res.missingKey
+              ? t("whySuggestedMissingKey")
+              : res.error === "rate_limited"
+                ? t("whyPickRateLimited")
+                : res.error === "feature_off"
+                  ? t("whySuggestedOff")
+                  : res.error === "api_error"
+                    ? t("whySuggestedApiError")
+                    : res.error === "ungrounded" ||
+                        res.error === "empty" ||
+                        (Boolean(res.ok) && !complete)
+                      ? t("whySuggestedFailed")
+                      : t("errorGeneric"),
           );
         } else {
           setWhyBody(res.body);
+          setWhyCacheVersion(res.cacheVersion ?? WHY_PICK_CACHE_VERSION);
+          setWhyHonestyKey(
+            res.honestyKey === "whySuggestedHonestyLive"
+              ? "whySuggestedHonestyLive"
+              : res.honestyKey === "whySuggestedHonesty"
+                ? "whySuggestedHonesty"
+                : "whySuggestedHonestyEstimate",
+          );
         }
       } finally {
         setWhyPending(false);
@@ -406,15 +777,18 @@ function ProductCard({
     });
   }
 
+  function closeWhySuggested() {
+    setWhyOpen(false);
+  }
+
   const errorMsg =
     actionError === "needs_risk_ack"
       ? t("acceptOkayHint")
-      : actionError === "needs_demand"
-        ? c.dualDemandGate
-          ? t("acceptNeedsPaste")
-          : t("acceptNeedsDemand")
-        : actionError === "needs_system_demand"
-          ? t("acceptNeedsSystemDemand")
+      : actionError === "needs_system_demand_missing" ||
+          actionError === "needs_system_demand"
+        ? t("acceptNeedsSystemDemandMissing")
+        : actionError === "needs_system_demand_weak"
+          ? t("acceptNeedsSystemDemandWeak")
           : actionError === "tier1_unresolved"
             ? t("acceptNeedsTier1")
             : actionError === "blocked"
@@ -438,6 +812,18 @@ function ProductCard({
         </div>
         <StrengthBadge strength={c.strength} notRecommended={c.notRecommended} />
       </div>
+
+      {suggestionExplainEnabled ? (
+        <label className="flex items-start gap-2 text-xs text-ink">
+          <input
+            type="checkbox"
+            checked={worthConsidering}
+            onChange={onToggleWorth}
+            className="mt-0.5 size-4 accent-cedar"
+          />
+          <span>{t("worthConsidering")}</span>
+        </label>
+      ) : null}
 
       <p className="text-sm text-stone-dark">{c.summary}</p>
 
@@ -481,178 +867,61 @@ function ProductCard({
         </p>
       )}
 
-      {c.softListedHardAcceptBlocked && (
-        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          <span className="font-semibold">{t("softListedTitle")}: </span>
-          {t("softListedHardAcceptBody")}
-        </p>
-      )}
-
       <div className="rounded-md border border-stone bg-surface-subtle px-3 py-2 text-xs text-stone-dark">
         <span className="font-medium text-ink">{t("differentiation")}: </span>
         {c.differentiation}
       </div>
 
-      {whyPickEnabled && (
-        <div className="text-xs">
-          <button
-            type="button"
-            disabled={whyPending || pending}
-            onClick={whyThisPick}
-            className="rounded-md border border-stone px-2.5 py-1 font-medium text-ink transition hover:bg-sand disabled:opacity-60"
-          >
-            {t("whyPickButton")}
-          </button>
-          {whyError && (
-            <p className="mt-2 text-amber-800">{whyError}</p>
-          )}
-          {whyBody && (
-            <div className="mt-2 rounded-md border border-stone bg-surface-subtle px-3 py-2">
-              <p className="font-semibold text-ink">{t("whyPickTitle")}</p>
-              <p className="mt-1 text-sm leading-relaxed text-ink">{whyBody}</p>
-              <p className="mt-1.5 text-[11px] text-stone-dark">
-                {t("whyPickHonesty")}
-              </p>
-            </div>
-          )}
+      {/* System demand status (accept gate) — no founder paste */}
+      {c.systemDemandGate && (
+        <div
+          className={`rounded-md border px-3 py-2 text-xs ${
+            systemPass
+              ? "border-stone bg-surface-subtle"
+              : "border-amber-300 bg-amber-50 text-amber-900"
+          }`}
+        >
+          <p className="font-semibold text-ink">{t("systemDemandTitle")}</p>
+          <p className={`mt-1 ${systemPass ? "text-stone-dark" : ""}`}>
+            {systemDemandCopy()}
+          </p>
         </div>
       )}
 
-      {/* Demand — Wave 1 paste; Wave 2 dual-gate keeps paste + system score */}
-      <div className="text-xs">
-        {c.dualDemandGate ? (
-          <div className="mb-2 rounded-md border border-stone bg-surface-subtle px-3 py-2">
-            <p className="font-semibold text-ink">{t("dualGateTitle")}</p>
-            <p className="mt-1 text-stone-dark">{t("dualGateBody")}</p>
-            <ul className="mt-2 space-y-1 text-stone-dark">
-              <li>
-                {systemPass ? "✓" : "○"}{" "}
-                <span className="font-medium text-ink">
-                  {t("dualGateSystemLabel")}:
-                </span>{" "}
-                {systemPass
-                  ? t("dualGateSystemPass", {
-                      path:
-                        c.systemDemand?.demandPath === "local_proven"
-                          ? t("demandPathLocal")
-                          : t("demandPathWhitespace"),
-                    })
-                  : c.systemDemand?.status === "missing"
-                    ? t("dualGateSystemMissing")
-                    : t("dualGateSystemFail")}
-              </li>
-              <li>
-                {pasteConfirmed ? "✓" : "○"}{" "}
-                <span className="font-medium text-ink">
-                  {t("dualGatePasteLabel")}:
-                </span>{" "}
-                {pasteConfirmed
-                  ? t("demandConfirmed")
-                  : t("dualGatePasteNeeded")}
-              </li>
-            </ul>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-stone-dark">
-              {t("demand")}:{" "}
-              {pasteConfirmed ? (
-                <span className="font-semibold text-cedar-deep">
-                  {t("demandConfirmed")}
-                </span>
-              ) : (
-                <span className="text-stone-dark">{t("demandNeeded")}</span>
-              )}
-            </span>
-            {!pasteConfirmed && !blocked && (
-              <button
-                type="button"
-                onClick={() => setDemandOpen((v) => !v)}
-                className="rounded-md border border-stone px-2.5 py-1 font-medium text-ink transition hover:bg-sand"
-              >
-                {t("confirmDemand")}
-              </button>
-            )}
-          </div>
-        )}
-
-        {c.dualDemandGate && (
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-stone-dark">{t("dualGatePasteCtaHint")}</span>
-            {!pasteConfirmed && !blocked && (
-              <button
-                type="button"
-                onClick={() => setDemandOpen((v) => !v)}
-                className="rounded-md border border-stone px-2.5 py-1 font-medium text-ink transition hover:bg-sand"
-              >
-                {t("confirmDemand")}
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Saved / just-confirmed demand summary (not a hollow "Confirmed" badge). */}
-        {(c.demandSummary || (demandState.ok && demandState.summary)) && (
-          <div className="mt-2 rounded-md border border-cedar/25 bg-cedar/5 px-3 py-2">
-            <p className="font-semibold text-cedar-deep">
-              {t("demandSummaryTitle")}
-            </p>
-            <p className="mt-1 text-sm leading-relaxed text-ink">
-              {c.demandSummary ?? demandState.summary}
-            </p>
-            <p className="mt-1.5 text-[11px] text-stone-dark">
-              {t("demandHonesty")}
-            </p>
-          </div>
-        )}
-
-        {demandOpen && !pasteConfirmed && (
-          <form
-            action={demandFormAction}
-            className="mt-2 flex flex-col gap-2 rounded-md border border-stone bg-surface p-3"
-          >
-            <input type="hidden" name="candidateId" value={c.id} />
-            <input
-              name="url"
-              placeholder={t("demandUrl")}
-              className="rounded-md border border-stone px-2.5 py-2 outline-none focus:border-cedar"
-            />
-            <input
-              name="note"
-              placeholder={t("demandNote")}
-              className="rounded-md border border-stone px-2.5 py-2 outline-none focus:border-cedar"
-            />
-            <input
-              name="screenshotNote"
-              placeholder={t("demandScreenshot")}
-              className="rounded-md border border-stone px-2.5 py-2 outline-none focus:border-cedar"
-            />
-            {demandState.error && (
-              <p className="text-amber-800">
-                {demandState.error === "empty_signal"
-                  ? t("demandEmpty")
-                  : t("errorGeneric")}
+      {/* §6.1 Why we suggested this — modal with full Gemini copy */}
+      {suggestionExplainEnabled && (
+        <div className="text-xs">
+          {!geminiConfigured ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+              <p className="font-semibold text-ink">{t("whySuggestedTitle")}</p>
+              <p className="mt-1 text-sm leading-relaxed">
+                {t("whySuggestedMissingKey")}
               </p>
-            )}
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={demandPending}
-                className="rounded-md bg-cedar px-3 py-1.5 font-semibold text-foam transition hover:bg-cedar-deep disabled:opacity-60"
-              >
-                {t("demandSubmit")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDemandOpen(false)}
-                className="rounded-md border border-stone px-3 py-1.5 font-medium text-ink transition hover:bg-sand"
-              >
-                {t("cancel")}
-              </button>
             </div>
-          </form>
-        )}
-      </div>
+          ) : (
+            <button
+              type="button"
+              disabled={whyPending || pending}
+              onClick={whySuggested}
+              className="rounded-md border border-stone px-2.5 py-1 font-medium text-ink transition hover:bg-sand disabled:opacity-60"
+            >
+              {t("whySuggestedButton")}
+            </button>
+          )}
+          {whyOpen && (
+            <WhySuggestedModal
+              title={t("whySuggestedTitle")}
+              body={whyBody}
+              honesty={t(whyHonestyKey)}
+              error={whyError}
+              loading={whyPending}
+              loadingLabel={t("whySuggestedLoading")}
+              closeLabel={t("whySuggestedClose")}
+              onClose={closeWhySuggested}
+            />
+          )}
+        </div>
+      )}
 
       {/* Tier-1 conflict */}
       {c.tier1Conflict && (
@@ -723,6 +992,253 @@ function ProductCard({
   );
 }
 
+/** Portal target only exists on the client; keep SSR and first paint aligned. */
+const subscribeNoop = () => () => {};
+const getMountedClient = () => true;
+const getMountedServer = () => false;
+
+function WhySuggestedModal({
+  title,
+  body,
+  honesty,
+  error,
+  loading,
+  loadingLabel,
+  closeLabel,
+  onClose,
+}: {
+  title: string;
+  body: string | null;
+  honesty: string;
+  error: string | null;
+  loading: boolean;
+  loadingLabel: string;
+  closeLabel: string;
+  onClose: () => void;
+}) {
+  const titleId = useId();
+  const mounted = useSyncExternalStore(
+    subscribeNoop,
+    getMountedClient,
+    getMountedServer,
+  );
+  const displayBody =
+    body && isCompleteSuggestionBody(body) ? body : null;
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90]" role="presentation">
+      <button
+        type="button"
+        aria-label={closeLabel}
+        className="absolute inset-0 bg-ink/40"
+        onClick={onClose}
+      />
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className="pointer-events-auto w-full max-w-md rounded-lg border border-stone bg-surface p-5 shadow-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <h2
+              id={titleId}
+              className="font-display text-lg font-semibold text-ink"
+            >
+              {title}
+            </h2>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={closeLabel}
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-ink transition hover:bg-sand"
+            >
+              <span aria-hidden className="text-xl leading-none">
+                ×
+              </span>
+            </button>
+          </div>
+
+          <div className="mt-3">
+            {loading && !displayBody && !error ? (
+              <p className="text-sm text-stone-dark">{loadingLabel}</p>
+            ) : null}
+            {error ? (
+              <p className="text-sm leading-relaxed text-amber-800">{error}</p>
+            ) : null}
+            {displayBody ? (
+              <p className="text-sm leading-relaxed text-ink whitespace-normal">
+                {displayBody}
+              </p>
+            ) : null}
+            {displayBody && (
+              <p className="mt-3 text-xs leading-relaxed text-stone-dark">
+                {honesty}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-stone px-3 py-1.5 text-sm font-medium text-ink transition hover:bg-sand"
+            >
+              {closeLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function CompareResultModal({
+  title,
+  advisedName,
+  advisedLabel,
+  adviceNote,
+  body,
+  honesty,
+  error,
+  loading,
+  loadingLabel,
+  closeLabel,
+  onClose,
+}: {
+  title: string;
+  advisedName: string | null;
+  advisedLabel: string;
+  adviceNote: string;
+  body: string | null;
+  honesty: string;
+  error: string | null;
+  loading: boolean;
+  loadingLabel: string;
+  closeLabel: string;
+  onClose: () => void;
+}) {
+  const titleId = useId();
+  const mounted = useSyncExternalStore(
+    subscribeNoop,
+    getMountedClient,
+    getMountedServer,
+  );
+  const displayBody = body && isCompleteCompareBody(body) ? body : null;
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90]" role="presentation">
+      <button
+        type="button"
+        aria-label={closeLabel}
+        className="absolute inset-0 bg-ink/40"
+        onClick={onClose}
+      />
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className="pointer-events-auto w-full max-w-lg rounded-lg border border-stone bg-surface p-5 shadow-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <h2
+              id={titleId}
+              className="font-display text-lg font-semibold text-ink"
+            >
+              {title}
+            </h2>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={closeLabel}
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-ink transition hover:bg-sand"
+            >
+              <span aria-hidden className="text-xl leading-none">
+                ×
+              </span>
+            </button>
+          </div>
+
+          <div className="mt-3 space-y-3">
+            {loading && !displayBody && !error ? (
+              <p className="text-sm text-stone-dark">{loadingLabel}</p>
+            ) : null}
+            {error ? (
+              <p className="text-sm leading-relaxed text-amber-800">{error}</p>
+            ) : null}
+            {advisedName && displayBody ? (
+              <p className="rounded-md border border-cedar/30 bg-cedar/10 px-3 py-2 text-sm text-cedar-deep">
+                <span className="font-semibold">{advisedLabel}: </span>
+                {advisedName}
+              </p>
+            ) : null}
+            {displayBody ? (
+              <p className="text-sm leading-relaxed text-ink whitespace-normal">
+                {displayBody}
+              </p>
+            ) : null}
+            {displayBody ? (
+              <>
+                <p className="text-xs leading-relaxed text-stone-dark">
+                  {honesty}
+                </p>
+                <p className="text-xs leading-relaxed text-stone-dark">
+                  {adviceNote}
+                </p>
+              </>
+            ) : null}
+          </div>
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-stone px-3 py-1.5 text-sm font-medium text-ink transition hover:bg-sand"
+            >
+              {closeLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function StrengthBadge({
   strength,
   notRecommended,
@@ -747,7 +1263,7 @@ function StrengthBadge({
           : "border border-amber-300 bg-amber-50 text-amber-900"
       }`}
     >
-      {strong ? t("strengthStrong") : t("strengthOkay")}
+      {strong ? t("recommendationStrong") : t("recommendationOkay")}
     </span>
   );
 }

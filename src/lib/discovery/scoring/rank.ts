@@ -1,13 +1,18 @@
 /**
- * Wave 2 shortlist ranking — composite + never-all-blocked fallback.
+ * Wave 2 shortlist ranking — composite + accept-ready-only filter.
  * Pure over catalog + score cache maps (service loads I/O).
  */
 
 import { DISCOVERY_FALLBACK_SHORTLIST_MIN } from "@/lib/constants";
 import type { CatalogProduct } from "@/lib/discovery/catalog";
+import {
+  isAcceptReadyForShortlist,
+  resolveSystemDemandInput,
+  type SystemDemandGateInput,
+} from "@/lib/discovery/dual-gate";
 import type { ScoreRow } from "@/lib/discovery/scores";
 import { isSoftCompetitionBudgetEnabled } from "@/lib/discovery/flags";
-import { computeComposite } from "@/lib/discovery/scoring/composite";
+import { computeComposite, riskReadForOkayReason, type OkayReason } from "@/lib/discovery/scoring/composite";
 import { applyDiversityReorder } from "@/lib/discovery/scoring/polish";
 import { computeFit, type FitProfile } from "@/lib/skills/fit";
 import { computeMargin } from "@/lib/skills/margin";
@@ -31,6 +36,8 @@ export type Wave2RankedProduct = {
   listingStrength: "Strong" | "Okay";
   /** Override Fit strength for candidate insert when Wave 2 caps Okay. */
   strength: "Strong" | "Okay";
+  /** Why Okay — never fake Fit-moderate when capped by confidence/competition. */
+  okayReason: OkayReason | null;
   riskRead: string | null;
   notRecommended: boolean;
   explain: ReturnType<typeof computeComposite>["explain"];
@@ -48,11 +55,25 @@ function scoreLookup(
   return scoresByKey.get(key);
 }
 
+function systemInputFromCache(
+  cached: ScoreRow | undefined,
+): SystemDemandGateInput | null {
+  if (!cached) return null;
+  return {
+    abroadDemandScore: cached.abroadDemandScore,
+    lebanonDemandScore: cached.lebanonDemandScore,
+    demandPath: cached.demandPath,
+    compositeScore: cached.compositeScore,
+    lastScoreStatus: cached.lastScoreStatus,
+    confidence: cached.confidence,
+  };
+}
+
 /**
  * Rank pool products with Wave 2 composite when score cache rows exist.
- * Core passers: listable (Fit OK + soft margin not far_below).
- * If passers &lt; DISCOVERY_FALLBACK_SHORTLIST_MIN → best Fit + soft-margin
- * (exclude far_below / oversized) + fallback message.
+ * Shortlist = **accept-ready only** (hard margins, !oversized, demand gate,
+ * Fit OK). No soft_ok / far_below / demand-fail fillers. Thin/empty lists
+ * surface Edit onboarding in the UI (WAVE-2 §5.2 / §7 / §8).
  */
 export function rankWave2Shortlist(
   profile: Wave2RankProfile,
@@ -60,7 +81,13 @@ export function rankWave2Shortlist(
   scoresByKey: ReadonlyMap<string, ScoreRow>,
   hintsByKey: ReadonlyMap<string, Wave2ScoreHints> = new Map(),
   softCompetitionBudget: boolean = isSoftCompetitionBudgetEnabled(),
+  opts: {
+    systemGateEnabled?: boolean;
+    liveSearchEnabled?: boolean;
+  } = {},
 ): Wave2RankedProduct[] {
+  const systemGateEnabled = opts.systemGateEnabled !== false;
+  const liveSearchEnabled = opts.liveSearchEnabled;
   const evaluated: Wave2RankedProduct[] = [];
 
   for (const p of catalog) {
@@ -109,13 +136,31 @@ export function rankWave2Shortlist(
       evidenceSource: cached ? evidenceSource : "neutral",
     });
 
-    const riskRead =
-      composite.listingStrength === "Okay"
-        ? fit.riskRead ??
-          (composite.softMargin.note
-            ? "@fit.moderateOkay"
-            : "@fit.moderateOkay")
-        : fit.riskRead;
+    const system = resolveSystemDemandInput({
+      cache: systemInputFromCache(cached),
+      heuristicProduct: {
+        catalogKey: p.key,
+        category: p.category,
+        difficulty: p.difficulty,
+        risk: p.risk,
+        tier1Marketplaces: JSON.stringify(p.tier1Marketplaces),
+        nameEn: p.en.name,
+      },
+      liveSearchEnabled,
+    });
+
+    const acceptReady = isAcceptReadyForShortlist({
+      marginsPass: margin.pass,
+      oversized: p.oversized,
+      fitNotRecommended: fit.notRecommended,
+      system,
+      systemGateEnabled,
+    });
+
+    const riskRead = riskReadForOkayReason(
+      composite.okayReason,
+      fit.riskRead,
+    );
 
     evaluated.push({
       p,
@@ -125,8 +170,9 @@ export function rankWave2Shortlist(
       compositeScore: composite.compositeScore,
       listingStrength: composite.listingStrength,
       strength: composite.listingStrength,
+      okayReason: composite.okayReason,
       riskRead,
-      notRecommended: !composite.listable,
+      notRecommended: !acceptReady || !composite.listable,
       explain: composite.explain,
       fallbackUsed: false,
     });
@@ -136,64 +182,9 @@ export function rankWave2Shortlist(
     .filter((e) => !e.notRecommended)
     .sort((a, b) => b.compositeScore - a.compositeScore);
 
-  let chosen: Wave2RankedProduct[];
-
-  if (passers.length >= DISCOVERY_FALLBACK_SHORTLIST_MIN) {
-    chosen = passers;
-  } else {
-    // Fallback: best Fit + soft-margin (exclude far_below via softMargin on recompute).
-    const fallbackPool = evaluated
-      .filter((e) => {
-        // Soft margin far_below / Fit notRecommended already → notRecommended.
-        // Fallback allows Fit-weak only if soft margin not far_below — recheck soft band.
-        const soft = e.explain.softMarginBand;
-        return soft !== "far_below" && !e.p.oversized;
-      })
-      .sort((a, b) => {
-        if (b.fit.score !== a.fit.score) return b.fit.score - a.fit.score;
-        const softRank = (band: string) =>
-          band === "pass" ? 2 : band === "soft_ok" ? 1 : 0;
-        const d =
-          softRank(b.explain.softMarginBand) -
-          softRank(a.explain.softMarginBand);
-        if (d !== 0) return d;
-        return b.compositeScore - a.compositeScore;
-      });
-
-    const msg =
-      "Fewer than 5 Wave 2 passers — showing best Fit + soft-margin matches.";
-    chosen = fallbackPool.map((e) => ({
-      ...e,
-      fallbackUsed: true,
-      notRecommended: false,
-      explain: {
-        ...e.explain,
-        fallbackUsed: true,
-        fallbackMessage: msg,
-        explainLine:
-          "Fallback shortlist: best Fit + soft margin while Wave 2 passers are thin.",
-      },
-    }));
-
-    // Prefer original passers first, then fill from fallback-ordered rest.
-    const passerKeys = new Set(passers.map((p) => p.p.key));
-    const head = passers.map((e) => ({
-      ...e,
-      fallbackUsed: true,
-      explain: {
-        ...e.explain,
-        fallbackUsed: true,
-        fallbackMessage: msg,
-        explainLine:
-          "Fallback shortlist: best Fit + soft margin while Wave 2 passers are thin.",
-      },
-    }));
-    const rest = chosen.filter((e) => !passerKeys.has(e.p.key));
-    chosen = [...head, ...rest];
-  }
-
+  // Accept-ready only — never fill with soft_ok / weak / oversized / demand-fail.
   return applyDiversityReorder(
-    chosen.map((e) => ({ ...e, category: e.p.category })),
+    passers.map((e) => ({ ...e, category: e.p.category })),
     DISCOVERY_FALLBACK_SHORTLIST_MIN,
   ).map(({ category: _c, ...rest }) => rest);
 }
