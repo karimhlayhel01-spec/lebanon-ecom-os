@@ -5,6 +5,7 @@
 
 import {
   CONFIDENCE_OKAY_CAP,
+  HEURISTIC_SEED_CONFIDENCE,
   POLISH_AFFORDABILITY_PENALTY,
   POLISH_LOW_CONFIDENCE_PENALTY,
 } from "@/lib/discovery/scoring/constants";
@@ -49,12 +50,16 @@ export type PolishResult = {
 export function applyPolishHooks(input: PolishInput): PolishResult {
   let adjustment = 0;
   let affordabilityNote: string | null = null;
+  // Unknown confidence is heuristic-grade, never mid-confidence: an absent
+  // score row must not render Strong. Cap at-or-below CONFIDENCE_OKAY_CAP so
+  // the boundary itself cannot slip through as "confident enough".
   const confidence =
     input.confidence != null && Number.isFinite(input.confidence)
       ? Math.max(0, Math.min(1, input.confidence))
-      : 0.5;
+      : HEURISTIC_SEED_CONFIDENCE;
+  const capStrengthOkay = confidence <= CONFIDENCE_OKAY_CAP;
 
-  if (confidence < CONFIDENCE_OKAY_CAP) {
+  if (capStrengthOkay) {
     adjustment -= POLISH_LOW_CONFIDENCE_PENALTY;
   }
 
@@ -71,7 +76,7 @@ export function applyPolishHooks(input: PolishInput): PolishResult {
   return {
     adjustment,
     affordabilityNote,
-    capStrengthOkay: confidence < CONFIDENCE_OKAY_CAP,
+    capStrengthOkay,
   };
 }
 

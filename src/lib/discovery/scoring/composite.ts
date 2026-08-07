@@ -6,6 +6,7 @@
 import type { FitResult } from "@/lib/skills/fit";
 import type { MarginResult } from "@/lib/skills/margin";
 import {
+  HEURISTIC_SEED_CONFIDENCE,
   SOFT_MARGIN_ADDON_PASS,
   SOFT_MARGIN_ADDON_SOFT_OK,
 } from "@/lib/discovery/scoring/constants";
@@ -160,14 +161,18 @@ export function computeComposite(input: CompositeInput): CompositeResult {
   const listable =
     !input.fit.notRecommended && softMargin.band === "pass";
 
+  // Neutral-filled demand evidence is not proof, so it caps strength the same
+  // way low confidence does — a product we could not measure never reads Strong.
+  const evidenceCapOkay = polish.capStrengthOkay || demand.usedNeutral;
+
   let listingStrength: "Strong" | "Okay" = input.fit.strength;
-  if (competition.level === "high" || polish.capStrengthOkay) {
+  if (competition.level === "high" || evidenceCapOkay) {
     listingStrength = "Okay";
   }
   const okayReason = resolveOkayReason({
     listingStrength,
     fitStrength: input.fit.strength,
-    capStrengthOkay: polish.capStrengthOkay,
+    capStrengthOkay: evidenceCapOkay,
     competitionHigh: competition.level === "high",
   });
 
@@ -190,7 +195,7 @@ export function computeComposite(input: CompositeInput): CompositeResult {
     confidence:
       input.confidence != null && Number.isFinite(input.confidence)
         ? clamp01(input.confidence)
-        : 0.5,
+        : HEURISTIC_SEED_CONFIDENCE,
     affordabilityNote: polish.affordabilityNote,
     diversityKey: input.category,
     fallbackUsed,

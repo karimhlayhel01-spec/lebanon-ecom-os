@@ -4,6 +4,7 @@
  * Template helpers remain for tests/grounding; product UX requires Gemini.
  */
 
+import { resolveOkayReasonForDisplay } from "@/lib/discovery/okay-reason";
 import type { OkayReason } from "@/lib/discovery/scoring/composite";
 
 export type WhyPickLocale = "en" | "ar";
@@ -74,6 +75,48 @@ export type WhyPickResult = {
 /** Validation window around the founder-locked ~900–1100 character target. */
 export const SUGGESTION_BODY_MIN_CHARS = 800;
 export const SUGGESTION_BODY_MAX_CHARS = 1100;
+
+/** Founder-locked paragraph footprint. */
+export const SUGGESTION_BODY_MIN_SENTENCES = 4;
+export const SUGGESTION_BODY_MAX_SENTENCES = 6;
+
+/**
+ * Shortest run of words we still treat as a real sentence. Kept low on purpose:
+ * a tight closer (“Otherwise skip it and keep the cash.”) is good founder copy,
+ * and the character floor already stops hollow paragraphs.
+ */
+const MIN_WORDS_PER_SENTENCE = 3;
+
+/**
+ * Abbreviations whose period does not end a sentence. Without this, “the U.S.
+ * market” or “e.g. a bundle” split into extra fragments, which used to trip the
+ * 4–6 sentence rule and the per-sentence word floor on valid copy.
+ */
+const NON_TERMINAL_ABBREVIATION =
+  /(?:\b(?:\p{Lu}\.)+\p{Lu}\.|\b(?:e\.g|i\.e|etc|vs|approx|fig|est|dept|inc|ltd|co|mr|mrs|ms|dr)\.)$/iu;
+
+/**
+ * Split founder copy into sentences, keeping abbreviations and decimals intact.
+ * Single source of truth for every sentence-shaped validator below.
+ */
+export function splitSuggestionSentences(text: string): string[] {
+  const parts = text
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/(?<=[.!?。])\s+/)
+    .filter(Boolean);
+
+  const sentences: string[] = [];
+  for (const part of parts) {
+    const previous = sentences[sentences.length - 1];
+    if (previous != null && NON_TERMINAL_ABBREVIATION.test(previous)) {
+      sentences[sentences.length - 1] = `${previous} ${part}`;
+      continue;
+    }
+    sentences.push(part);
+  }
+  return sentences.map((s) => s.trim()).filter(Boolean);
+}
 
 /** Phrases that must not appear without relevant live-search evidence. */
 export const FORBIDDEN_UNGROUNDED_MARKET_PHRASES = [
@@ -210,6 +253,11 @@ export function assertNoUngroundedMarketClaims(
       ...(evidence?.localCompetition?.results ?? []),
     ].map((r) => r.domain.toLowerCase()),
   );
+  // Tier-1 entries can be stored as hostnames, so citing one is still grounded.
+  for (const found of evidence?.tier1Found ?? []) {
+    const host = found.toLowerCase().trim();
+    if (host.includes(".")) allowedDomains.add(host);
+  }
   const citedDomains =
     body.toLowerCase().match(/\b\w[\w.-]+\.(?:com|net|org|lb|de|fr|uk)\b/g) ??
     [];
@@ -248,10 +296,27 @@ export function containsStockPhrase(body: string): boolean {
 /** Product must be named at least once; allow one repeat before it reads spammy. */
 export const PRODUCT_NAME_MAX_MENTIONS = 2;
 
+/**
+ * Count mentions on word boundaries so a short name (“Pro”) is not counted
+ * inside longer words (“Professional”) and pushed over the repeat cap.
+ */
+export function countProductNameMentions(
+  body: string,
+  productName: string,
+): number {
+  const name = productName.replace(/\s+/g, " ").trim();
+  if (!name) return 0;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`,
+    "giu",
+  );
+  return body.match(pattern)?.length ?? 0;
+}
+
 export function assertNamesProduct(body: string, productName: string): boolean {
-  const name = productName.trim();
-  if (!name) return true;
-  const mentions = body.toLowerCase().split(name.toLowerCase()).length - 1;
+  if (!productName.trim()) return true;
+  const mentions = countProductNameMentions(body, productName);
   return mentions >= 1 && mentions <= PRODUCT_NAME_MAX_MENTIONS;
 }
 
@@ -281,7 +346,7 @@ export function assertOkayReasonAligned(
   switch (okayReason) {
     case "low_evidence_confidence":
       return (
-        /estimate|estimated|low[- ]confidence|unproven|تقدير|منخفض(?:ة)? الثقة/iu.test(
+        /estimate|estimated|low[- ]confidence|unproven|unverified|not (?:yet )?(?:verified|measured|validated)|no (?:citable|saved|live) evidence|تقدير|منخفض(?:ة)? الثقة|غير مؤكد|غير موثّق|لم يُقَس/iu.test(
           body,
         ) &&
         /sample|test|small|modest|scale|عيّنة|عينة|اختبر|توسّع|توسع/iu.test(
@@ -305,6 +370,63 @@ export function assertOkayReasonAligned(
         )
       );
   }
+}
+
+/**
+ * Okay mitigation wording that must never appear on a Strong recommendation
+ * (§6.1). Deliberately narrow — only an explicit Okay verdict, so ordinary
+ * caution (“hold a wider order”) still reads as normal founder advice.
+ */
+const OKAY_SCARE_PATTERNS: RegExp[] = [
+  /\b(?:recommendation|rating|verdict|listing)\s+is\s+(?:only\s+)?okay\b/i,
+  /\bmarked\s+(?:as\s+)?okay\b/i,
+  /\bokay\s+(?:recommendation|rating|verdict)\b/i,
+  /\brather than moderate fit\b/i,
+  /(?:التوصية|التقييم)[^.،]{0,24}مقبول/u,
+  /وُسم\s+بمقبول/u,
+];
+
+/**
+ * Runtime guard: a Strong recommendation must not carry Okay scare wording.
+ * Strong copy is free to stay cautious; it just cannot claim an Okay verdict.
+ */
+export function assertNoOkayScareWhenStrong(
+  body: string,
+  strength: "Strong" | "Okay",
+): boolean {
+  if (strength !== "Strong") return true;
+  return !OKAY_SCARE_PATTERNS.some((re) => re.test(body));
+}
+
+/**
+ * Hard blocklist pre-check on the raw model output, before any trimming.
+ *
+ * Deliberately narrow: only wording that signals the model ignored the honesty
+ * rules wholesale (invented market phrases in estimate mode, Tier-1 sellers we
+ * never found, engineer jargon, stock template lines). Domains, counts, and
+ * every length rule are checked *after* finalize, because a stray trailing
+ * sentence is dropped there and must not fail an otherwise valid paragraph.
+ * A raw body caught here still gets the one bounded retry.
+ */
+export function containsHardBlockedWording(
+  raw: string,
+  payload: WhyPickSkillPayload,
+): boolean {
+  const lower = raw.toLowerCase();
+  if (containsFounderJargon(raw) || containsStockPhrase(raw)) return true;
+
+  if (!canCiteMarketFromPayload(payload)) {
+    return FORBIDDEN_UNGROUNDED_MARKET_PHRASES.some((p) => lower.includes(p));
+  }
+
+  const tier1Found = payload.marketEvidence?.tier1Found ?? [];
+  return ["Ishtari", "EGLOW", "Platza"].some(
+    (marketplace) =>
+      lower.includes(marketplace.toLowerCase()) &&
+      !tier1Found.some(
+        (found) => found.toLowerCase() === marketplace.toLowerCase(),
+      ),
+  );
 }
 
 /**
@@ -342,6 +464,36 @@ export function clampSuggestionBody(
 }
 
 /**
+ * Keep whole sentences 1..N while the paragraph stays inside the length window
+ * and the 6-sentence footprint. Never cuts mid-sentence — a period inside
+ * “amazon.com” or “72.5%” used to end the body there. Returns null when no
+ * whole-sentence prefix can reach the floor (the caller then retries).
+ */
+export function packSuggestionSentences(
+  text: string,
+  opts: {
+    minChars?: number;
+    maxChars?: number;
+    maxSentences?: number;
+  } = {},
+): string | null {
+  const minChars = opts.minChars ?? SUGGESTION_BODY_MIN_CHARS;
+  const maxChars = opts.maxChars ?? SUGGESTION_BODY_MAX_CHARS;
+  const maxSentences = opts.maxSentences ?? SUGGESTION_BODY_MAX_SENTENCES;
+
+  let packed = "";
+  let kept = 0;
+  for (const sentence of splitSuggestionSentences(text)) {
+    if (kept >= maxSentences) break;
+    const next = packed ? `${packed} ${sentence}` : sentence;
+    if (next.length > maxChars) break;
+    packed = next;
+    kept += 1;
+  }
+  return packed.length >= minChars ? packed : null;
+}
+
+/**
  * True when body looks like a finished 4–6 sentence founder paragraph
  * (not a mid-generation stub).
  */
@@ -356,11 +508,13 @@ export function isCompleteSuggestionBody(body: string): boolean {
   if (t.endsWith("…")) return false;
   if (!/[.!?。]["'")\]]*$/u.test(t)) return false;
 
-  const sentences = t
-    .split(/(?<=[.!?。])\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (sentences.length < 4 || sentences.length > 6) return false;
+  const sentences = splitSuggestionSentences(t);
+  if (
+    sentences.length < SUGGESTION_BODY_MIN_SENTENCES ||
+    sentences.length > SUGGESTION_BODY_MAX_SENTENCES
+  ) {
+    return false;
+  }
 
   // Known truncated openers from earlier Gemini failures
   if (/^people in lebanon already seem to look\.?$/i.test(t)) return false;
@@ -369,7 +523,9 @@ export function isCompleteSuggestionBody(body: string): boolean {
   }
 
   for (const s of sentences) {
-    if (s.split(/\s+/).filter(Boolean).length < 5) return false;
+    if (s.split(/\s+/).filter(Boolean).length < MIN_WORDS_PER_SENTENCE) {
+      return false;
+    }
   }
   return true;
 }
@@ -392,24 +548,9 @@ export function finalizeSuggestionBody(
     text = m[0].trim();
   }
 
-  text = clampSuggestionBody(text);
-  if (text.endsWith("…")) {
-    const without = text.slice(0, -1).trim();
-    const m = without.match(/^[\s\S]*[.!?。]/);
-    if (!m) return null;
-    text = m[0].trim();
-  }
-
-  // Keep the founder-locked footprint: at most 6 complete sentences.
-  {
-    const sentences = text
-      .split(/(?<=[.!?。])\s+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (sentences.length > 6) {
-      text = sentences.slice(0, 6).join(" ");
-    }
-  }
+  const packed = packSuggestionSentences(text);
+  if (!packed) return null;
+  text = packed;
 
   if (!isCompleteSuggestionBody(text)) return null;
   if (!assertFounderFriendlyCopy(text)) return null;
@@ -769,12 +910,15 @@ export function skillPayloadFromCandidateMeta(input: {
   scoreEvidenceSource?: string | null;
   /** Parsed rawEvidenceJson object; malformed/missing facts stay null. */
   scoreEvidence?: unknown;
+  /** Note key stored on the candidate row — needed to resolve the Okay reason. */
+  riskRead?: string | null;
   /** Prefer live score-cache skill fields when available (heuristic or live). */
   scoreCache?: {
     demandPath?: string | null;
     competitionLevel?: string | null;
     competitionScore?: number | null;
     budgetFightPenalty?: number | null;
+    confidence?: number | null;
   } | null;
 }): WhyPickSkillPayload {
   let softMarginBand: WhyPickSkillPayload["softMarginBand"] = null;
@@ -785,7 +929,9 @@ export function skillPayloadFromCandidateMeta(input: {
   let fallbackUsed = false;
   let evidenceSource: WhyPickSkillPayload["evidenceSource"] = "neutral";
   let marketEvidence: WhyPickMarketEvidence | null = null;
-  let okayReason: OkayReason | null = null;
+  let storedOkayReason: string | null = null;
+  let snapshotCompetitionLevel: string | null = null;
+  let snapshotConfidence: number | null = null;
 
   try {
     const breakdown = JSON.parse(input.fitBreakdownJson) as {
@@ -806,14 +952,9 @@ export function skillPayloadFromCandidateMeta(input: {
       };
     };
     const explain = breakdown.wave2?.explain;
-    const rawOkayReason = breakdown.wave2?.okayReason;
-    if (
-      rawOkayReason === "fit_risk" ||
-      rawOkayReason === "low_evidence_confidence" ||
-      rawOkayReason === "high_competition"
-    ) {
-      okayReason = rawOkayReason;
-    }
+    storedOkayReason = breakdown.wave2?.okayReason ?? null;
+    snapshotCompetitionLevel = explain?.competitionLevel ?? null;
+    snapshotConfidence = explain?.confidence ?? null;
     const band =
       explain?.softMarginBand ?? breakdown.wave2?.softMarginBand ?? null;
     if (band === "pass" || band === "soft_ok" || band === "far_below") {
@@ -833,21 +974,6 @@ export function skillPayloadFromCandidateMeta(input: {
     );
     const fromExplain = parseEvidenceSource(explain?.evidenceSource);
     if (fromExplain) evidenceSource = fromExplain;
-
-    // Heal older session snapshots that predate typed Okay reasons.
-    if (input.strength === "Okay" && !okayReason) {
-      if (input.fitScore < 70) {
-        okayReason = "fit_risk";
-      } else if (explain?.competitionLevel === "high") {
-        okayReason = "high_competition";
-      } else if (
-        explain?.confidence != null &&
-        Number.isFinite(explain.confidence) &&
-        explain.confidence < 0.5
-      ) {
-        okayReason = "low_evidence_confidence";
-      }
-    }
   } catch {
     /* keep defaults */
   }
@@ -905,14 +1031,18 @@ export function skillPayloadFromCandidateMeta(input: {
     marketEvidence = parseWhyPickMarketEvidence(input.scoreEvidence);
   }
 
-  if (input.strength === "Okay" && !okayReason) {
-    okayReason =
-      input.fitScore < 70
-        ? "fit_risk"
-        : competitionLevel === "high"
-          ? "high_competition"
-          : "low_evidence_confidence";
-  }
+  // Same resolver the Discovery view uses, so the yellow Okay note and the
+  // reason handed to Gemini are always the one typed reason (§6.1).
+  const { okayReason } = resolveOkayReasonForDisplay({
+    strength: input.strength,
+    fitScore: input.fitScore,
+    storedOkayReason,
+    storedRiskRead: input.riskRead ?? null,
+    snapshotCompetitionLevel: snapshotCompetitionLevel ?? competitionLevel,
+    snapshotConfidence,
+    scoreConfidence: cache?.confidence ?? null,
+    scoreCompetitionScore: cache?.competitionScore ?? null,
+  });
 
   const canCiteMarketSignals = canCiteMarketFromPayload({
     canCiteMarketSignals: false,
@@ -927,7 +1057,7 @@ export function skillPayloadFromCandidateMeta(input: {
     category: input.category?.trim() || null,
     fitScore: input.fitScore,
     strength: input.strength,
-    okayReason: input.strength === "Okay" ? okayReason : null,
+    okayReason,
     softMarginBand,
     softMarginNote,
     marginBefore:

@@ -7,9 +7,11 @@
  */
 
 import {
+  assertNoOkayScareWhenStrong,
   assertNoUngroundedMarketClaims,
   assertOkayReasonAligned,
   canCiteMarketFromPayload,
+  containsHardBlockedWording,
   finalizeSuggestionBody,
   SUGGESTION_BODY_MIN_CHARS,
   SUGGESTION_BODY_MAX_CHARS,
@@ -77,9 +79,37 @@ export type GeminiNarrateOptions = {
   env?: Record<string, string | undefined>;
 };
 
+/**
+ * Failure kinds the founder can act on:
+ * - api_error / missing_key: the service failed or is not configured.
+ * - empty: Gemini returned nothing.
+ * - incomplete: the paragraph did not survive the length/footprint rules.
+ * - ungrounded: wording we could not verify against saved evidence.
+ * - okay_mismatch: wording did not state the one typed Okay reason.
+ */
+export type GeminiNarrateError =
+  | "missing_key"
+  | "api_error"
+  | "ungrounded"
+  | "okay_mismatch"
+  | "incomplete"
+  | "empty";
+
 export type GeminiNarrateResult =
   | { ok: true; result: WhyPickResult }
-  | { ok: false; error: "missing_key" | "api_error" | "ungrounded" | "empty" };
+  | { ok: false; error: GeminiNarrateError };
+
+/**
+ * Validation failures worth exactly one tightened retry (§6.1). A missing key
+ * or a quota / rate-limit response is never retried — retrying cannot help and
+ * would double the cost of a failing call.
+ */
+const RETRYABLE_ERRORS = new Set<GeminiNarrateError>([
+  "ungrounded",
+  "okay_mismatch",
+  "incomplete",
+  "empty",
+]);
 
 function pct(n: number | null | undefined): number | null {
   if (n == null || !Number.isFinite(n)) return null;
@@ -173,75 +203,133 @@ export async function narrateSuggestionWithGemini(
 
   const model = opts.model ?? resolveGeminiModel(opts.env ?? process.env);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(opts.apiKey)}`;
+  const fetchFn = opts.fetchFn ?? fetch;
 
-  try {
-    const fetchFn = opts.fetchFn ?? fetch;
-    const res = await fetchFn(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: buildSystemPrompt(locale) }] },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: JSON.stringify(facts) }],
+  const attempt = async (
+    retryNote: string | null,
+  ): Promise<GeminiNarrateResult> => {
+    try {
+      const res = await fetchFn(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: buildSystemPrompt(locale) }] },
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: JSON.stringify(facts) },
+                ...(retryNote ? [{ text: retryNote }] : []),
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.35,
+            maxOutputTokens: 768,
+            thinkingConfig: { thinkingBudget: 0 },
           },
-        ],
-        generationConfig: {
-          temperature: 0.35,
-          maxOutputTokens: 768,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-    });
+        }),
+      });
 
-    if (!res.ok) {
+      if (!res.ok) {
+        return { ok: false, error: "api_error" };
+      }
+
+      const json = (await res.json()) as {
+        candidates?: {
+          content?: {
+            parts?: { text?: string; thought?: boolean }[];
+          };
+        }[];
+      };
+      const raw = (json.candidates?.[0]?.content?.parts ?? [])
+        .filter((p) => !p.thought)
+        .map((p) => p.text ?? "")
+        .join("")
+        .trim();
+
+      if (!raw) {
+        return { ok: false, error: "empty" };
+      }
+      // Cheap pre-check only — see containsHardBlockedWording for why the
+      // domain/count/length rules must wait until after finalize.
+      if (containsHardBlockedWording(raw, payload)) {
+        return { ok: false, error: "ungrounded" };
+      }
+
+      const body = finalizeSuggestionBody(raw, payload.productName);
+      if (!body) {
+        return { ok: false, error: "incomplete" };
+      }
+      // Grounding runs on the finalized body: a stray trailing sentence is
+      // already dropped, so it can no longer fail a valid paragraph.
+      if (!assertNoUngroundedMarketClaims(body, payload)) {
+        return { ok: false, error: "ungrounded" };
+      }
+      if (!assertOkayReasonAligned(body, payload.okayReason ?? null)) {
+        return { ok: false, error: "okay_mismatch" };
+      }
+      if (!assertNoOkayScareWhenStrong(body, payload.strength)) {
+        return { ok: false, error: "okay_mismatch" };
+      }
+
+      return {
+        ok: true,
+        result: {
+          titleKey: "whySuggestedTitle",
+          body,
+          honestyKey: citeMarket
+            ? "whySuggestedHonestyLive"
+            : "whySuggestedHonestyEstimate",
+          source: "llm",
+          marketSignalsOmitted: !citeMarket,
+        },
+      };
+    } catch {
       return { ok: false, error: "api_error" };
     }
+  };
 
-    const json = (await res.json()) as {
-      candidates?: {
-        content?: {
-          parts?: { text?: string; thought?: boolean }[];
-        };
-      }[];
-    };
-    const raw = (json.candidates?.[0]?.content?.parts ?? [])
-      .filter((p) => !p.thought)
-      .map((p) => p.text ?? "")
-      .join("")
-      .trim();
+  const first = await attempt(null);
+  if (first.ok || !RETRYABLE_ERRORS.has(first.error)) return first;
+  return attempt(buildRetryNote(payload, citeMarket, first.error));
+}
 
-    if (!raw) {
-      return { ok: false, error: "empty" };
-    }
-    if (!assertNoUngroundedMarketClaims(raw, payload)) {
-      return { ok: false, error: "ungrounded" };
-    }
-
-    const body = finalizeSuggestionBody(raw, payload.productName);
-    if (!body) {
-      return { ok: false, error: "empty" };
-    }
-    if (!assertOkayReasonAligned(body, payload.okayReason ?? null)) {
-      return { ok: false, error: "ungrounded" };
-    }
-
-    return {
-      ok: true,
-      result: {
-        titleKey: "whySuggestedTitle",
-        body,
-        honestyKey: citeMarket
-          ? "whySuggestedHonestyLive"
-          : "whySuggestedHonestyEstimate",
-        source: "llm",
-        marketSignalsOmitted: !citeMarket,
-      },
-    };
-  } catch {
-    return { ok: false, error: "api_error" };
+/**
+ * Tightened second-attempt instruction. Restates the hard length/footprint
+ * numbers and, in estimate-only mode, repeats the no-market-specifics rule.
+ */
+function buildRetryNote(
+  payload: WhyPickSkillPayload,
+  citeMarket: boolean,
+  error: GeminiNarrateError,
+): string {
+  const lines = [
+    "RETRY — the previous answer was rejected. Fix it exactly:",
+    `- Write 4–6 complete sentences, ${SUGGESTION_BODY_MIN_CHARS}–${SUGGESTION_BODY_MAX_CHARS} characters total, every sentence ending with a period. Do not add a 7th sentence.`,
+    `- Name "${payload.productName}" once or twice, never more.`,
+  ];
+  if (!citeMarket) {
+    lines.push(
+      "- Estimate-only: no market specifics at all. No result counts, no domains or website names, no seller or marketplace names, no claim that demand is proven anywhere.",
+    );
   }
+  if (payload.strength === "Okay" && payload.okayReason) {
+    lines.push(
+      `- The recommendation is Okay for exactly one reason: ${payload.okayReason}. Explain that reason and give the mitigation that matches it. Do not mention any other reason.`,
+    );
+  }
+  if (payload.strength === "Strong") {
+    lines.push(
+      "- The recommendation is Strong. Do not say it is Okay and do not add a scare sentence.",
+    );
+  }
+  if (error === "incomplete") {
+    lines.push(
+      "- The previous answer did not fit the length window. Keep every sentence complete and stop before the character ceiling.",
+    );
+  }
+  return lines.join("\n");
 }
 
 /**

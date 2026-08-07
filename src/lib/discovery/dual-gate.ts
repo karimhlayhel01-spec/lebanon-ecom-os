@@ -29,9 +29,16 @@ export type SystemDemandGateResult = {
   pass: boolean;
   /** missing = no usable score cache; fail = scored but below bar; pass = ok. */
   status: "pass" | "fail" | "missing";
+  /** Null when no path was earned from real evidence (unproven demand). */
   demandPath: string | null;
   demandScore: number | null;
   reason: string | null;
+  /**
+   * True when a demand leg was neutral-filled. Such a row may still pass the
+   * gate (§7 never excludes on missing data), but the card must be labelled
+   * estimate-only and capped to Okay / `low_evidence_confidence` (§3.2 / §6).
+   */
+  usedNeutral: boolean;
 };
 
 export type AcceptDemandError =
@@ -102,6 +109,11 @@ export function resolveSystemDemandInput(opts: {
  * System demand/score gate — dual path (whitespace OR local-proven).
  * Missing score cache → fail-closed while pool v2 is on.
  * Heuristic or live rows with numeric scores / lastScoreStatus=ok count as scored.
+ *
+ * Neutral-leg rule (WAVE-2 §3.2 / §7): a scored row whose deciding demand leg
+ * was neutral-filled still passes on score alone — missing data never excludes
+ * — but it earns no `demandPath` and reports `usedNeutral`, so the card is
+ * capped to Okay with `low_evidence_confidence` and labelled estimate-only.
  */
 export function evaluateSystemDemandGate(
   input: SystemDemandGateInput | null | undefined,
@@ -113,6 +125,7 @@ export function evaluateSystemDemandGate(
       demandPath: null,
       demandScore: null,
       reason: "score_cache_missing",
+      usedNeutral: true,
     };
   }
 
@@ -137,6 +150,7 @@ export function evaluateSystemDemandGate(
         input.lastScoreStatus === "failed"
           ? "score_refresh_failed"
           : "score_cache_missing",
+      usedNeutral: true,
     };
   }
 
@@ -152,6 +166,7 @@ export function evaluateSystemDemandGate(
       demandPath: demand.path,
       demandScore: demand.score,
       reason: "system_demand_too_weak",
+      usedNeutral: demand.usedNeutral,
     };
   }
 
@@ -161,6 +176,7 @@ export function evaluateSystemDemandGate(
     demandPath: demand.path,
     demandScore: demand.score,
     reason: null,
+    usedNeutral: demand.usedNeutral,
   };
 }
 

@@ -46,6 +46,7 @@ import {
   type Wave2RankedProduct,
 } from "@/lib/discovery/scoring/rank";
 import type { OkayReason } from "@/lib/discovery/scoring/composite";
+import { resolveOkayReasonForDisplay } from "@/lib/discovery/okay-reason";
 import {
   classifyDiscoveryLadder,
   suggestionsForPassReasons,
@@ -1122,42 +1123,29 @@ export async function getDiscoveryView(
 
   const mapped = visible.map((r) => {
     let catalogKey = "";
-    let okayReason: OkayReason | null = null;
+    let storedOkayReason: string | null = null;
+    let snapshotCompetitionLevel: string | null = null;
+    let snapshotConfidence: number | null = null;
     try {
       const breakdown = JSON.parse(r.fitBreakdown) as {
         catalogKey?: string;
         okayReason?: string;
-        wave2?: { okayReason?: string };
+        wave2?: {
+          okayReason?: string;
+          explain?: {
+            competitionLevel?: string | null;
+            confidence?: number | null;
+          };
+        };
       };
       catalogKey = breakdown.catalogKey ?? "";
-      const raw =
+      storedOkayReason =
         breakdown.wave2?.okayReason ?? breakdown.okayReason ?? null;
-      if (
-        raw === "fit_risk" ||
-        raw === "low_evidence_confidence" ||
-        raw === "high_competition"
-      ) {
-        okayReason = raw;
-      }
+      snapshotCompetitionLevel =
+        breakdown.wave2?.explain?.competitionLevel ?? null;
+      snapshotConfidence = breakdown.wave2?.explain?.confidence ?? null;
     } catch {
       catalogKey = "";
-    }
-    // Legacy sessions: infer Okay reason from riskRead note when missing.
-    if (!okayReason && r.strength === "Okay") {
-      if (r.riskRead === "@listing.lowEvidenceConfidence") {
-        okayReason = "low_evidence_confidence";
-      } else if (r.riskRead === "@listing.highCompetition") {
-        okayReason = "high_competition";
-      } else if (r.riskRead === "@listing.multipleOkay") {
-        // Old rows could store a combined reason. Prefer the concrete
-        // competition mitigation; the live score below can refine this.
-        okayReason = "high_competition";
-      } else if (
-        r.riskRead === "@fit.moderateOkay" ||
-        r.riskRead === "@fit.riskOverTolerance"
-      ) {
-        okayReason = "fit_risk";
-      }
     }
     const product =
       getCatalogProduct(catalogKey) ??
@@ -1206,34 +1194,18 @@ export async function getDiscoveryView(
       systemGateEnabled,
     });
 
-    // Heal legacy Wave 2 rows: Fit Strong + Okay listing used @fit.moderateOkay
-    // when confidence/competition capped strength (misleading copy).
-    let riskRead = r.riskRead;
-    if (
-      r.strength === "Okay" &&
-      r.fitScore >= 70 &&
-      (riskRead === "@fit.moderateOkay" || !okayReason)
-    ) {
-      const conf =
-        scoreRow?.confidence != null && Number.isFinite(scoreRow.confidence)
-          ? scoreRow.confidence
-          : null;
-      const competitionHigh =
-        scoreRow?.competitionScore != null &&
-        Number.isFinite(scoreRow.competitionScore) &&
-        scoreRow.competitionScore >= 0.66;
-      const lowConf = conf != null && conf < 0.5;
-      if (lowConf && competitionHigh) {
-        okayReason = "high_competition";
-        riskRead = "@listing.highCompetition";
-      } else if (lowConf) {
-        okayReason = "low_evidence_confidence";
-        riskRead = "@listing.lowEvidenceConfidence";
-      } else if (competitionHigh) {
-        okayReason = "high_competition";
-        riskRead = "@listing.highCompetition";
-      }
-    }
+    // One resolver for the card note and the explain payload (§6.1) — the
+    // yellow note can never state a different reason than Gemini is given.
+    const { okayReason, riskRead } = resolveOkayReasonForDisplay({
+      strength: r.strength === "Strong" ? "Strong" : "Okay",
+      fitScore: r.fitScore,
+      storedOkayReason,
+      storedRiskRead: r.riskRead,
+      snapshotCompetitionLevel,
+      snapshotConfidence,
+      scoreConfidence: scoreRow?.confidence ?? null,
+      scoreCompetitionScore: scoreRow?.competitionScore ?? null,
+    });
 
     const view: DiscoveryCandidateView = {
       id: r.id,

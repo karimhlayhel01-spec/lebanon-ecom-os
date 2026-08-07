@@ -116,6 +116,20 @@ A product may qualify via **either**:
 1. **Whitespace path:** strong US/EU (abroad) traction **+** weak/absent Lebanon footprint (gap), **or**
 2. **Local-proven path:** strong Lebanon demand even if abroad is quiet
 
+#### Qualified path requires real evidence (**LOCKED**)
+
+A **qualified** path label (`whitespace` / `local_proven`) requires **real measured evidence on every leg the label claims**. Neutral fill can **never** earn a path label.
+
+| Rule | Detail |
+| --- | --- |
+| **Whitespace** | Needs a real **abroad** score **and** a real **Lebanon** score (the label claims traction *and* a gap — both are measurements) |
+| **Local-proven** | Needs a real **Lebanon** score **strictly above** the neutral fill value — a score sitting *at* neutral is not proof, even when a calibration threshold happens to equal it |
+| **Neither qualifies** | Rank on the stronger leg (never excluded), and label a soft path **only** when that leg is real evidence; otherwise `demandPath = null` (unproven) |
+| **A search that returned nothing** | **Is** real evidence (measured absence) — distinct from a leg that was never measured |
+| **Founder copy** | An unproven path is shown as **estimate only**, never as abroad traction or Lebanon demand |
+
+“Missing data = neutral” (§7) means **do not exclude**. It never means **counts as proven**.
+
 ### 3.3 Social
 
 - **Soft signal only**, via whatever appears in **web search** results (TikTok / IG / YouTube / Facebook public pages, etc.).
@@ -191,7 +205,16 @@ Applied **after** core pass/rank — must not cancel core winners without priori
 1. **Sample / first-batch affordability** — can they *test* on this budget?  
 2. **Shortlist diversity** — avoid five near-clones in the first 5  
 3. **Explainability** — why listed (skills payload → founder-facing copy; see §6.1)  
-4. **Confidence** — low automation confidence → Okay / fewer slots, not fake Strong  
+4. **Confidence** — low automation confidence → Okay / fewer slots, not fake Strong
+
+**Confidence floors (LOCKED).** A product we could not measure never reads **Strong**:
+
+| Rule | Detail |
+| --- | --- |
+| **Unknown confidence** | Absent / non-numeric confidence is treated as **heuristic-grade** (`HEURISTIC_SEED_CONFIDENCE`), never as mid-confidence. A never-scored pool product cannot render Strong. |
+| **Boundary is inclusive** | Confidence **at or below** `CONFIDENCE_OKAY_CAP` caps strength to Okay — the cap value itself is not “confident enough”. |
+| **Neutral evidence caps too** | A neutral-filled demand leg caps strength to Okay independently of the confidence number, with reason `low_evidence_confidence` (§3.2). |
+| **One source of truth** | Shortlist ranking scores a card with the **same** confidence the demand gate resolved for it, so displayed strength and gate logic never disagree. |  
 
 ### 6.1 Card “Why we suggested this” — explain only (**LOCKED**)
 
@@ -205,7 +228,11 @@ Applied **after** core pass/rank — must not cancel core winners without priori
 | **Okay alignment** | Typed reason is exactly `fit_risk`, `low_evidence_confidence`, or `high_competition`. The yellow note and Gemini paragraph must state the same real reason; Strong Fit must never be described as moderate because confidence or competition capped the recommendation. |
 | **Mitigation** | An Okay paragraph ends with a concrete mitigation for that reason (small sample / modest ads / curated differentiation / do not scale on an estimate alone), then a clear accept-to-sample vs skip choice. Strong recommendations do not receive an Okay scare sentence. |
 | **Never changes** | Strong / Okay, shortlist rank, accept / reject gates, Human Approvals |
-| **Honesty** | Explanation, **not** a score; distinct from any accept-gate messaging. Note says whether copy uses saved live-search evidence or is estimate-only. |
+| **One reason, one source** | The typed reason is resolved **once** (`resolveOkayReasonForDisplay`) and shared by the card note and the Gemini payload — including legacy rows, where a stored `fit_risk` label on a strong operational Fit heals to the real cap reason. The note key always matches the typed reason. |
+| **Validate the finalized body** | Length, footprint, grounding, and Okay alignment run on the **finalized** paragraph, never the raw draft: a trimmed 7th sentence must not fail a valid answer. Only a hard blocklist (jargon, stock lines, estimate-mode market phrases, un-found Tier-1 names) short-circuits before finalize. |
+| **One bounded retry** | A validation / grounding / alignment failure earns **exactly one** retry with a tightened instruction (restated length window, plus “no market specifics” when estimate-only). **Never** retry a missing key or a quota / rate-limit response. |
+| **Failure copy** | Each failure kind reads distinctly for the founder: wording we could not verify, a paragraph that came back unfinished, the service being unreachable, a missing key, rate limit, or feature off. |
+| **Honesty** | Explanation, **not** a score; distinct from any accept-gate messaging. Note says whether copy uses saved live-search evidence or is estimate-only. Honesty rules stay strict — estimate-only copy never cites counts, domains, sellers, or Tier-1 names. |
 | **Approach A evidence** | Score-refresh jobs persist capped evidence only (up to 5 short domain/title/seller facts per leg + actual Tier-1 names); Discovery GET reads it and **never live-searches**. No snippets/full HTML. |
 | **Required key** | `GEMINI_API_KEY` or `DISCOVERY_EXPLAIN_GEMINI_API_KEY` via `.env` only. Missing key → fail-closed UI (“configure key”), never silent invent |
 | **No paste** | Founder paste demand confirm is **removed**; accept does **not** require paste |
@@ -240,7 +267,8 @@ These are part of the engineering contract, not optional nice-to-haves:
 | **Downrank before hard hide** | Weak scores sink in ranking; **shortlist never includes** non-accept-ready (hard margin fail / soft_ok / far-below / oversized / demand-fail) |
 | **Shadow / feature flags** | Log “would exclude” before enforcing hard filters; flag soft vs hard competition×budget |
 | **Dual demand paths** | Whitespace OR local-proven — never require every AND at once |
-| **Missing data = neutral** | Incomplete MOQ/sample → don’t exclude |
+| **Missing data = neutral** | Incomplete MOQ/sample → don’t exclude. Neutral means **do not exclude**, never **counts as proven** (§3.2) |
+| **Neutral demand leg at the gate** | A scored row whose deciding demand leg was neutral-filled **still passes** the system demand gate on score alone (missing data never excludes) — **but** it earns **no** `demandPath`, reports `usedNeutral`, and the card is capped to **Okay** with `low_evidence_confidence` and labelled **estimate-only**. A row with **no usable score at all** stays fail-closed `missing` (unchanged) |
 | **Competition×budget** | Rank penalty first; harden later using empty/accept metrics |
 | **Accept-ready shortlist** | List **only** products Accept would not block on margins / oversized / system demand. **No** soft-margin fill of non-accept cards |
 | **Edit onboarding** | When 0 (or below usable threshold) accept-ready products for this profile — empty shortlist + Edit onboarding note (see §8). Never strand on a page of blocked cards |
@@ -407,6 +435,8 @@ When `DISCOVERY_POOL_V2` is on, the UI exposes **Refresh suggestions**: close th
 | 2026-08-05 | §6.1 **grounded market evidence** — jobs persist bounded live-search facts; Gemini may cite concrete market specifics only from those facts; heuristic/neutral copy is explicitly estimate-only |
 | 2026-08-05 | §6.1 body expanded to **4–6 complete sentences (~900–1100 chars; 800-char validator tolerance / 1100 hard max)**; yellow Okay note and Gemini now share one typed reason and reason-matched mitigation; opportunity thesis follows grounded evidence → Fit/budget → economics → differentiation → uncertainty → test; cache bumped to `v7-confidence-thesis-900-1100` |
 | 2026-08-05 | §6.2 **Worth considering compare (max 3)** **LOCKED** — skills pick among marks; Gemini explains advice only; Accept remains free choice; compare cache `v1-worth-considering-compare` |
+| 2026-08-07 | §6.1 **Explain reliability + single-source Okay reason** **LOCKED** — validators run on the **finalized** body (a trimmed 7th sentence no longer fails a valid answer; only a hard blocklist pre-checks the raw draft); paragraph is packed from **whole sentences** inside 800–1100 and abbreviations like “U.S.” no longer split into fake sentences; **exactly one** tightened retry on validation / grounding / alignment failure and **never** on missing key or rate limit; card note and Gemini payload share one resolver so they can never state two reasons; runtime guard keeps Okay scare wording off **Strong**; distinct EN + AR copy per failure kind; cache bumped to `v8-single-reason-retry` |
+| 2026-08-07 | **Truthful demand + confidence floors** **LOCKED** (§3.2 / §6 / §7): “missing data = neutral” means *do not exclude*, never *counts as proven*; a qualified `whitespace` / `local_proven` label requires real evidence on every leg it claims (local-proven strictly above neutral), else `demandPath = null` and founder copy reads **estimate only**; unknown confidence floors to `HEURISTIC_SEED_CONFIDENCE` and the Okay cap boundary is inclusive, so never-scored products cannot read **Strong**; neutral deciding leg **passes** the demand gate but is capped Okay with `low_evidence_confidence` |
 
 ---
 

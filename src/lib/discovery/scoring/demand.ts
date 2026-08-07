@@ -1,6 +1,8 @@
 /**
  * Demand skill — dual path (whitespace OR local-proven). WAVE-2 §3.
- * Missing evidence legs → neutral (WAVE-2 §7). Pure / unit-testable.
+ * Missing evidence legs → neutral for ranking only (WAVE-2 §7): neutral fill
+ * never excludes a product and never counts as proof, so it can never earn a
+ * qualified path label (§3.2). Pure / unit-testable.
  */
 
 import {
@@ -20,6 +22,10 @@ export type DemandSkillInput = {
 export type DemandSkillResult = {
   /** 0..1 multiplier for composite core. */
   score: number;
+  /**
+   * Path label the evidence actually earns; null when the leg the label would
+   * claim was neutral-filled. Never label a path from missing evidence (§3.2).
+   */
   path: DemandPath | null;
   abroad: number;
   lebanon: number;
@@ -47,9 +53,20 @@ export function scoreDemand(input: DemandSkillInput): DemandSkillResult {
     : clamp01(input.lebanonDemandScore as number);
   const usedNeutral = abroadMissing || lebanonMissing;
 
+  // A qualified path must rest on real evidence for every leg it claims.
+  // Whitespace claims abroad traction *and* a thin Lebanon footprint, so both
+  // legs must be real. Local-proven claims Lebanon only, and must sit strictly
+  // above DEMAND_NEUTRAL — the neutral fill value is never proof, even when a
+  // calibration constant happens to equal it.
   const whitespaceOk =
-    abroad >= DEMAND_ABROAD_STRONG && lebanon < DEMAND_LEBANON_WEAK;
-  const localOk = lebanon >= DEMAND_LEBANON_STRONG;
+    !abroadMissing &&
+    !lebanonMissing &&
+    abroad >= DEMAND_ABROAD_STRONG &&
+    lebanon < DEMAND_LEBANON_WEAK;
+  const localOk =
+    !lebanonMissing &&
+    lebanon >= DEMAND_LEBANON_STRONG &&
+    lebanon > DEMAND_NEUTRAL;
 
   let path: DemandPath | null = null;
   let score: number;
@@ -72,8 +89,13 @@ export function scoreDemand(input: DemandSkillInput): DemandSkillResult {
     path = "local_proven";
     score = lebanon;
   } else {
-    // Neither path strong — soft demand from the better leg (still rankable).
-    path = abroad >= lebanon ? "whitespace" : "local_proven";
+    // Neither path qualifies — rank on the better leg so nothing is excluded
+    // (§7), but only label when that leg is real evidence rather than fill.
+    if (abroad >= lebanon) {
+      path = abroadMissing || lebanonMissing ? null : "whitespace";
+    } else {
+      path = lebanonMissing ? null : "local_proven";
+    }
     score = Math.max(abroad, lebanon) * 0.85;
   }
 

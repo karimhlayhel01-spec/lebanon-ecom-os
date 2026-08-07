@@ -38,6 +38,8 @@ export type WhyPickServiceResult =
         | "no_session"
         | "api_error"
         | "ungrounded"
+        | "okay_mismatch"
+        | "incomplete"
         | "empty"
         | "error";
     };
@@ -123,6 +125,7 @@ export async function explainWhyThisPick(input: {
     demandPath?: string | null;
     competitionScore?: number | null;
     budgetFightPenalty?: number | null;
+    confidence?: number | null;
   } | null = null;
   if (catalogKey) {
     const poolRow = await db
@@ -150,6 +153,8 @@ export async function explainWhyThisPick(input: {
           demandPath: score.demandPath,
           competitionScore: score.competitionScore,
           budgetFightPenalty: score.budgetFightPenalty,
+          // Same confidence the view reads, so both resolve one Okay reason.
+          confidence: score.confidence,
         };
       }
     }
@@ -161,6 +166,7 @@ export async function explainWhyThisPick(input: {
     fitScore: candidate.fitScore,
     strength: candidate.strength === "Strong" ? "Strong" : "Okay",
     fitBreakdownJson: candidate.fitBreakdown,
+    riskRead: candidate.riskRead,
     marginBefore: candidate.marginBefore,
     marginAfter: candidate.marginAfter,
     curatedDifferentiation,

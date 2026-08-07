@@ -95,6 +95,7 @@ async function loadCompareProductPayload(input: {
     demandPath?: string | null;
     competitionScore?: number | null;
     budgetFightPenalty?: number | null;
+    confidence?: number | null;
   } | null = null;
 
   if (catalogKey) {
@@ -122,6 +123,7 @@ async function loadCompareProductPayload(input: {
           demandPath: score.demandPath,
           competitionScore: score.competitionScore,
           budgetFightPenalty: score.budgetFightPenalty,
+          confidence: score.confidence,
         };
       }
     }
@@ -133,6 +135,7 @@ async function loadCompareProductPayload(input: {
     fitScore: candidate.fitScore,
     strength: candidate.strength === "Strong" ? "Strong" : "Okay",
     fitBreakdownJson: candidate.fitBreakdown,
+    riskRead: candidate.riskRead,
     marginBefore: candidate.marginBefore,
     marginAfter: candidate.marginAfter,
     curatedDifferentiation,

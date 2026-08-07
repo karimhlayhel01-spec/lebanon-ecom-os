@@ -822,7 +822,7 @@ describe("Gemini narrator (mocked)", () => {
       fetchFn,
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(["empty", "ungrounded"]).toContain(r.error);
+    if (!r.ok) expect(r.error).toBe("incomplete");
   });
 
   it("passes estimate-only facts to Gemini when LIVE_SEARCH off", async () => {
@@ -1044,7 +1044,7 @@ describe("cache + rate limit + Gemini flags", () => {
   it("caches per session/candidate/locale with version bust", () => {
     const key = whyPickCacheKey("s1", "c1", "en");
     expect(key).toContain(WHY_PICK_CACHE_VERSION);
-    expect(WHY_PICK_CACHE_VERSION).toMatch(/^v7-/);
+    expect(WHY_PICK_CACHE_VERSION).toMatch(/^v8-/);
     const value = buildDeterministicWhyPick({
       productName: "A",
       fitScore: 50,

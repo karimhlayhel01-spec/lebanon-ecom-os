@@ -678,14 +678,21 @@ function ProductCard({
     : null;
   const systemPass = c.systemDemand?.pass === true;
 
+  function demandPathCopy(): string {
+    // No earned path means the deciding evidence leg was neutral-filled —
+    // never dress that up as abroad traction or Lebanon demand (WAVE-2 §3.2).
+    if (c.systemDemand?.demandPath === "local_proven") {
+      return t("demandPathLocal");
+    }
+    if (c.systemDemand?.demandPath === "whitespace") {
+      return t("demandPathWhitespace");
+    }
+    return t("demandPathUnproven");
+  }
+
   function systemDemandCopy(): string {
     if (systemPass) {
-      return t("dualGateSystemPass", {
-        path:
-          c.systemDemand?.demandPath === "local_proven"
-            ? t("demandPathLocal")
-            : t("demandPathWhitespace"),
-      });
+      return t("dualGateSystemPass", { path: demandPathCopy() });
     }
     if (c.systemDemand?.status === "missing") {
       if (c.systemDemand?.reason === "score_refresh_failed") {
@@ -754,11 +761,16 @@ function ProductCard({
                   ? t("whySuggestedOff")
                   : res.error === "api_error"
                     ? t("whySuggestedApiError")
-                    : res.error === "ungrounded" ||
-                        res.error === "empty" ||
-                        (Boolean(res.ok) && !complete)
-                      ? t("whySuggestedFailed")
-                      : t("errorGeneric"),
+                    : // Wording we could not verify vs a paragraph that came
+                      // back unfinished — the founder should be able to tell.
+                      res.error === "ungrounded" ||
+                        res.error === "okay_mismatch"
+                      ? t("whySuggestedUnverified")
+                      : res.error === "incomplete" ||
+                          res.error === "empty" ||
+                          (Boolean(res.ok) && !complete)
+                        ? t("whySuggestedIncomplete")
+                        : t("errorGeneric"),
           );
         } else {
           setWhyBody(res.body);

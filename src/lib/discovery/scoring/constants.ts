@@ -21,7 +21,12 @@ export const SOFT_MARGIN_AFTER_FLOOR = 0.22;
 export const DEMAND_ABROAD_STRONG = 0.55;
 export const DEMAND_LEBANON_WEAK = 0.4;
 export const DEMAND_LEBANON_STRONG = 0.5;
-/** Neutral fill when a demand leg is missing (WAVE-2 §7 missing data = neutral). */
+/**
+ * Neutral fill when a demand leg is missing (WAVE-2 §7 missing data = neutral).
+ * Rank-only: it means "do not exclude", never "counts as proven". Numerically
+ * equal to `DEMAND_LEBANON_STRONG`, so demand qualification checks leg
+ * provenance and require strictly-above-neutral — never the threshold alone.
+ */
 export const DEMAND_NEUTRAL = 0.5;
 
 /** Competition intensity bands (0..1 stored score). */
@@ -44,8 +49,12 @@ export const BUDGET_FIGHT_PENALTY_HARD_SHADOW = 0.45;
 export const SOFT_MARGIN_ADDON_PASS = 0.08;
 export const SOFT_MARGIN_ADDON_SOFT_OK = 0.02;
 
-/** Heuristic seed confidence (low → polish can cap Strong → Okay). */
+/**
+ * Heuristic seed confidence (low → polish caps Strong → Okay). Also the floor
+ * for unknown/absent confidence: a never-scored product is not mid-confidence.
+ */
 export const HEURISTIC_SEED_CONFIDENCE = 0.35;
+/** Confidence at or below this never reaches Strong (boundary inclusive). */
 export const CONFIDENCE_OKAY_CAP = 0.5;
 
 /** Polish: mild rank nudge only (must not cancel core winners). */

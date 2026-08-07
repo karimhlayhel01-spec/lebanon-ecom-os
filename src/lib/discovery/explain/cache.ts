@@ -11,7 +11,7 @@ const compareCache = new Map<string, CompareExplainResult>();
 const hits: { workspaceId: string; at: number }[] = [];
 
 /** Bump to invalidate in-memory explain paragraphs after copy/voice changes. */
-export const WHY_PICK_CACHE_VERSION = "v7-confidence-thesis-900-1100";
+export const WHY_PICK_CACHE_VERSION = "v8-single-reason-retry";
 /** Bump when compare brief shape / voice changes. */
 export const COMPARE_CACHE_VERSION = "v1-worth-considering-compare";
 

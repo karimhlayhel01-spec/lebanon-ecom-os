@@ -120,22 +120,6 @@ export function rankWave2Shortlist(
         ? "score_cache"
         : "neutral";
 
-    const composite = computeComposite({
-      abroadDemandScore: cached?.abroadDemandScore,
-      lebanonDemandScore: cached?.lebanonDemandScore,
-      competitionScore: cached?.competitionScore,
-      confidence: cached?.confidence,
-      fit,
-      margin,
-      budgetUsd: profile.budgetUsd,
-      monthlyFollowOnBudget: profile.monthlyFollowOnBudget,
-      moqHint: hints?.moqHint,
-      sampleCostHint: hints?.sampleCostHint,
-      softCompetitionBudget,
-      category: p.category,
-      evidenceSource: cached ? evidenceSource : "neutral",
-    });
-
     const system = resolveSystemDemandInput({
       cache: systemInputFromCache(cached),
       heuristicProduct: {
@@ -147,6 +131,24 @@ export function rankWave2Shortlist(
         nameEn: p.en.name,
       },
       liveSearchEnabled,
+    });
+
+    const composite = computeComposite({
+      abroadDemandScore: cached?.abroadDemandScore,
+      lebanonDemandScore: cached?.lebanonDemandScore,
+      competitionScore: cached?.competitionScore,
+      // With no usable cache row the gate falls back to heuristic confidence —
+      // score the card with that same number so strength and gate agree.
+      confidence: cached?.confidence ?? system?.confidence ?? null,
+      fit,
+      margin,
+      budgetUsd: profile.budgetUsd,
+      monthlyFollowOnBudget: profile.monthlyFollowOnBudget,
+      moqHint: hints?.moqHint,
+      sampleCostHint: hints?.sampleCostHint,
+      softCompetitionBudget,
+      category: p.category,
+      evidenceSource: cached ? evidenceSource : "neutral",
     });
 
     const acceptReady = isAcceptReadyForShortlist({
