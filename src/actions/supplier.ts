@@ -12,6 +12,7 @@ import {
   orderNextBatch,
   reportSupplierCantFulfill,
   requestSample,
+  refreshImportLeads,
   saveCostQuotes,
   setBatchArrivalEta,
   setReorderArrivalEta,
@@ -20,6 +21,7 @@ import {
   type MarkReorderArrivedResult,
   type OrderBatchResult,
   type OrderNextBatchResult,
+  type RefreshImportLeadsResult,
   type ReportCantFulfillResult,
   type SampleDecision,
   type SaveCostQuotesResult,
@@ -29,6 +31,8 @@ import {
 } from "@/lib/supplier/service";
 import type { SetBatchArrivalEtaInput } from "@/lib/supplier/batch-eta";
 import { assertSkuOwned } from "@/lib/sku/ownership";
+import { assessSupplierListing } from "@/lib/supplier/diligence/service";
+import type { AssessListingResult } from "@/lib/supplier/diligence/types";
 
 async function workspaceForRequest() {
   const ctx = await requireOnboardedWorkspace();
@@ -39,6 +43,40 @@ async function workspaceForRequest() {
 async function requireOwnedSku(workspaceId: string, skuId: string) {
   const owned = await assertSkuOwned(workspaceId, skuId);
   return owned.ok;
+}
+
+/**
+ * On-click Assess listing — scrape + skills recommend + Gemini narrate.
+ * Revalidates so a persisted company name shows on the card.
+ * Do not re-export diligence types from this "use server" file (Turbopack runtime).
+ */
+export async function assessSupplierListingAction(
+  supplierId: string,
+  locale: "en" | "ar",
+): Promise<AssessListingResult> {
+  await ensureMigrated();
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  const res = await assessSupplierListing(ctx.workspace.id, supplierId, locale);
+  if (res.ok) {
+    revalidatePath("/", "layout");
+  }
+  return res;
+}
+
+export async function refreshImportLeadsAction(
+  skuId: string,
+  opts?: { confirmResetProgress?: boolean },
+): Promise<RefreshImportLeadsResult> {
+  await ensureMigrated();
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await refreshImportLeads(ctx.workspace.id, skuId, opts);
+  revalidatePath("/", "layout");
+  return res;
 }
 
 export async function requestSampleAction(supplierId: string) {

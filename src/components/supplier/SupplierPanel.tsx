@@ -1,14 +1,24 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition } from "react";
-import { useTranslations } from "next-intl";
 import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  useTransition,
+} from "react";
+import { createPortal } from "react-dom";
+import { useLocale, useTranslations } from "next-intl";
+import {
+  assessSupplierListingAction,
   decideSampleAction,
   markBatchArrivedAction,
   markReorderArrivedAction,
   markSampleReceivedAction,
   orderBatchAction,
   orderNextBatchAction,
+  refreshImportLeadsAction,
   reportSupplierCantFulfillAction,
   requestSampleAction,
   saveCostQuotesAction,
@@ -21,6 +31,15 @@ import {
   suppressSkuAutoScroll,
   suppressSkuAutoScrollAfterBatchAction,
 } from "@/lib/sku/suppress-auto-scroll";
+import {
+  buildGmailComposeUrl,
+  supplierEmailSubject,
+} from "@/lib/supplier/email/gmail-compose";
+import { canAssessListingUrl } from "@/lib/supplier/diligence/listing-url";
+import type {
+  AssessListingSuccess,
+  DiligenceRecommendation,
+} from "@/lib/supplier/diligence/types";
 import { CANT_FULFILL_REASONS } from "@/lib/supplier/reorder-escape";
 import {
   MAX_SPARE_SAMPLES_IN_FLIGHT,
@@ -60,10 +79,28 @@ const CHECKLIST_KEYS = [
   "arabicLabeling",
 ] as const;
 
-function useSupNote() {
-  const t = useTranslations("Supplier");
-  return (key: string) =>
-    key.startsWith("@") ? t(`notes.${key.slice(1)}` as never) : key;
+const subscribeNoop = () => () => {};
+const getMountedClient = () => true;
+const getMountedServer = () => false;
+
+function platformLabel(platform: string | null): string {
+  if (platform === "aliexpress") return "AliExpress";
+  if (platform === "alibaba") return "Alibaba";
+  return "Web";
+}
+
+function recommendationBadgeClass(tier: DiligenceRecommendation): string {
+  if (tier === "worth_sampling") return "bg-cedar/10 text-cedar-deep";
+  if (tier === "caution") return "bg-amber-50 text-amber-900";
+  return "bg-sand text-stone-dark";
+}
+
+function recommendationLabelKey(
+  tier: DiligenceRecommendation,
+): "assessRecWorthSampling" | "assessRecCaution" | "assessRecSkip" {
+  if (tier === "worth_sampling") return "assessRecWorthSampling";
+  if (tier === "caution") return "assessRecCaution";
+  return "assessRecSkip";
 }
 
 /** Which supplier job is the visual boss for this panel (layout only). */
@@ -108,6 +145,95 @@ function supplierBlockClass(
   return roles.includes(boss)
     ? "supplier-block-primary"
     : "supplier-block-secondary";
+}
+
+function RefreshImportLeadsControl({ skuId }: { skuId: string }) {
+  const t = useTranslations("Supplier");
+  const [pending, startTransition] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function run() {
+    setMessage(null);
+    setError(null);
+    startTransition(async () => {
+      const res = await refreshImportLeadsAction(skuId);
+      if (!res.ok) {
+        if (res.error === "needs_confirm") {
+          const ok = window.confirm(t("refreshImportConfirm"));
+          if (!ok) {
+            setError(t("refreshImportNeedsConfirm"));
+            return;
+          }
+          const confirmed = await refreshImportLeadsAction(skuId, {
+            confirmResetProgress: true,
+          });
+          if (!confirmed.ok) {
+            setError(t("refreshImportFailed"));
+            return;
+          }
+          applySuccess(confirmed);
+          return;
+        }
+        const key =
+          res.error === "live_disabled"
+            ? "refreshImportLiveDisabled"
+            : res.error === "missing_key"
+              ? "refreshImportMissingKey"
+              : res.error === "quota"
+                ? "refreshImportQuota"
+                : "refreshImportFailed";
+        setError(t(key));
+        return;
+      }
+      applySuccess(res);
+    });
+
+    function applySuccess(res: {
+      liveCount: number;
+      heuristicCount: number;
+      fallback: "none" | "partial" | "heuristic";
+    }) {
+      if (res.fallback === "heuristic" || res.liveCount === 0) {
+        setMessage(t("refreshImportFallbackHeuristic"));
+      } else if (res.fallback === "partial") {
+        setMessage(
+          t("refreshImportPartial", {
+            live: res.liveCount,
+            estimate: res.heuristicCount,
+          }),
+        );
+      } else {
+        setMessage(t("refreshImportLive", { live: res.liveCount }));
+      }
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-stone bg-sand/40 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-stone-dark">{t("refreshImportHint")}</p>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => run()}
+          className="shrink-0 rounded-md border border-stone bg-surface px-3 py-1.5 text-xs font-semibold text-ink transition hover:bg-sand disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {pending ? t("refreshImportPending") : t("refreshImportButton")}
+        </button>
+      </div>
+      {message ? (
+        <p className="mt-1.5 text-xs text-ink" role="status">
+          {message}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="mt-1.5 text-xs text-amber-800" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function SourceBadge({ source }: { source: "import" | "local" }) {
@@ -517,6 +643,10 @@ function SupplierShortlistSection({
         )}
       </div>
 
+      {effectiveTab === "import" ? (
+        <RefreshImportLeadsControl skuId={view.skuId} />
+      ) : null}
+
       {effectiveTab === "both" && (
         <p className="text-[11px] text-stone-dark">{t("bothTabDensityNote")}</p>
       )}
@@ -536,6 +666,7 @@ function SupplierShortlistSection({
                 s={g.primary}
                 sampleCta={ctaFor(g.primary)}
                 softLimit={view.softLimitUsd}
+                skuName={view.skuName}
               />
             )}
             {g.backups.map((b) => (
@@ -544,6 +675,7 @@ function SupplierShortlistSection({
                 s={b}
                 sampleCta={ctaFor(b)}
                 softLimit={view.softLimitUsd}
+                skuName={view.skuName}
               />
             ))}
           </div>
@@ -557,26 +689,29 @@ function SupplierCard({
   s,
   sampleCta,
   softLimit,
+  skuName,
 }: {
   s: SupplierView;
   sampleCta: SupplierCardSampleCta;
   softLimit: number;
+  skuName: string;
 }) {
   const t = useTranslations("Supplier");
-  const note = useSupNote();
+  const locale = useLocale();
   const [pending, startTransition] = useTransition();
+  const [assessPending, startAssess] = useTransition();
   const [showEmail, setShowEmail] = useState(false);
-  const [warnOpen, setWarnOpen] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [assessOpen, setAssessOpen] = useState(false);
+  const [assessLoading, setAssessLoading] = useState(false);
+  const [assessError, setAssessError] = useState<string | null>(null);
+  const [assessResult, setAssessResult] = useState<AssessListingSuccess | null>(
+    null,
+  );
 
-  const hasWarnings = s.overSoftLimit || s.redFlags.length > 0;
-  const warningLines: string[] = [];
-  if (s.overSoftLimit) {
-    warningLines.push(t("overLimitHint", { limit: softLimit.toLocaleString() }));
-  }
-  for (const f of s.redFlags) {
-    warningLines.push(note(f));
-  }
+  // softLimit kept for API parity with parent; invent batch soft-limit not shown on card
+  void softLimit;
 
   const ctaLabel =
     sampleCta.kind === "request_backup_sample"
@@ -587,60 +722,93 @@ function SupplierCard({
       ? t("requestBackupSampleHint")
       : t("requestSampleHint");
 
+  const canAssess = canAssessListingUrl(s.sourceUrl);
+
+  function openAssess() {
+    if (!canAssess) return;
+    setAssessOpen(true);
+    setAssessError(null);
+    setAssessResult(null);
+    setAssessLoading(true);
+    startAssess(async () => {
+      const res = await assessSupplierListingAction(
+        s.id,
+        locale === "ar" ? "ar" : "en",
+      );
+      setAssessLoading(false);
+      if (!res.ok) {
+        const key =
+          res.error === "missing_key"
+            ? "assessMissingKey"
+            : res.error === "missing_scrape_key"
+              ? "assessMissingScrapeKey"
+              : res.error === "scrape_failed"
+                ? "assessScrapeFailed"
+                : res.error === "quota"
+                  ? "assessQuota"
+                  : res.error === "no_url"
+                    ? "assessNoUrl"
+                    : "assessFailed";
+        setAssessError(key);
+        return;
+      }
+      setAssessResult(res);
+    });
+  }
+
   return (
-    <article className="relative flex flex-col gap-2 rounded-lg border border-stone bg-surface-subtle p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h4 className="text-sm font-semibold text-ink">{s.name}</h4>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-dark">
-            <SourceBadge source={s.source} />
-            <span
-              className={`rounded px-1.5 py-0.5 font-medium ${
-                s.role === "primary"
-                  ? "bg-cedar/10 text-cedar-deep"
-                  : "bg-sand text-stone-dark"
-              }`}
-            >
-              {s.role === "primary" ? t("primary") : t("backup")}
-            </span>
-            {s.verified && (
-              <span className="rounded bg-sea/10 px-1.5 py-0.5 text-sea">
-                {t("verified")}
-              </span>
-            )}
-          </div>
-        </div>
-        <span className="whitespace-nowrap text-xs font-semibold text-ink">
-          ★ {s.rating.toFixed(1)}
-        </span>
-      </div>
-
-      <dl className="space-y-1 text-xs">
-        <Row label={t("years")}>{t("yearsValue", { n: s.years })}</Row>
-        <Row label={t("moq")}>{s.moq}</Row>
-        <Row label={t("unitPrice")}>${s.unitPrice.toFixed(2)}</Row>
-        <Row label={t("estBatch")}>
-          <span className={s.overSoftLimit ? "font-semibold text-amber-800" : "font-medium text-ink"}>
-            ~${s.estBatchCost.toLocaleString()}
-          </span>
-        </Row>
-      </dl>
-      <p className="text-[10px] leading-snug text-stone-dark/80">
-        {t("estBatchPlanningHint")}
-        {s.source === "local" ? (
-          <>
-            {" "}
-            {t("estBatchLocalLegsHint")}
-          </>
+    <article className="flex flex-col gap-2 rounded-lg border border-stone bg-surface-subtle p-3">
+      <div className="min-w-0">
+        <h4 className="text-sm font-semibold text-ink">{s.name}</h4>
+        {s.leadSource === "live_search" &&
+        s.externalTitle &&
+        s.externalTitle.trim() !== s.name.trim() ? (
+          <p
+            className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-stone-dark/80"
+            title={s.externalTitle}
+          >
+            {t("listingTitleHint", { title: s.externalTitle })}
+          </p>
         ) : null}
-      </p>
-
-      <div className="rounded border border-stone bg-surface px-2 py-1.5 text-[11px] text-stone-dark">
-        <span className="font-medium text-ink">{t("payment")}: </span>
-        {s.paymentMap.depositPct}% / {s.paymentMap.balancePct}% ·{" "}
-        {s.paymentMap.method} · {t("estDeposit")} ~${s.paymentMap.estDeposit.toLocaleString()}
-        <div className="mt-0.5">{note(s.paymentMap.note)}</div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-dark">
+          <SourceBadge source={s.source} />
+          {s.leadSource === "live_search" ? (
+            <span className="rounded bg-sea/10 px-1.5 py-0.5 font-medium text-sea">
+              {t("liveLeadBadge")}
+            </span>
+          ) : (
+            <span className="rounded bg-sand px-1.5 py-0.5 font-medium text-stone-dark">
+              {t("estimateLeadBadge")}
+            </span>
+          )}
+        </div>
       </div>
+
+      {s.sourceUrl ? (
+        <a
+          href={s.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex w-full items-center justify-center rounded-md border border-sea/40 bg-sea/5 px-3 py-2 text-center text-xs font-semibold text-sea transition hover:bg-sea/10"
+        >
+          {t("openListing", { platform: platformLabel(s.platform) })}
+        </a>
+      ) : null}
+
+      <button
+        type="button"
+        disabled={!canAssess || assessPending}
+        title={!canAssess ? t("assessNoUrl") : undefined}
+        onClick={openAssess}
+        className="inline-flex w-full items-center justify-center rounded-md bg-cedar px-3 py-2 text-center text-xs font-semibold text-foam transition hover:bg-cedar-deep disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {assessPending ? t("assessListingPending") : t("assessListing")}
+      </button>
+      {!canAssess ? (
+        <p className="text-[10px] leading-snug text-stone-dark">
+          {t("assessNoUrlHint")}
+        </p>
+      ) : null}
 
       <div className="flex flex-col items-start gap-2">
         <button
@@ -659,6 +827,37 @@ function SupplierCard({
               rows={8}
               className="w-full rounded border border-stone bg-surface p-2 text-[11px] text-stone-dark"
             />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(s.negotiationDraft);
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 2000);
+                  } catch {
+                    setCopied(false);
+                  }
+                }}
+                className="rounded-md border border-stone px-2.5 py-1 text-[11px] font-medium text-ink transition hover:bg-sand"
+              >
+                {copied ? t("emailCopied") : t("copyEmailDraft")}
+              </button>
+              <a
+                href={buildGmailComposeUrl({
+                  subject: supplierEmailSubject(
+                    skuName || s.name,
+                    locale === "ar" ? "ar" : "en",
+                  ),
+                  body: s.negotiationDraft,
+                })}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md border border-sea/40 bg-sea/5 px-2.5 py-1 text-[11px] font-medium text-sea transition hover:bg-sea/10"
+              >
+                {t("openInGmail")}
+              </a>
+            </div>
           </>
         )}
 
@@ -682,7 +881,7 @@ function SupplierCard({
                   }
                 })
               }
-              className="rounded-md bg-cedar px-3 py-1.5 text-xs font-semibold text-foam transition hover:bg-cedar-deep disabled:opacity-60"
+              className="rounded-md border border-cedar/40 bg-surface px-3 py-1.5 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/5 disabled:opacity-60"
             >
               {ctaLabel}
             </button>
@@ -704,44 +903,172 @@ function SupplierCard({
         )}
       </div>
 
-      {hasWarnings && (
-        <div
-          className="absolute bottom-2 end-2 z-10"
-          onMouseEnter={() => setWarnOpen(true)}
-          onMouseLeave={() => setWarnOpen(false)}
-        >
-          <button
-            type="button"
-            aria-label={t("warningsAria")}
-            aria-expanded={warnOpen}
-            aria-controls={`supplier-warn-${s.id}`}
-            onClick={() => setWarnOpen((v) => !v)}
-            onBlur={(e) => {
-              const next = e.relatedTarget as Node | null;
-              if (!e.currentTarget.parentElement?.contains(next)) {
-                setWarnOpen(false);
-              }
-            }}
-            className="bg-transparent p-1 text-[11px] leading-none text-amber-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-600"
-          >
-            <span aria-hidden>⚠</span>
-          </button>
-          {warnOpen && (
-            <div
-              id={`supplier-warn-${s.id}`}
-              role="tooltip"
-              className="absolute bottom-full end-0 z-20 mb-1.5 w-56 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-start text-[11px] leading-snug text-amber-950 shadow-sm"
-            >
-              <ul className="space-y-1">
-                {warningLines.map((line, i) => (
-                  <li key={i}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
+      {assessOpen ? (
+        <AssessListingModal
+          loading={assessLoading}
+          errorKey={assessError}
+          result={assessResult}
+          onClose={() => {
+            setAssessOpen(false);
+            setAssessError(null);
+            setAssessResult(null);
+            setAssessLoading(false);
+          }}
+        />
+      ) : null}
     </article>
+  );
+}
+
+function AssessListingModal({
+  loading,
+  errorKey,
+  result,
+  onClose,
+}: {
+  loading: boolean;
+  errorKey: string | null;
+  result: AssessListingSuccess | null;
+  onClose: () => void;
+}) {
+  const t = useTranslations("Supplier");
+  const titleId = useId();
+  const mounted = useSyncExternalStore(
+    subscribeNoop,
+    getMountedClient,
+    getMountedServer,
+  );
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  if (!mounted) return null;
+
+  const chips: string[] = [];
+  if (result) {
+    const f = result.facts;
+    if (f.yearsOnPlatform != null) {
+      chips.push(t("assessChipYears", { n: f.yearsOnPlatform }));
+    }
+    for (const s of f.verifiedSignals) chips.push(s);
+    if (f.rating != null) chips.push(t("assessChipRating", { n: f.rating }));
+    for (const c of f.certifications.slice(0, 4)) chips.push(c);
+    if (f.moqHint != null) chips.push(t("assessChipMoq", { n: f.moqHint }));
+    if (f.unitPriceHint != null) {
+      chips.push(t("assessChipPrice", { n: f.unitPriceHint.toFixed(2) }));
+    }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90]" role="presentation">
+      <button
+        type="button"
+        aria-label={t("assessClose")}
+        className="absolute inset-0 bg-ink/40"
+        onClick={onClose}
+      />
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className="pointer-events-auto max-h-[min(90vh,40rem)] w-full max-w-md overflow-y-auto rounded-lg border border-stone bg-surface p-5 shadow-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <h2
+              id={titleId}
+              className="font-display text-lg font-semibold text-ink"
+            >
+              {t("assessListingTitle")}
+            </h2>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t("assessClose")}
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-ink transition hover:bg-sand"
+            >
+              <span aria-hidden className="text-xl leading-none">
+                ×
+              </span>
+            </button>
+          </div>
+
+          <div className="mt-3 space-y-3">
+            {loading && !result && !errorKey ? (
+              <p className="text-sm text-stone-dark">{t("assessListingLoading")}</p>
+            ) : null}
+            {errorKey ? (
+              <p className="text-sm leading-relaxed text-amber-800">
+                {t(errorKey as never)}
+              </p>
+            ) : null}
+            {result ? (
+              <>
+                <p
+                  className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${recommendationBadgeClass(result.recommendation)}`}
+                >
+                  {t(recommendationLabelKey(result.recommendation))}
+                </p>
+                <p className="text-xs leading-relaxed text-stone-dark">
+                  {t(result.honestyKey)}
+                </p>
+                {result.summary ? (
+                  <div className="space-y-2 text-sm leading-relaxed text-ink whitespace-pre-wrap">
+                    {result.summary}
+                  </div>
+                ) : (
+                  <p className="text-sm leading-relaxed text-stone-dark">
+                    {t("assessNarrationFailed")}
+                  </p>
+                )}
+                {chips.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {chips.map((c) => (
+                      <span
+                        key={c}
+                        className="rounded bg-sand px-1.5 py-0.5 text-[10px] font-medium text-stone-dark"
+                      >
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <p className="text-[11px] leading-snug text-stone-dark">
+                  {t("assessOpenListingNote", {
+                    platform: platformLabel(result.facts.platform),
+                  })}
+                </p>
+                <p className="text-[11px] leading-snug text-stone-dark">
+                  {t("assessSampleNote")}
+                </p>
+              </>
+            ) : null}
+          </div>
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-stone px-3 py-1.5 text-sm font-medium text-ink transition hover:bg-sand"
+            >
+              {t("assessClose")}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -796,39 +1123,22 @@ function ChosenSupplierSummary({
           <h4 className="mt-0.5 text-sm font-semibold text-ink">{s.name}</h4>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-dark">
             <SourceBadge source={s.source} />
-            <span
-              className={`rounded px-1.5 py-0.5 font-medium ${
-                s.role === "primary"
-                  ? "bg-cedar/10 text-cedar-deep"
-                  : "bg-sand text-stone-dark"
-              }`}
-            >
-              {s.role === "primary" ? t("primary") : t("backup")}
-            </span>
-            {s.verified && (
-              <span className="rounded bg-sea/10 px-1.5 py-0.5 text-sea">
-                {t("verified")}
-              </span>
-            )}
-            <span className="font-semibold text-ink">★ {s.rating.toFixed(1)}</span>
           </div>
         </div>
       </div>
 
-      <dl className="mt-3 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
-        <Row label={t("moq")}>{s.moq}</Row>
-        <Row label={t("unitPrice")}>${s.unitPrice.toFixed(2)}</Row>
-        <Row label={t("estBatch")}>~${s.estBatchCost.toLocaleString()}</Row>
-      </dl>
-      <p className="mt-1.5 text-[10px] leading-snug text-stone-dark/80">
-        {t("estBatchPlanningHint")}
-        {s.source === "local" ? (
-          <>
-            {" "}
-            {t("estBatchLocalLegsHint")}
-          </>
-        ) : null}
-      </p>
+      {s.sourceUrl ? (
+        <p className="mt-2 text-[11px]">
+          <a
+            href={s.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-sea underline-offset-2 hover:underline"
+          >
+            {t("openListing", { platform: platformLabel(s.platform) })}
+          </a>
+        </p>
+      ) : null}
 
       {insuranceAvailable && (
         <div className="mt-2 text-[11px] text-stone-dark">

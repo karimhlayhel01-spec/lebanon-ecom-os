@@ -200,8 +200,12 @@ After accept, work happens on the **shop hub** and **per-SKU pages** (`/sku/[id]
 
 ### Supplier / Import (`src/lib/supplier/`)
 
-- **3 primaries + 2 backups each = 9 options**, with years/rating/red-flag signals
-- Per-option **email draft**, **payment map**, quality checklist, and a **clearance-partner TBD** placeholder
+- **3 primaries + 2 backups each = 9 options** per source (Import + Local), with years/rating/red-flag signals
+- **Wave 3 (additive):** optional **live Import leads** from public Alibaba/AliExpress SERP (`SUPPLIER_LIVE_LEADS=1` + `SERPER_API_KEY`) — Approach A one-shot on first fill; heuristic fallback. See `docs/WAVE-3.md`
+- **Email:** negotiation draft + **Copy** / **Open in Gmail** (compose URL). Confirmed in-app Gmail send via Zapier/MCP is Phase 3b
+- **Sample-first** flow: request → received → decide (`sample_decision` approval)
+- Parallel **same-source spare** samples; spare approve does not switch the working path; **can’t-fulfill** prefers warm spares; cost quotes go stale on **path switch** only
+- Per-option **payment map**, quality checklist, and a **clearance-partner TBD** placeholder
 - **>$10k MOQ** shows a soft warning and a stuck ladder; high-MOQ alternatives surfaced where possible
 - Approvals: `sample_decision`, `batch_ordered`, `batch_arrived_ready` — **`batch_ordered` never requires `store_ready`**
 

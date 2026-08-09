@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, ensureMigrated, schema, withTxResult } from "@/db";
 import type { DbExecutor } from "@/db/executor";
 import { TxRollback } from "@/db/executor";
@@ -252,6 +252,10 @@ type GenSupplier = {
   negotiationDraft: string;
   paymentMapEstimate: string;
   redFlags: string[];
+  leadSource: "heuristic" | "live_search";
+  platform: string | null;
+  sourceUrl: string | null;
+  externalTitle: string | null;
 };
 
 function paymentMap(unitPrice: number, moq: number) {
@@ -358,14 +362,16 @@ function generateSuppliersForSource(
       if (years < 3) redFlags.push("@flag.newSupplier");
       if (rating < 4.2) redFlags.push("@flag.mixedReviews");
 
+      const verified = isPrimary || rng() > 0.2;
+      const ratingClamped = Math.min(5, rating);
       suppliers.push({
         name: `${city} ${productName.split(" ")[0]} ${suffix}`,
         role: m.role,
         rank: group,
         source,
         years,
-        rating: Math.min(5, rating),
-        verified: isPrimary || rng() > 0.2,
+        rating: ratingClamped,
+        verified,
         moq,
         unitPrice,
         sampleReplies,
@@ -375,6 +381,10 @@ function generateSuppliersForSource(
             : emailDraftImport(productName, city, baseUnit, moq),
         paymentMapEstimate: paymentMap(unitPrice, moq),
         redFlags,
+        leadSource: "heuristic",
+        platform: null,
+        sourceUrl: null,
+        externalTitle: null,
       });
     });
   }
@@ -413,6 +423,56 @@ function freshChecklist() {
   );
 }
 
+function supplierInsertValues(
+  workspaceId: string,
+  skuId: string,
+  g: {
+    name: string;
+    role: "primary" | "backup";
+    rank: number;
+    source: SupplierSource;
+    years: number;
+    rating: number;
+    verified: boolean;
+    moq: number;
+    unitPrice: number;
+    sampleReplies: boolean;
+    negotiationDraft: string;
+    paymentMapEstimate: string;
+    redFlags: string[];
+    leadSource: "heuristic" | "live_search";
+    platform: string | null;
+    sourceUrl: string | null;
+    externalTitle: string | null;
+  },
+  now: string,
+) {
+  return {
+    id: newId(),
+    workspaceId,
+    skuId,
+    name: g.name,
+    role: g.role,
+    rank: g.rank,
+    source: g.source,
+    years: g.years,
+    rating: g.rating,
+    verified: g.verified,
+    moq: g.moq,
+    unitPrice: g.unitPrice,
+    sampleReplies: g.sampleReplies,
+    negotiationDraft: g.negotiationDraft,
+    paymentMapEstimate: g.paymentMapEstimate,
+    redFlags: JSON.stringify(g.redFlags),
+    status: "available" as const,
+    leadSource: g.leadSource,
+    platform: g.platform,
+    sourceUrl: g.sourceUrl,
+    externalTitle: g.externalTitle,
+    createdAt: now,
+  };
+}
+
 /** Generate the supplier shortlist once per SKU (idempotent + Wave 2 backfill). */
 export async function ensureSuppliers(
   workspaceId: string,
@@ -446,35 +506,218 @@ export async function ensureSuppliers(
   if (plan.generateImport) toGenerate.push("import");
   if (plan.generateLocal) toGenerate.push("local");
 
-  const generated = generateSuppliers(
+  let generated = generateSuppliers(
     sku.id,
     sku.name,
     sku.moneySnapshot,
     toGenerate,
   );
+
+  // Wave 3: optional one-shot Import live leads (Approach A — only when
+  // generating Import and SUPPLIER_LIVE_LEADS is on). Local stays heuristic.
+  if (plan.generateImport) {
+    const { getSupplierLeadProvider } = await import(
+      "@/lib/supplier/live/provider"
+    );
+    const { mergeLiveLeadsIntoShortlist } = await import(
+      "@/lib/supplier/live/merge"
+    );
+    const provider = getSupplierLeadProvider();
+    const gathered = await provider.gatherLeads({
+      productName: sku.name,
+      source: "import",
+      limit: 9,
+    });
+    if (gathered.leads.length > 0) {
+      const importHeuristic = generated.filter((g) => g.source === "import");
+      const localRows = generated.filter((g) => g.source === "local");
+      const mergedImport = mergeLiveLeadsIntoShortlist({
+        source: "import",
+        liveLeads: gathered.leads,
+        heuristic: importHeuristic,
+      });
+      generated = [...mergedImport, ...localRows];
+    }
+  }
+
   const now = nowIso();
   await db.insert(schema.supplierOptions).values(
-    generated.map((g) => ({
-      id: newId(),
-      workspaceId,
-      skuId: sku.id,
-      name: g.name,
-      role: g.role,
-      rank: g.rank,
-      source: g.source,
-      years: g.years,
-      rating: g.rating,
-      verified: g.verified,
-      moq: g.moq,
-      unitPrice: g.unitPrice,
-      sampleReplies: g.sampleReplies,
-      negotiationDraft: g.negotiationDraft,
-      paymentMapEstimate: g.paymentMapEstimate,
-      redFlags: JSON.stringify(g.redFlags),
-      status: "available",
-      createdAt: now,
-    })),
+    generated.map((g) => supplierInsertValues(workspaceId, sku.id, g, now)),
   );
+}
+
+export type RefreshImportLeadsResult =
+  | {
+      ok: true;
+      liveCount: number;
+      heuristicCount: number;
+      fallback: "none" | "partial" | "heuristic";
+      queriesUsed: number;
+    }
+  | {
+      ok: false;
+      error:
+        | "not_found"
+        | "live_disabled"
+        | "missing_key"
+        | "needs_confirm"
+        | "quota"
+        | "api_error";
+    };
+
+/**
+ * Explicit founder action: replace invent Import with live Serper leads for one
+ * owned SKU. Page load never calls this (Approach A). Local pool is untouched.
+ */
+export async function refreshImportLeads(
+  workspaceId: string,
+  skuId: string,
+  opts?: { confirmResetProgress?: boolean; env?: Record<string, string | undefined> },
+): Promise<RefreshImportLeadsResult> {
+  await ensureMigrated();
+  const env = opts?.env ?? process.env;
+
+  const { isSupplierLiveLeadsEnabled } = await import(
+    "@/lib/supplier/live-flags"
+  );
+  if (!isSupplierLiveLeadsEnabled(env)) {
+    return { ok: false, error: "live_disabled" };
+  }
+  if (!env.SERPER_API_KEY?.trim()) {
+    return { ok: false, error: "missing_key" };
+  }
+
+  const owned = await assertSkuOwned(workspaceId, skuId);
+  if (!owned.ok) return { ok: false, error: "not_found" };
+
+  const sku = await getSkuViewById(workspaceId, skuId);
+  if (!sku) return { ok: false, error: "not_found" };
+
+  const {
+    loadMonthlySearchUsage,
+    resolveMonthlySearchQueryCap,
+    allowanceForBatch,
+    recordMonthlySearchQueries,
+  } = await import("@/lib/discovery/search-usage");
+  const usage = await loadMonthlySearchUsage();
+  const cap = resolveMonthlySearchQueryCap(env);
+  const allowed = allowanceForBatch({
+    cap,
+    used: usage.queriesUsed,
+    requested: 2,
+  });
+  if (allowed < 2) {
+    return { ok: false, error: "quota" };
+  }
+
+  const allSuppliers = await db
+    .select()
+    .from(schema.supplierOptions)
+    .where(eq(schema.supplierOptions.skuId, skuId));
+
+  const importRows = allSuppliers.filter(
+    (r) =>
+      normalizeSupplierSource((r as { source?: string | null }).source) ===
+      "import",
+  );
+  const importIds = importRows.map((r) => r.id);
+
+  const samples = await db
+    .select()
+    .from(schema.sampleRecords)
+    .where(eq(schema.sampleRecords.skuId, skuId));
+
+  const {
+    importRefreshNeedsConfirm,
+    planImportRefreshDeletes,
+    classifyRefreshFallback,
+  } = await import("@/lib/supplier/live/refresh");
+
+  const needsConfirm = importRefreshNeedsConfirm({
+    importSuppliers: importRows.map((r) => ({ id: r.id, status: r.status })),
+    sampleSupplierIds: samples.map((s) => s.supplierId),
+  });
+  if (needsConfirm && !opts?.confirmResetProgress) {
+    return { ok: false, error: "needs_confirm" };
+  }
+
+  const deletePlan = planImportRefreshDeletes({
+    suppliers: allSuppliers.map((r) => ({
+      id: r.id,
+      source: normalizeSupplierSource((r as { source?: string | null }).source),
+    })),
+    samples: samples.map((s) => ({ id: s.id, supplierId: s.supplierId })),
+  });
+
+  // FK-safe: samples on Import suppliers first, then Import options only.
+  if (deletePlan.sampleIdsToDelete.length > 0) {
+    await db
+      .delete(schema.sampleRecords)
+      .where(inArray(schema.sampleRecords.id, deletePlan.sampleIdsToDelete));
+  }
+  if (deletePlan.importSupplierIds.length > 0) {
+    await db
+      .delete(schema.supplierOptions)
+      .where(inArray(schema.supplierOptions.id, deletePlan.importSupplierIds));
+  }
+
+  if (needsConfirm && opts?.confirmResetProgress) {
+    const pathId = owned.journey.reorderPathSupplierId;
+    const pathWasImport = Boolean(pathId && importIds.includes(pathId));
+    if (pathWasImport || needsConfirm) {
+      await patchSkuSideFlags(workspaceId, skuId, {
+        sampleStatus: "none",
+        batchOrdered: false,
+        reorderPathSupplierId: null,
+      });
+    }
+  }
+
+  const { getSupplierLeadProvider } = await import(
+    "@/lib/supplier/live/provider"
+  );
+  const { mergeLiveLeadsIntoShortlist } = await import(
+    "@/lib/supplier/live/merge"
+  );
+
+  const heuristicImport = generateSuppliers(
+    sku.id,
+    sku.name,
+    sku.moneySnapshot,
+    ["import"],
+  );
+  const provider = getSupplierLeadProvider(env);
+  const gathered = await provider.gatherLeads({
+    productName: sku.name,
+    source: "import",
+    limit: 9,
+  });
+  if (gathered.queriesUsed > 0) {
+    await recordMonthlySearchQueries({ queries: gathered.queriesUsed });
+  }
+
+  // Zero live → honest heuristic fill (never leave Import empty).
+  const merged = mergeLiveLeadsIntoShortlist({
+    source: "import",
+    liveLeads: gathered.leads,
+    heuristic: heuristicImport,
+  });
+  const now = nowIso();
+  await db.insert(schema.supplierOptions).values(
+    merged.map((g) => supplierInsertValues(workspaceId, sku.id, g, now)),
+  );
+
+  const liveCount = merged.filter((m) => m.leadSource === "live_search").length;
+  const heuristicCount = merged.filter(
+    (m) => m.leadSource === "heuristic",
+  ).length;
+  return {
+    ok: true,
+    liveCount,
+    heuristicCount,
+    fallback: classifyRefreshFallback(liveCount, merged.length),
+    queriesUsed: gathered.queriesUsed,
+  };
 }
 
 export type PaymentMapView = {
@@ -502,6 +745,12 @@ export type SupplierView = {
   redFlags: string[];
   estBatchCost: number;
   overSoftLimit: boolean;
+  /** Wave 3 — heuristic | live_search */
+  leadSource: "heuristic" | "live_search";
+  platform: string | null;
+  sourceUrl: string | null;
+  /** Raw SERP title when live — provenance, not the contact-facing card name. */
+  externalTitle: string | null;
 };
 
 export type SupplierGroup = {
@@ -589,6 +838,7 @@ export type ReorderPanelView = {
 
 export type SupplierPanelView = {
   skuId: string;
+  skuName: string;
   groups: SupplierGroup[];
   /**
    * Newest in-flight sample (`requested` | `received`) for compat.
@@ -722,6 +972,11 @@ function toSupplierView(
     redFlags,
     estBatchCost,
     overSoftLimit: estBatchCost > BATCH_SOFT_WARNING_USD,
+    leadSource:
+      row.leadSource === "live_search" ? "live_search" : "heuristic",
+    platform: row.platform ?? null,
+    sourceUrl: row.sourceUrl ?? null,
+    externalTitle: row.externalTitle ?? null,
   };
 }
 
@@ -1034,6 +1289,7 @@ export async function getSupplierPanel(
 
   return {
     skuId: sku.id,
+    skuName: sku.name,
     groups,
     sample,
     samples,

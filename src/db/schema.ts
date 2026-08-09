@@ -279,6 +279,14 @@ export const supplierOptions = pgTable("supplier_options", {
   paymentMapEstimate: text("payment_map_estimate").notNull(),
   redFlags: text("red_flags"), // JSON
   status: text("status").notNull().default("available"),
+  /** Wave 3: heuristic | live_search */
+  leadSource: text("lead_source").notNull().default("heuristic"),
+  /** Wave 3: alibaba | aliexpress | other | null */
+  platform: text("platform"),
+  /** Wave 3: public listing URL when from live search */
+  sourceUrl: text("source_url"),
+  /** Wave 3: raw SERP title when live */
+  externalTitle: text("external_title"),
   createdAt: text("created_at").notNull(),
 });
 
