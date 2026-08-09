@@ -499,7 +499,13 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         {inDiscovery ? (
           discovery ? (
             <div id="discovery">
-              <DiscoveryBoard view={discovery} />
+              <DiscoveryBoard view={discovery}>
+                {/* Nest Coaching under the board so the Compare tray spacer
+                    clears it (avoid a bare sibling under the fixed tray). */}
+                {orchestration && !isPaused ? (
+                  <OrchestratorPanel view={orchestration} coachingOnly />
+                ) : null}
+              </DiscoveryBoard>
             </div>
           ) : (
             <div id="discovery" className="surface-card p-6 text-center">
@@ -532,10 +538,10 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           </div>
         )}
 
-        {/* Empty shop: single coaching surface via Orchestrator (no ShopHub list). */}
-        {orchestration && !isPaused && (
+        {/* Empty shop Coaching when DiscoveryBoard is not mounting it. */}
+        {orchestration && !isPaused && !(inDiscovery && discovery) ? (
           <OrchestratorPanel view={orchestration} coachingOnly />
-        )}
+        ) : null}
       </div>
     );
 

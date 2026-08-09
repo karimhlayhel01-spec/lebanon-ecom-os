@@ -44,6 +44,9 @@ async function deleteWorkspaceRows(
     .delete(schema.financeVerdicts)
     .where(eq(schema.financeVerdicts.workspaceId, id));
   await exec
+    .delete(schema.discoveryMetricEvents)
+    .where(eq(schema.discoveryMetricEvents.workspaceId, id));
+  await exec
     .delete(schema.orchestratorEvents)
     .where(eq(schema.orchestratorEvents.workspaceId, id));
   await exec

@@ -18,6 +18,7 @@ export const WORKSPACE_CASCADE_TABLES = [
   "discovery_sessions",
   "topic_a_entries",
   "finance_verdicts",
+  "discovery_metric_events",
   "orchestrator_events",
   "store_readiness",
   "onboarding_profiles",

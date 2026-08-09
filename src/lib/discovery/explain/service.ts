@@ -24,6 +24,7 @@ import {
   type WhyPickLocale,
   type WhyPickResult,
 } from "@/lib/discovery/explain/why-pick";
+import { resolveDisplayProductName } from "@/lib/discovery/localize";
 import { getScoreForPoolProduct } from "@/lib/discovery/scores";
 
 export type WhyPickServiceResult =
@@ -121,6 +122,12 @@ export async function explainWhyThisPick(input: {
   let scoreEvidenceSource: string | null = null;
   let scoreEvidence: Record<string, unknown> | null = null;
   let curatedDifferentiation = candidate.differentiation?.trim() || null;
+  let displayProductName = resolveDisplayProductName({
+    locale: input.locale,
+    nameEn: candidate.name,
+    nameAr: "",
+    fallbackName: candidate.name,
+  });
   let scoreCache: {
     demandPath?: string | null;
     competitionScore?: number | null;
@@ -131,6 +138,8 @@ export async function explainWhyThisPick(input: {
     const poolRow = await db
       .select({
         id: schema.discoveryProductPool.id,
+        nameEn: schema.discoveryProductPool.nameEn,
+        nameAr: schema.discoveryProductPool.nameAr,
         differentiationEn: schema.discoveryProductPool.differentiationEn,
         differentiationAr: schema.discoveryProductPool.differentiationAr,
       })
@@ -138,6 +147,12 @@ export async function explainWhyThisPick(input: {
       .where(eq(schema.discoveryProductPool.catalogKey, catalogKey))
       .then((rows) => rows[0]);
     if (poolRow) {
+      displayProductName = resolveDisplayProductName({
+        locale: input.locale,
+        nameEn: poolRow.nameEn,
+        nameAr: poolRow.nameAr,
+        fallbackName: candidate.name,
+      });
       const score = await getScoreForPoolProduct(poolRow.id);
       const parsedEvidence = parseScoreEvidence(score?.rawEvidenceJson);
       scoreEvidenceSource = parsedEvidence.source;
@@ -161,7 +176,7 @@ export async function explainWhyThisPick(input: {
   }
 
   const payload = skillPayloadFromCandidateMeta({
-    productName: candidate.name,
+    productName: displayProductName,
     category: candidate.category,
     fitScore: candidate.fitScore,
     strength: candidate.strength === "Strong" ? "Strong" : "Okay",

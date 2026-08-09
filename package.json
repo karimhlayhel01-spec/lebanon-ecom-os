@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "discovery:intake": "tsx scripts/discovery-jobs.ts intake",
     "discovery:score": "tsx scripts/discovery-jobs.ts score",
-    "discovery:refresh": "tsx scripts/discovery-jobs.ts refresh"
+    "discovery:refresh": "tsx scripts/discovery-jobs.ts refresh",
+    "discovery:metrics": "tsx scripts/discovery-metrics.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

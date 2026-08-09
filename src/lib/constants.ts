@@ -31,8 +31,31 @@ export const MAX_LANDED_SOFT_OVERAGE = 1.2;
 export const DISCOVERY_SCORE_QUERIES_PER_PRODUCT_MAX = 6;
 /** Soft ceiling for Path 1 intake queries per scheduled run. */
 export const DISCOVERY_INTAKE_QUERIES_PER_RUN_MAX = 40;
+/**
+ * Wave 2 §7 — default monthly search-query allowance across all Discovery jobs.
+ * Deliberately at free-tier scale: a runaway cron must never quietly burn a paid
+ * quota. Raise per deployment with DISCOVERY_SEARCH_MONTHLY_QUERY_CAP.
+ */
+export const DISCOVERY_SEARCH_MONTHLY_QUERY_CAP_DEFAULT = 100;
+/** Per-request timeout for an outbound search call (no unbounded hangs). */
+export const DISCOVERY_SEARCH_REQUEST_TIMEOUT_MS = 30_000;
+/** Total attempts (1 initial + bounded retries) for a transient search failure. */
+export const DISCOVERY_SEARCH_MAX_ATTEMPTS = 3;
 /** Soft threshold for “thin shortlist” Edit-onboarding banner (WAVE-2 §8). */
 export const DISCOVERY_FALLBACK_SHORTLIST_MIN = 5;
+/**
+ * Wave 2 §7 — a market read older than this reads as out of date on the card.
+ * Matches the daily score cadence with slack for a few missed cron runs.
+ * Override per deployment with DISCOVERY_SCORE_STALE_AFTER_DAYS.
+ */
+export const DISCOVERY_SCORE_STALE_AFTER_DAYS_DEFAULT = 7;
+/**
+ * Wave 2 §7 — how long a reject stays recoverable. Long enough to catch a
+ * mis-tap, short enough that undo never becomes a second shortlist.
+ */
+export const DISCOVERY_UNDO_REJECT_WINDOW_MS = 10 * 60 * 1000;
+/** Wave 2 §7 — most recent rejects offered for undo at one time. */
+export const DISCOVERY_UNDO_REJECT_MAX = 3;
 /** Worth-considering compare: minimum selected cards to run Compare. */
 export const DISCOVERY_COMPARE_MIN = 2;
 /** Worth-considering compare: hard max marks per session. */

@@ -7,6 +7,17 @@
  * Docs: https://serpapi.com/search-api / https://serpapi.com/google-shopping-api
  */
 
+import {
+  DISCOVERY_SEARCH_MAX_ATTEMPTS,
+  DISCOVERY_SEARCH_REQUEST_TIMEOUT_MS,
+} from "@/lib/constants";
+import {
+  isRetriableSearchStatus,
+  parseRetryAfterMs,
+  runBoundedSearchAttempts,
+  type SearchAttemptOutcome,
+  type SearchResilienceOptions,
+} from "@/lib/discovery/providers/resilience";
 import type {
   DiscoverySearchProvider,
   SearchQuery,
@@ -16,7 +27,7 @@ import type {
 
 const SERPAPI_ENDPOINT = "https://serpapi.com/search.json";
 
-export type SerpApiProviderOptions = {
+export type SerpApiProviderOptions = SearchResilienceOptions & {
   apiKey: string;
   /** Inject for unit tests — no network. */
   fetchFn?: typeof fetch;
@@ -138,24 +149,46 @@ export function createSerpApiProvider(
   return {
     async search(input: SearchQuery): Promise<SearchProviderResponse> {
       const url = buildSerpApiRequestUrl(input, apiKey, endpoint);
-      const res = await fetchFn(url, {
-        method: "GET",
-        headers: { Accept: "application/json" },
+      return runBoundedSearchAttempts({
+        label: "SerpAPI",
+        opts: {
+          timeoutMs: opts.timeoutMs ?? DISCOVERY_SEARCH_REQUEST_TIMEOUT_MS,
+          maxAttempts: opts.maxAttempts ?? DISCOVERY_SEARCH_MAX_ATTEMPTS,
+          sleepFn: opts.sleepFn,
+        },
+        async attempt(signal): Promise<SearchAttemptOutcome> {
+          const res = await fetchFn(url, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            signal,
+          });
+
+          if (!res.ok) {
+            const error = `SerpAPI HTTP ${res.status}`;
+            return isRetriableSearchStatus(res.status)
+              ? {
+                  kind: "retry",
+                  error,
+                  retryAfterMs: parseRetryAfterMs(
+                    res.headers.get("retry-after"),
+                  ),
+                }
+              : { kind: "fatal", error };
+          }
+
+          const json = (await res.json()) as SerpApiJson;
+          if (json.error) {
+            return { kind: "fatal", error: `SerpAPI: ${json.error}` };
+          }
+
+          const items =
+            input.kind === "path1_intake"
+              ? mapSerpShoppingResults(json.shopping_results ?? [])
+              : mapSerpOrganicResults(json.organic_results ?? []);
+
+          return { kind: "ok", response: { items, queriesUsed: 1 } };
+        },
       });
-      if (!res.ok) {
-        throw new Error(`SerpAPI HTTP ${res.status}`);
-      }
-      const json = (await res.json()) as SerpApiJson;
-      if (json.error) {
-        throw new Error(`SerpAPI: ${json.error}`);
-      }
-
-      const items =
-        input.kind === "path1_intake"
-          ? mapSerpShoppingResults(json.shopping_results ?? [])
-          : mapSerpOrganicResults(json.organic_results ?? []);
-
-      return { items, queriesUsed: 1 };
     },
   };
 }

@@ -12,6 +12,30 @@ vi.mock("@/lib/discovery/pool", () => ({
   })),
 }));
 
+/** In-memory stand-in for the §7 monthly ledger — pure helpers stay real. */
+const ledger = vi.hoisted(() => ({ used: 0 }));
+
+vi.mock("@/lib/discovery/search-usage", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/discovery/search-usage")>();
+  return {
+    ...actual,
+    loadMonthlySearchUsage: vi.fn(async (monthKey?: string) => ({
+      monthKey: monthKey ?? actual.currentMonthKey(),
+      queriesUsed: ledger.used,
+    })),
+    recordMonthlySearchQueries: vi.fn(
+      async (input: { monthKey?: string; queries: number }) => {
+        ledger.used += input.queries;
+        return {
+          monthKey: input.monthKey ?? actual.currentMonthKey(),
+          queriesUsed: ledger.used,
+        };
+      },
+    ),
+  };
+});
+
 import {
   syncCatalogSeedToPool,
   upsertPath1PoolCandidates,
@@ -20,6 +44,8 @@ import {
 afterEach(() => {
   delete process.env.DISCOVERY_POOL_V2;
   delete process.env.DISCOVERY_LIVE_SEARCH;
+  delete process.env.DISCOVERY_SEARCH_MONTHLY_QUERY_CAP;
+  ledger.used = 0;
   vi.clearAllMocks();
 });
 
@@ -88,5 +114,126 @@ describe("runPath1IntakeJob (mock provider — no network)", () => {
 
   it("documents default intake cap constant", () => {
     expect(DISCOVERY_INTAKE_QUERIES_PER_RUN_MAX).toBe(40);
+  });
+});
+
+describe("runPath1IntakeJob resilience (§7)", () => {
+  it("persists candidates from queries that succeeded when one provider call throws", async () => {
+    process.env.DISCOVERY_POOL_V2 = "1";
+    process.env.DISCOVERY_LIVE_SEARCH = "1";
+
+    let calls = 0;
+    const provider: DiscoverySearchProvider = {
+      async search() {
+        calls += 1;
+        // Third leg dies; the two before it must not be thrown away.
+        if (calls === 3) throw new Error("SerpAPI HTTP 500");
+        return {
+          queriesUsed: 1,
+          items: [
+            {
+              title: `Winning Gadget ${calls}`,
+              url: `https://shop.example.com/p/${calls}`,
+              price: 24 + calls,
+              snippet: "US bestseller",
+            },
+          ],
+        };
+      },
+    };
+
+    const result = await runPath1IntakeJob({ provider, queryCap: 4 });
+
+    expect(result.ok).toBe(true);
+    expect(calls).toBe(4);
+    expect(result.searchQueriesUsed).toBe(3);
+    expect(result.searchQueriesFailed).toBe(1);
+    expect(upsertPath1PoolCandidates).toHaveBeenCalled();
+    const rows = vi.mocked(upsertPath1PoolCandidates).mock.calls[0][0];
+    expect(rows.length).toBe(3);
+    expect(result.ingested).toBe(3);
+    expect(result.message).toContain("SerpAPI HTTP 500");
+  });
+
+  it("reports not-ok when every query fails, leaving the pool untouched", async () => {
+    process.env.DISCOVERY_POOL_V2 = "1";
+    process.env.DISCOVERY_LIVE_SEARCH = "1";
+
+    const result = await runPath1IntakeJob({
+      provider: {
+        async search() {
+          throw new Error("SerpAPI request timed out after 30000ms");
+        },
+      },
+      queryCap: 3,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.searchQueriesUsed).toBe(0);
+    expect(result.searchQueriesFailed).toBe(3);
+    expect(result.ingested).toBe(0);
+    expect(result.message).toContain("timed out");
+    // Seed sync still ran — the curated fallback is never at the vendor's mercy.
+    expect(syncCatalogSeedToPool).toHaveBeenCalled();
+  });
+
+  it("stops cleanly at the monthly cap before spending a query", async () => {
+    process.env.DISCOVERY_POOL_V2 = "1";
+    process.env.DISCOVERY_LIVE_SEARCH = "1";
+    ledger.used = 100;
+
+    let calls = 0;
+    const result = await runPath1IntakeJob({
+      provider: {
+        async search() {
+          calls += 1;
+          return { queriesUsed: 1, items: [] };
+        },
+      },
+      queryCap: 5,
+      monthlyQueryCap: 100,
+    });
+
+    expect(calls).toBe(0);
+    expect(result.ok).toBe(true);
+    expect(result.quotaStopped).toBe(true);
+    expect(result.searchQueriesUsed).toBe(0);
+    expect(result.monthlyRemaining).toBe(0);
+    expect(result.message).toContain("Monthly search cap 100 reached");
+  });
+
+  it("spends only the remaining allowance, then stops", async () => {
+    process.env.DISCOVERY_POOL_V2 = "1";
+    process.env.DISCOVERY_LIVE_SEARCH = "1";
+    ledger.used = 98;
+
+    let calls = 0;
+    const result = await runPath1IntakeJob({
+      provider: {
+        async search() {
+          calls += 1;
+          return {
+            queriesUsed: 1,
+            items: [
+              {
+                title: `Winning Gadget ${calls}`,
+                url: `https://shop.example.com/p/${calls}`,
+                price: 30,
+              },
+            ],
+          };
+        },
+      },
+      queryCap: 10,
+      monthlyQueryCap: 100,
+    });
+
+    expect(calls).toBe(2);
+    expect(result.searchQueriesUsed).toBe(2);
+    expect(result.quotaStopped).toBe(true);
+    expect(result.monthlyQueriesUsed).toBe(100);
+    expect(result.monthlyRemaining).toBe(0);
+    // Partial run still persists what it found.
+    expect(result.ingested).toBe(2);
   });
 });

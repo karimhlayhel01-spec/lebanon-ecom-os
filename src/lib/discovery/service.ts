@@ -2,7 +2,6 @@ import { and, asc, eq } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import {
-  DISCOVERY_FALLBACK_SHORTLIST_MIN,
   DISCOVERY_INITIAL_COUNT,
   DISCOVERY_SESSION_CAP,
   DISCOVERY_SHOW_MORE_MAX,
@@ -27,7 +26,23 @@ import {
   isDiscoveryPoolV2Enabled,
   isSoftCompetitionBudgetEnabled,
 } from "@/lib/discovery/flags";
-import { loadScoresByCatalogKey } from "@/lib/discovery/scores";
+import { loadScoresByCatalogKey, type ScoreRow } from "@/lib/discovery/scores";
+import {
+  resolveScoreFreshness,
+  resolveScoreStaleAfterDays,
+  type ScoreFreshness,
+} from "@/lib/discovery/freshness";
+import {
+  evaluateUndoReject,
+  selectUndoableRejects,
+  type UndoRejectRefusal,
+} from "@/lib/discovery/undo-reject";
+import {
+  candidateMetricDedupeKey,
+  sessionMetricDedupeKey,
+  shortlistOutcomeDedupeKey,
+} from "@/lib/discovery/metrics/events";
+import { recordDiscoveryMetric } from "@/lib/discovery/metrics/store";
 
 import {
   evaluateAcceptDemandGate,
@@ -42,9 +57,20 @@ import {
   isSuggestionExplainEnabled,
 } from "@/lib/discovery/explain/llm";
 import {
-  rankWave2Shortlist,
+  rankWave2ShortlistWithBlockers,
   type Wave2RankedProduct,
 } from "@/lib/discovery/scoring/rank";
+import {
+  classifyShortlistBlocker,
+  emptyBlockerTally,
+  mergeBlockerTallies,
+  resolveShortlistEmptyDecision,
+  tallyShortlistBlockers,
+  type EditOnboardingBanner,
+  type ShortlistBlocker,
+  type ShortlistBlockerTally,
+  type ShortlistEmptyState,
+} from "@/lib/discovery/empty-state";
 import type { OkayReason } from "@/lib/discovery/scoring/composite";
 import { resolveOkayReasonForDisplay } from "@/lib/discovery/okay-reason";
 import {
@@ -111,6 +137,62 @@ function heuristicFieldsFromProduct(p: CatalogProduct) {
     risk: p.risk,
     tier1Marketplaces: JSON.stringify(p.tier1Marketplaces),
     nameEn: p.en.name,
+  };
+}
+
+/** Score-cache fields the demand gate reads (shared by view, accept, undo). */
+function demandCacheFromScoreRow(row: ScoreRow | undefined | null) {
+  if (!row) return null;
+  return {
+    abroadDemandScore: row.abroadDemandScore,
+    lebanonDemandScore: row.lebanonDemandScore,
+    demandPath: row.demandPath,
+    compositeScore: row.compositeScore,
+    lastScoreStatus: row.lastScoreStatus,
+    confidence: row.confidence,
+  };
+}
+
+/**
+ * Resolve the system demand gate + shortlist accept-readiness for one stored
+ * candidate. The Discovery view and undo-reject share this so an undo can never
+ * restore a card the page itself would have filtered out.
+ */
+function resolveCandidateGate(input: {
+  scoreRow: ScoreRow | undefined;
+  product: CatalogProduct | undefined;
+  systemGateEnabled: boolean;
+  liveSearchEnabled: boolean;
+  marginsPass: boolean;
+  oversized: boolean;
+  fitNotRecommended: boolean;
+}): {
+  resolvedSystem: ReturnType<typeof resolveSystemDemandInput> | null;
+  systemDemand: SystemDemandGateResult | null;
+  acceptReady: boolean;
+} {
+  const resolvedSystem = input.systemGateEnabled
+    ? resolveSystemDemandInput({
+        cache: demandCacheFromScoreRow(input.scoreRow),
+        heuristicProduct: input.product
+          ? heuristicFieldsFromProduct(input.product)
+          : null,
+        liveSearchEnabled: input.liveSearchEnabled,
+      })
+    : null;
+
+  return {
+    resolvedSystem,
+    systemDemand: input.systemGateEnabled
+      ? evaluateSystemDemandGate(resolvedSystem)
+      : null,
+    acceptReady: isAcceptReadyForShortlist({
+      marginsPass: input.marginsPass,
+      oversized: input.oversized,
+      fitNotRecommended: input.fitNotRecommended,
+      system: resolvedSystem,
+      systemGateEnabled: input.systemGateEnabled,
+    }),
   };
 }
 
@@ -268,23 +350,42 @@ export async function scoreRankForDiscovery(
   onboarding: OnboardingRow,
   excludeKeys: ReadonlySet<string> = new Set(),
 ): Promise<ScoredProduct[]> {
-  const catalog = await resolveDiscoveryCatalogSource();
+  return (await scoreRankWithBlockers(onboarding, excludeKeys)).scored;
+}
 
-  if (!isDiscoveryPoolV2Enabled()) {
-    return scoreRankCatalog(onboarding, excludeKeys, catalog);
-  }
+/**
+ * Same shortlist, plus why the rest of the pool was excluded (WAVE-2 §8) so an
+ * empty board can name its real cause instead of defaulting to "your profile".
+ */
+async function scoreRankWithBlockers(
+  onboarding: OnboardingRow,
+  excludeKeys: ReadonlySet<string> = new Set(),
+): Promise<{ scored: ScoredProduct[]; blockers: ShortlistBlockerTally }> {
+  const catalog = await resolveDiscoveryCatalogSource();
 
   const sourceCatalog = selectLandedCostPool(
     catalog,
     onboarding.maxLandedCost,
   ).filter((p) => !excludeKeys.has(p.key));
 
+  if (!isDiscoveryPoolV2Enabled()) {
+    const scored = scoreRankCatalog(onboarding, excludeKeys, catalog);
+    // Wave 1 runs no score cache, so nothing here can be blocked by one.
+    return {
+      scored,
+      blockers: {
+        ...emptyBlockerTally(),
+        profile: Math.max(0, sourceCatalog.length - scored.length),
+      },
+    };
+  }
+
   const [scoresByKey, hintsByKey] = await Promise.all([
     loadScoresByCatalogKey(),
     loadPoolHintsByCatalogKey(),
   ]);
 
-  const ranked = rankWave2Shortlist(
+  const { ranked, blockers } = rankWave2ShortlistWithBlockers(
     {
       ...toFitProfile(onboarding),
       budgetUsd: onboarding.budgetUsd,
@@ -300,7 +401,7 @@ export async function scoreRankForDiscovery(
     },
   );
 
-  return ranked.map((r) => ({
+  const scored = ranked.map((r) => ({
     p: r.p,
     landedCost: r.landedCost,
     fit: {
@@ -321,14 +422,36 @@ export async function scoreRankForDiscovery(
       okayReason: r.okayReason,
     },
   }));
+
+  return { scored, blockers };
+}
+
+export type RemainingEligible = {
+  count: number;
+  /** Why the unlisted remainder is unlisted (WAVE-2 §8) — display/metrics only. */
+  blockers: ShortlistBlockerTally;
+};
+
+/**
+ * Accept-ready products left in the pool for this profile, with the reasons the
+ * rest were dropped. A caller that only needs the number should use
+ * `countRemainingEligible`; the empty board needs the reasons so a scoring
+ * outage does not read as "your profile filtered everything out".
+ */
+export async function resolveRemainingEligible(
+  workspaceId: string,
+  onboarding: OnboardingRow,
+): Promise<RemainingEligible> {
+  const seen = await getSeenCatalogKeys(workspaceId);
+  const { scored, blockers } = await scoreRankWithBlockers(onboarding, seen);
+  return { count: scored.length, blockers };
 }
 
 export async function countRemainingEligible(
   workspaceId: string,
   onboarding: OnboardingRow,
 ): Promise<number> {
-  const seen = await getSeenCatalogKeys(workspaceId);
-  return (await scoreRankForDiscovery(onboarding, seen)).length;
+  return (await resolveRemainingEligible(workspaceId, onboarding)).count;
 }
 
 async function getExhaustedRounds(workspaceId: string): Promise<number> {
@@ -712,10 +835,107 @@ export async function rejectCandidate(
   if (!candidate) return { ok: false, error: "not_found" };
   await db
     .update(schema.productCandidates)
-    .set({ status: "rejected" })
+    // Stamped so the WAVE-2 §7 undo window can be bounded from the reject.
+    .set({ status: "rejected", rejectedAt: nowIso() })
     .where(eq(schema.productCandidates.id, candidateId));
+  await recordDiscoveryMetric({
+    workspaceId,
+    kind: "reject",
+    sessionId: candidate.sessionId,
+    dedupeKey: candidateMetricDedupeKey(candidateId, "reject"),
+  });
   await maybeCountExhaustion(workspaceId);
   return { ok: true };
+}
+
+export type UndoRejectResult =
+  | { ok: true }
+  | { ok: false; error: UndoRejectRefusal };
+
+/**
+ * WAVE-2 §7 — restore the last mis-tapped reject to the active shortlist.
+ *
+ * Deliberately narrow:
+ * - Only a `rejected` row of the ACTIVE session, inside the undo window, among
+ *   the last `DISCOVERY_UNDO_REJECT_MAX` rejects.
+ * - An accepted product is refused with its own reason — undo must never walk
+ *   back a Human Approval or a created SKU.
+ * - Accept-readiness is re-checked against CURRENT scores, so a card the gates
+ *   moved against is explained rather than silently put back.
+ * - The exhausted-round ladder is untouched: undo never bumps it, and the
+ *   session's `exhaustionCounted` flag stays set so a re-reject cannot count a
+ *   second round for the same pool.
+ */
+export async function undoRejectCandidate(
+  workspaceId: string,
+  candidateId: string,
+): Promise<UndoRejectResult> {
+  await ensureMigrated();
+
+  const candidate = await getCandidateOwned(workspaceId, candidateId);
+  if (!candidate) return { ok: false, error: "not_found" };
+
+  const session = await getActiveSession(workspaceId);
+  const undoable = session
+    ? selectUndoableRejects(await loadSessionRejects(session.id), {
+        activeSessionId: session.id,
+      })
+    : [];
+
+  const systemGateEnabled = isSystemDemandGateEnabled();
+  const catalogKey = catalogKeyFromCandidate(candidate) ?? "";
+  const scoresByKey = systemGateEnabled
+    ? await loadScoresByCatalogKey()
+    : new Map<string, ScoreRow>();
+  const product =
+    getCatalogProduct(catalogKey) ??
+    (catalogKey && isDiscoveryPoolV2Enabled()
+      ? (await loadPoolProductsByCatalogKeys([catalogKey])).get(catalogKey)
+      : undefined);
+
+  const { acceptReady } = resolveCandidateGate({
+    scoreRow: catalogKey ? scoresByKey.get(catalogKey) : undefined,
+    product,
+    systemGateEnabled,
+    liveSearchEnabled: isDiscoveryLiveSearchEnabled(),
+    marginsPass: candidate.marginsPass,
+    oversized: candidate.oversizedHardBlock,
+    fitNotRecommended: candidate.notRecommended,
+  });
+
+  const decision = evaluateUndoReject({
+    candidate,
+    activeSessionId: session?.id ?? null,
+    acceptReady,
+    undoableIds: undoable.map((r) => r.id),
+  });
+  if (!decision.ok) return { ok: false, error: decision.reason };
+
+  await db
+    .update(schema.productCandidates)
+    .set({ status: "shown", rejectedAt: null })
+    .where(eq(schema.productCandidates.id, candidateId));
+
+  return { ok: true };
+}
+
+/** Rejected rows of one session — undo candidates before window/cap filtering. */
+async function loadSessionRejects(sessionId: string) {
+  return db
+    .select({
+      id: schema.productCandidates.id,
+      name: schema.productCandidates.name,
+      sessionId: schema.productCandidates.sessionId,
+      status: schema.productCandidates.status,
+      rejectedAt: schema.productCandidates.rejectedAt,
+    })
+    .from(schema.productCandidates)
+    .where(
+      and(
+        eq(schema.productCandidates.sessionId, sessionId),
+        eq(schema.productCandidates.status, "rejected"),
+      ),
+    );
 }
 
 export type AcceptResult =
@@ -972,6 +1192,13 @@ export async function acceptProduct(
     .set({ status: "closed" })
     .where(eq(schema.discoverySessions.workspaceId, workspaceId));
 
+  await recordDiscoveryMetric({
+    workspaceId,
+    kind: "accept",
+    sessionId: candidate.sessionId,
+    dedupeKey: candidateMetricDedupeKey(candidate.id, "accept"),
+  });
+
   return { ok: true, skuId };
 }
 
@@ -1020,13 +1247,26 @@ export type DiscoveryCandidateView = {
   /** System demand/score gate status when POOL_V2 on. */
   systemDemand: SystemDemandGateResult | null;
   /**
+   * WAVE-2 §7 — how old the market read behind this card is. Display only:
+   * never feeds rank, strength, or an accept gate.
+   */
+  scoreFreshness: ScoreFreshness;
+  /**
    * @deprecated Soft-list browsing removed — always false (accept-ready only).
    */
   softListedHardAcceptBlocked: boolean;
 };
 
-/** Soft Edit-onboarding banner when accept-ready shortlist is empty or thin. */
-export type EditOnboardingBanner = "zero_accept_ready" | "thin_accept_ready";
+/** WAVE-2 §7 — a recently rejected card the founder can still restore. */
+export type UndoableReject = {
+  candidateId: string;
+  name: string;
+};
+
+export type {
+  EditOnboardingBanner,
+  ShortlistEmptyState,
+} from "@/lib/discovery/empty-state";
 
 export type DiscoveryView = {
   sessionId: string;
@@ -1044,6 +1284,12 @@ export type DiscoveryView = {
    * accept-ready products (never strand on blocked cards).
    */
   editOnboardingBanner: EditOnboardingBanner | null;
+  /**
+   * WAVE-2 §8 — why the board is empty. `no_scores` means missing / failed
+   * score rows, which the founder cannot fix by editing onboarding, so that
+   * state replaces the nag instead of joining it.
+   */
+  shortlistEmptyState: ShortlistEmptyState | null;
   /** WAVE-2 §6.1 “Why we suggested this” (POOL_V2) — Gemini required. */
   suggestionExplainEnabled: boolean;
   /** True when GEMINI_API_KEY / DISCOVERY_EXPLAIN_GEMINI_API_KEY is set. */
@@ -1055,6 +1301,11 @@ export type DiscoveryView = {
    * pool + Approach A scores (excludes seen keys).
    */
   canRefreshSuggestions: boolean;
+  /**
+   * WAVE-2 §7 — recent rejects still inside the undo window, newest first.
+   * Session-scoped, so a refresh / new session empties it.
+   */
+  undoableRejects: UndoableReject[];
 };
 
 export async function getDiscoveryView(
@@ -1092,9 +1343,10 @@ export async function getDiscoveryView(
     .from(schema.onboardingProfiles)
     .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
     .then((rows) => rows[0]);
-  const remainingEligible = onboarding
-    ? await countRemainingEligible(workspaceId, onboarding)
-    : 0;
+  const remaining: RemainingEligible = onboarding
+    ? await resolveRemainingEligible(workspaceId, onboarding)
+    : { count: 0, blockers: emptyBlockerTally() };
+  const remainingEligible = remaining.count;
   const exhaustedRounds = await getExhaustedRounds(workspaceId);
 
   const systemGateEnabled = isSystemDemandGateEnabled();
@@ -1104,6 +1356,9 @@ export async function getDiscoveryView(
   const scoresByKey = systemGateEnabled
     ? await loadScoresByCatalogKey()
     : new Map();
+  // One clock for the whole render so cards cannot disagree about "today".
+  const now = new Date();
+  const staleAfterDays = resolveScoreStaleAfterDays();
 
   // Path 1 keys missing from catalog.ts: resolve text for visible cards only
   // (keyed batch — O(visible), not a full active-pool scan on the view path).
@@ -1163,35 +1418,22 @@ export async function getDiscoveryView(
     }
 
     const scoreRow = catalogKey ? scoresByKey.get(catalogKey) : undefined;
-    const cache = scoreRow
-      ? {
-          abroadDemandScore: scoreRow.abroadDemandScore,
-          lebanonDemandScore: scoreRow.lebanonDemandScore,
-          demandPath: scoreRow.demandPath,
-          compositeScore: scoreRow.compositeScore,
-          lastScoreStatus: scoreRow.lastScoreStatus,
-          confidence: scoreRow.confidence,
-        }
-      : null;
-    const resolvedSystem = systemGateEnabled
-      ? resolveSystemDemandInput({
-          cache,
-          heuristicProduct: product
-            ? heuristicFieldsFromProduct(product)
-            : null,
-          liveSearchEnabled: isDiscoveryLiveSearchEnabled(),
-        })
-      : null;
-    const systemDemand = systemGateEnabled
-      ? evaluateSystemDemandGate(resolvedSystem)
-      : null;
-
-    const acceptReady = isAcceptReadyForShortlist({
+    const { systemDemand, acceptReady } = resolveCandidateGate({
+      scoreRow,
+      product,
+      systemGateEnabled,
+      liveSearchEnabled: isDiscoveryLiveSearchEnabled(),
       marginsPass: r.marginsPass,
       oversized: r.oversizedHardBlock,
       fitNotRecommended: r.notRecommended,
-      system: resolvedSystem,
-      systemGateEnabled,
+    });
+
+    // Display only — a stale or never-measured read is said plainly, never
+    // scored (WAVE-2 §7). No score row at all reads as "never measured".
+    const scoreFreshness = resolveScoreFreshness({
+      lastScoredAt: scoreRow?.lastScoredAt ?? null,
+      now,
+      staleAfterDays,
     });
 
     // One resolver for the card note and the explain payload (§6.1) — the
@@ -1239,9 +1481,17 @@ export async function getDiscoveryView(
       systemDemandGate: systemGateEnabled,
       dualDemandGate: systemGateEnabled,
       systemDemand,
+      scoreFreshness,
       softListedHardAcceptBlocked: false,
     };
-    return { view, acceptReady };
+    const blocker: ShortlistBlocker | null = classifyShortlistBlocker({
+      included: acceptReady,
+      marginsPass: r.marginsPass,
+      oversized: r.oversizedHardBlock,
+      fitNotRecommended: r.notRecommended,
+      systemDemand,
+    });
+    return { view, acceptReady, blocker };
   });
 
   // Accept-ready only on the page — hide legacy soft-listed / blocked leftovers.
@@ -1255,14 +1505,54 @@ export async function getDiscoveryView(
     exhaustedRounds,
   });
 
-  let editOnboardingBanner: EditOnboardingBanner | null = null;
-  if (acceptReadyVisible === 0 && remainingEligible <= 0) {
-    editOnboardingBanner = "zero_accept_ready";
-  } else if (
-    acceptReadyVisible > 0 &&
-    acceptReadyVisible + remainingEligible < DISCOVERY_FALLBACK_SHORTLIST_MIN
-  ) {
-    editOnboardingBanner = "thin_accept_ready";
+  // §8 — an empty board is only an onboarding problem when the profile is what
+  // filtered it. Cards this session already dropped and the rest of the pool
+  // are judged together, since either set can be the one holding the evidence.
+  const { emptyState, editOnboardingBanner } = resolveShortlistEmptyDecision({
+    acceptReadyVisible,
+    remainingEligible,
+    blockers: mergeBlockerTallies(
+      tallyShortlistBlockers(mapped.map((m) => m.blocker)),
+      remaining.blockers,
+    ),
+  });
+
+  const undoableRejects = selectUndoableRejects(
+    await loadSessionRejects(freshSession.id),
+    { activeSessionId: freshSession.id, now },
+  ).map((r) => ({ candidateId: r.id, name: r.name }));
+
+  // §7 measurement loop. Deduped per session, so the counters survive the
+  // re-renders and revalidates a single visit produces.
+  await recordDiscoveryMetric({
+    workspaceId,
+    kind: acceptReadyVisible > 0 ? "shortlist_shown" : "shortlist_empty",
+    sessionId: freshSession.id,
+    dedupeKey: shortlistOutcomeDedupeKey(freshSession.id),
+  });
+  // A data outage is counted as its own empty kind so the edit-onboarding rate
+  // keeps measuring profile-driven nags only (§7.1).
+  if (emptyState?.cause === "no_scores") {
+    await recordDiscoveryMetric({
+      workspaceId,
+      kind: "shortlist_empty_no_scores",
+      sessionId: freshSession.id,
+      dedupeKey: sessionMetricDedupeKey(
+        freshSession.id,
+        "shortlist_empty_no_scores",
+      ),
+    });
+  }
+  if (editOnboardingBanner) {
+    await recordDiscoveryMetric({
+      workspaceId,
+      kind: "edit_onboarding_shown",
+      sessionId: freshSession.id,
+      dedupeKey: sessionMetricDedupeKey(
+        freshSession.id,
+        "edit_onboarding_shown",
+      ),
+    });
   }
 
   return {
@@ -1279,9 +1569,11 @@ export async function getDiscoveryView(
     exhaustedRounds,
     remainingEligible,
     editOnboardingBanner,
+    shortlistEmptyState: emptyState,
     suggestionExplainEnabled: suggestionEnabled,
     geminiConfigured,
     whyPickEnabled: suggestionEnabled,
     canRefreshSuggestions,
+    undoableRejects,
   };
 }

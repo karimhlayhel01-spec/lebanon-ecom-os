@@ -87,6 +87,9 @@ export const SUGGESTION_BODY_MAX_SENTENCES = 6;
  */
 const MIN_WORDS_PER_SENTENCE = 3;
 
+/** Sentence terminators shared by split / complete / finalize (EN + AR). */
+const SENTENCE_END = String.raw`[.!?。؟]`;
+
 /**
  * Abbreviations whose period does not end a sentence. Without this, “the U.S.
  * market” or “e.g. a bundle” split into extra fragments, which used to trip the
@@ -98,12 +101,13 @@ const NON_TERMINAL_ABBREVIATION =
 /**
  * Split founder copy into sentences, keeping abbreviations and decimals intact.
  * Single source of truth for every sentence-shaped validator below.
+ * Includes Arabic ؟ so Gemini AR paragraphs do not read as one run-on sentence.
  */
 export function splitSuggestionSentences(text: string): string[] {
   const parts = text
     .replace(/\s+/g, " ")
     .trim()
-    .split(/(?<=[.!?。])\s+/)
+    .split(new RegExp(`(?<=${SENTENCE_END})\\s+`, "u"))
     .filter(Boolean);
 
   const sentences: string[] = [];
@@ -116,6 +120,63 @@ export function splitSuggestionSentences(text: string): string[] {
     sentences.push(part);
   }
   return sentences.map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * Card / Gemini founder labels for Fit and strength. Skills still use typed
+ * "Okay"|"Strong" internally — prose must use these locale strings.
+ */
+export function founderFitLabel(locale: WhyPickLocale): string {
+  return locale === "ar" ? "الملاءمة" : "Fit";
+}
+
+export function founderStrengthLabel(
+  locale: WhyPickLocale,
+  strength: "Strong" | "Okay",
+): string {
+  if (locale === "ar") {
+    return strength === "Strong" ? "قوي" : "مقبول";
+  }
+  return strength;
+}
+
+/**
+ * English skill labels that must not appear in Arabic founder paragraphs.
+ * Deliberately targets recommendation / Fit-score phrasing, not random English
+ * product tokens.
+ */
+export function containsBannedEnglishSkillLabels(body: string): boolean {
+  return (
+    /\bFit\s*[/:]?\s*\d/i.test(body) ||
+    /\bFit\s+of\s+\d/i.test(body) ||
+    /\boperational\s+Fit\b/i.test(body) ||
+    /\bmoderate\s+Fit\b/i.test(body) ||
+    /\b(?:the\s+)?(?:Okay|Strong)\s+recommendation\b/i.test(body) ||
+    /\brecommendation\s+is\s+(?:Okay|Strong)\b/i.test(body) ||
+    /\bmarked\s+(?:as\s+)?(?:Okay|Strong)\b/i.test(body) ||
+    /\brather than moderate Fit\b/i.test(body)
+  );
+}
+
+/**
+ * Deterministic AR post-pass: rewrite clear English Fit/Okay/Strong label
+ * slips into الملاءمة / مقبول / قوي before finalize. Avoids false `incomplete`
+ * when Gemini mixed scripts but the draft is otherwise complete.
+ */
+export function rewriteEnglishSkillLabelsForArabic(body: string): string {
+  return body
+    .replace(/\brather than moderate Fit\b/gi, "وليس لأن الملاءمة متوسطة")
+    .replace(/\bFit\s*[/:]?\s*(\d{1,3})\s*\/\s*100\b/gi, "الملاءمة $1/100")
+    .replace(/\bFit\s+of\s+(\d{1,3})\b/gi, "الملاءمة $1")
+    .replace(/\bFit\s*[/:]?\s*(\d{1,3})\b/gi, "الملاءمة $1")
+    .replace(/\boperational\s+Fit\b/gi, "الملاءمة التشغيلية")
+    .replace(/\bmoderate\s+Fit\b/gi, "ملاءمة متوسطة")
+    .replace(/\b(?:the\s+)?Okay\s+recommendation\b/gi, "التوصية مقبولة")
+    .replace(/\b(?:the\s+)?Strong\s+recommendation\b/gi, "التوصية قوية")
+    .replace(/\brecommendation\s+is\s+Okay\b/gi, "التوصية مقبولة")
+    .replace(/\brecommendation\s+is\s+Strong\b/gi, "التوصية قوية")
+    .replace(/\bmarked\s+(?:as\s+)?Okay\b/gi, "وُسم بمقبول")
+    .replace(/\bmarked\s+(?:as\s+)?Strong\b/gi, "وُسم بقوي");
 }
 
 /** Phrases that must not appear without relevant live-search evidence. */
@@ -139,16 +200,19 @@ export const FORBIDDEN_UNGROUNDED_MARKET_PHRASES = [
 
 /**
  * Vague filler banned when real skill fields exist (tests + post-check).
- * “good/strong fit” is filler only as a bare verdict — a numeric Fit reading
- * (“strong fit score of 78/100”) is the reporting the prompt asks for.
+ * “good/strong fit” is filler only as “a good/strong fit …” without a numeric
+ * Fit reading — “Strong Fit clears …” (strength label) and “strong fit score of
+ * 78/100” are reporting the prompt asks for.
+ * “worth considering” is filler only as a verdict (“is worth considering”);
+ * naming the §6.2 mark feature (“worth considering marks”) must stay legal.
  */
 export const VAGUE_FLUFF_PATTERNS: RegExp[] = [
   /\bstrong suggestion\b/i,
-  /\bworth considering\b/i,
+  /\b(?:is|are|seems?|looks?|feels?|could be|might be|may be)\s+worth considering\b/i,
   /\bhighly recommended\b/i,
   /\bgreat opportunity\b/i,
   /\blooks promising\b/i,
-  /\b(?:good|strong|great|solid) fit\b(?!\s*(?:score)?\s*(?:of|at|is|:)?\s*\d)/i,
+  /\ba (?:good|strong|great|solid) fit\b(?!\s*(?:score)?\s*(?:of|at|is|:)?\s*\d)/i,
   /\bsolid choice\b/i,
   /\bworth a look\b/i,
 ];
@@ -445,6 +509,7 @@ export function clampSuggestionBody(
     slice.lastIndexOf(". "),
     slice.lastIndexOf("! "),
     slice.lastIndexOf("? "),
+    slice.lastIndexOf("؟ "),
     slice.lastIndexOf("。"),
   );
   if (lastStop >= Math.floor(maxChars * 0.45)) {
@@ -455,6 +520,7 @@ export function clampSuggestionBody(
     slice.lastIndexOf("."),
     slice.lastIndexOf("!"),
     slice.lastIndexOf("?"),
+    slice.lastIndexOf("؟"),
     slice.lastIndexOf("。"),
   );
   if (anyStop >= Math.floor(maxChars * 0.4)) {
@@ -506,7 +572,7 @@ export function isCompleteSuggestionBody(body: string): boolean {
     return false;
   }
   if (t.endsWith("…")) return false;
-  if (!/[.!?。]["'")\]]*$/u.test(t)) return false;
+  if (!new RegExp(`${SENTENCE_END}["'")\\]]*$`, "u").test(t)) return false;
 
   const sentences = splitSuggestionSentences(t);
   if (
@@ -533,17 +599,24 @@ export function isCompleteSuggestionBody(body: string): boolean {
 /**
  * Normalize LLM text into complete founder copy, or null if incomplete/stub.
  * When productName is set, the paragraph must name the product 1–2 times.
+ * When locale is `ar`, clear English Fit/Okay/Strong labels are rewritten to
+ * الملاءمة / مقبول / قوي before packing (so label slips are not “unfinished”).
  */
 export function finalizeSuggestionBody(
   raw: string,
   productName?: string,
+  locale?: WhyPickLocale,
 ): string | null {
   let text = raw.replace(/\s+/g, " ").trim();
   if (!text) return null;
 
+  if (locale === "ar") {
+    text = rewriteEnglishSkillLabelsForArabic(text);
+  }
+
   // Drop trailing incomplete fragment after the last sentence end.
-  if (!/[.!?。]["'")\]]*$/u.test(text)) {
-    const m = text.match(/^[\s\S]*[.!?。]/);
+  if (!new RegExp(`${SENTENCE_END}["'")\\]]*$`, "u").test(text)) {
+    const m = text.match(new RegExp(`^[\\s\\S]*${SENTENCE_END}`, "u"));
     if (!m) return null;
     text = m[0].trim();
   }

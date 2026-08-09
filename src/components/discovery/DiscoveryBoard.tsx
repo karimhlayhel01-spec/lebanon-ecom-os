@@ -4,12 +4,16 @@ import {
   useActionState,
   useEffect,
   useId,
+  useLayoutEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   useTransition,
+  type ReactNode,
+  type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import {
   acceptProductAction,
@@ -21,6 +25,8 @@ import {
   resolveTier1Action,
   showMoreAction,
   submitDiscoveryPassFeedbackAction,
+  undoRejectAction,
+  type CompareActionState,
   type PassFeedbackState,
 } from "@/actions/discovery";
 import {
@@ -29,6 +35,17 @@ import {
   MARGIN_AFTER_ADS_MIN,
   MARGIN_BEFORE_ADS_MIN,
 } from "@/lib/constants";
+import {
+  applyCompareResponse,
+  beginCompareRequest,
+  clearCompareBrief,
+  closeCompareBrief,
+  compareBriefError,
+  compareBriefNeedsFetch,
+  compareSelectionFingerprint,
+  EMPTY_COMPARE_BRIEF,
+  type CompareBriefResponse,
+} from "@/lib/discovery/compare/brief-state";
 import {
   revalidateWorthConsideringMarks,
   toggleWorthConsideringMark,
@@ -45,9 +62,11 @@ import {
   type DiscoveryPassReason,
 } from "@/lib/discovery/ladder";
 import { isCompleteSuggestionBody } from "@/lib/discovery/explain/why-pick";
+import { scoreFreshnessNote } from "@/lib/discovery/freshness";
 import type {
   DiscoveryCandidateView,
   DiscoveryView,
+  UndoableReject,
 } from "@/lib/discovery/service";
 
 function pct(n: number): string {
@@ -89,15 +108,26 @@ function translateMarginBlock(
 
 const passFeedbackInitial: PassFeedbackState = {};
 
+const subscribeNoop = () => () => {};
+const getMountedClient = () => true;
+const getMountedServer = () => false;
+
 export function DiscoveryBoard({
   view,
   mode = "first",
+  children,
 }: {
   view: DiscoveryView;
   /** `addSku` = another product while live SKUs continue (not a shop reset). */
   mode?: "first" | "addSku";
+  /**
+   * Optional content below the board (e.g. empty-shop Coaching) so the Compare
+   * tray spacer can clear siblings that would otherwise sit under the fixed tray.
+   */
+  children?: ReactNode;
 }) {
   const t = useTranslations("Discovery");
+  const locale = useLocale();
   const empty = view.candidates.length === 0;
   const isAdd = mode === "addSku";
   const [refreshPending, startRefresh] = useTransition();
@@ -106,29 +136,17 @@ export function DiscoveryBoard({
   const [worthIds, setWorthIds] = useState<string[]>([]);
   const [worthMaxHint, setWorthMaxHint] = useState(false);
   const [comparePending, startCompare] = useTransition();
-  const [compareOpen, setCompareOpen] = useState(false);
-  const [compareBody, setCompareBody] = useState<string | null>(null);
-  const [compareCacheVersion, setCompareCacheVersion] = useState<string | null>(
-    null,
-  );
-  const [compareHonestyKey, setCompareHonestyKey] = useState<
-    | "whySuggestedHonesty"
-    | "whySuggestedHonestyLive"
-    | "whySuggestedHonestyEstimate"
-  >("whySuggestedHonestyEstimate");
-  const [compareError, setCompareError] = useState<string | null>(null);
-  const [advisedName, setAdvisedName] = useState<string | null>(null);
+  const [compareBrief, setCompareBrief] = useState(EMPTY_COMPARE_BRIEF);
+  const compareTrayRef = useRef<HTMLDivElement>(null);
+  const [compareTrayPadPx, setCompareTrayPadPx] = useState(0);
+  const showCompareTray = !empty && view.suggestionExplainEnabled;
 
   // Session-scoped marks: reset on new session; prune rejected/hidden cards.
   if (markSessionId !== view.sessionId) {
     setMarkSessionId(view.sessionId);
     setWorthIds([]);
     setWorthMaxHint(false);
-    setCompareOpen(false);
-    setCompareBody(null);
-    setCompareCacheVersion(null);
-    setAdvisedName(null);
-    setCompareError(null);
+    setCompareBrief(clearCompareBrief());
   } else {
     const pruned = revalidateWorthConsideringMarks(
       worthIds,
@@ -136,6 +154,8 @@ export function DiscoveryBoard({
     );
     if (pruned.length !== worthIds.length) {
       setWorthIds(pruned);
+      // A rejected or hidden card may be described in the open brief.
+      setCompareBrief(clearCompareBrief());
     }
   }
 
@@ -143,9 +163,42 @@ export function DiscoveryBoard({
   const canCompare =
     selectedCards.length >= DISCOVERY_COMPARE_MIN &&
     selectedCards.length <= DISCOVERY_COMPARE_MAX;
+  const compareFingerprint = compareSelectionFingerprint({
+    sessionId: view.sessionId,
+    candidateIds: worthIds,
+    locale,
+  });
+
+  // Match in-flow pad to the fixed Compare tray so Coaching (and board
+  // content) can scroll clear of it — including when marks grow the tray.
+  useLayoutEffect(() => {
+    if (!showCompareTray) {
+      setCompareTrayPadPx(0);
+      return;
+    }
+    const el = compareTrayRef.current;
+    if (!el) return;
+    const sync = () => {
+      setCompareTrayPadPx(Math.ceil(el.getBoundingClientRect().height));
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [
+    showCompareTray,
+    selectedCards.length,
+    worthMaxHint,
+    view.geminiConfigured,
+    comparePending,
+    locale,
+  ]);
 
   function toggleWorth(candidateId: string) {
     setWorthMaxHint(false);
+    // The held brief describes the previous selection — it can never be shown
+    // beside a different set of marks.
+    setCompareBrief(clearCompareBrief());
     setWorthIds((prev) => {
       const next = toggleWorthConsideringMark(prev, candidateId);
       if (next.blockedAtMax) setWorthMaxHint(true);
@@ -156,72 +209,71 @@ export function DiscoveryBoard({
   function clearWorth() {
     setWorthIds([]);
     setWorthMaxHint(false);
-    setCompareOpen(false);
-    setCompareBody(null);
-    setCompareError(null);
-    setAdvisedName(null);
+    setCompareBrief(clearCompareBrief());
+  }
+
+  function compareErrorCopy(res: CompareActionState): string {
+    if (res.error === "missing_key" || res.missingKey) {
+      return t("compareMissingKey");
+    }
+    if (res.error === "rate_limited") return t("whyPickRateLimited");
+    if (res.error === "feature_off") return t("compareOff");
+    if (res.error === "stale_selection") return t("compareStale");
+    if (res.error === "invalid_selection") return t("compareInvalid");
+    if (res.error === "api_error") return t("compareApiError");
+    if (res.error === "misaligned") return t("compareMisaligned");
+    if (res.error === "ungrounded") return t("compareUnverified");
+    if (res.error === "incomplete" || res.error === "empty") {
+      return t("compareIncomplete");
+    }
+    return t("compareFailed");
   }
 
   function runCompare() {
-    setCompareError(null);
-    setCompareOpen(true);
-    const versionOk = compareCacheVersion === COMPARE_CACHE_VERSION;
-    const bodyOk =
-      Boolean(compareBody) && versionOk && isCompleteCompareBody(compareBody!);
-    if (bodyOk && canCompare) return;
-    if (compareBody && !bodyOk) {
-      setCompareBody(null);
-      setCompareCacheVersion(null);
-      setAdvisedName(null);
-    }
     if (!view.geminiConfigured) {
-      setCompareError(t("compareMissingKey"));
+      setCompareBrief(compareBriefError(t("compareMissingKey")));
       return;
     }
     if (!canCompare) {
-      setCompareError(t("compareInvalid"));
+      setCompareBrief(compareBriefError(t("compareInvalid")));
       return;
     }
+    const requested = compareFingerprint;
+    const next = beginCompareRequest(compareBrief, {
+      fingerprint: requested,
+      cacheVersion: COMPARE_CACHE_VERSION,
+    });
+    setCompareBrief(next);
+    if (!compareBriefNeedsFetch(next)) return;
+
     startCompare(async () => {
       const res = await compareWorthConsideringAction(worthIds);
       const complete =
         Boolean(res.ok && res.body) && isCompleteCompareBody(res.body!);
-      if (!res.ok || !res.body || !complete) {
-        setCompareBody(null);
-        setCompareCacheVersion(null);
-        setAdvisedName(null);
-        setCompareError(
-          res.error === "missing_key" || res.missingKey
-            ? t("compareMissingKey")
-            : res.error === "rate_limited"
-              ? t("whyPickRateLimited")
-              : res.error === "feature_off"
-                ? t("compareOff")
-                : res.error === "stale_selection"
-                  ? t("compareStale")
-                  : res.error === "invalid_selection"
-                    ? t("compareInvalid")
-                    : res.error === "api_error"
-                      ? t("compareApiError")
-                      : t("compareFailed"),
-        );
-      } else {
-        setCompareBody(res.body);
-        setCompareCacheVersion(res.cacheVersion ?? COMPARE_CACHE_VERSION);
-        setAdvisedName(res.advisedName ?? null);
-        setCompareHonestyKey(
-          res.honestyKey === "whySuggestedHonestyLive"
-            ? "whySuggestedHonestyLive"
-            : res.honestyKey === "whySuggestedHonesty"
-              ? "whySuggestedHonesty"
-              : "whySuggestedHonestyEstimate",
-        );
-      }
+      const response: CompareBriefResponse =
+        res.ok && res.body && complete
+          ? {
+              ok: true,
+              body: res.body,
+              cacheVersion: res.cacheVersion ?? COMPARE_CACHE_VERSION,
+              advisedName: res.advisedName ?? null,
+              honestyKey: res.honestyKey ?? "whySuggestedHonestyEstimate",
+            }
+          : {
+              ok: false,
+              // A truncated body on an ok response is its own failure kind.
+              error: res.ok ? t("compareIncomplete") : compareErrorCopy(res),
+              advisedName: res.advisedName ?? null,
+            };
+      // Discards the answer when the marks moved while it was in flight.
+      setCompareBrief((prev) =>
+        applyCompareResponse(prev, { fingerprint: requested, response }),
+      );
     });
   }
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="space-y-5">
       <div className="surface-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -266,9 +318,7 @@ export function DiscoveryBoard({
                         // New session — clear marks immediately (sessionId effect also clears).
                         setWorthIds([]);
                         setWorthMaxHint(false);
-                        setCompareOpen(false);
-                        setCompareBody(null);
-                        setAdvisedName(null);
+                        setCompareBrief(clearCompareBrief());
                       }
                     })
                   }
@@ -291,7 +341,13 @@ export function DiscoveryBoard({
         <EditOnboardingNote banner={view.editOnboardingBanner} />
       ) : null}
 
-      {empty && view.ladder ? (
+      {view.undoableRejects.length > 0 ? (
+        <UndoRejectNote rejects={view.undoableRejects} />
+      ) : null}
+
+      {empty && view.shortlistEmptyState?.cause === "no_scores" ? (
+        <MarketDataNotReadyNote state={view.shortlistEmptyState} />
+      ) : empty && view.ladder ? (
         <DiscoveryEmptyLadder ladder={view.ladder} view={view} />
       ) : (
         <div className="columns-1 gap-4 md:columns-2">
@@ -330,8 +386,20 @@ export function DiscoveryBoard({
         </div>
       )}
 
-      {!empty && view.suggestionExplainEnabled ? (
+      {children}
+
+      {showCompareTray ? (
+        <div
+          aria-hidden
+          className="shrink-0"
+          style={{ height: compareTrayPadPx }}
+          data-discovery-compare-tray-spacer=""
+        />
+      ) : null}
+
+      {showCompareTray ? (
         <WorthConsideringCompareBox
+          trayRef={compareTrayRef}
           selected={selectedCards}
           maxHint={worthMaxHint}
           canCompare={canCompare}
@@ -342,19 +410,19 @@ export function DiscoveryBoard({
         />
       ) : null}
 
-      {compareOpen ? (
+      {compareBrief.open ? (
         <CompareResultModal
           title={t("compareResultTitle")}
-          advisedName={advisedName}
-          body={compareBody}
-          honesty={t(compareHonestyKey)}
+          advisedName={compareBrief.advisedName}
+          body={compareBrief.body}
+          honesty={t(compareBrief.honestyKey)}
           adviceNote={t("compareAdviceNote")}
           advisedLabel={t("compareAdvisedLabel")}
-          error={compareError}
+          error={compareBrief.error}
           loading={comparePending}
           loadingLabel={t("compareLoading")}
           closeLabel={t("compareClose")}
-          onClose={() => setCompareOpen(false)}
+          onClose={() => setCompareBrief(closeCompareBrief)}
         />
       ) : null}
     </div>
@@ -362,6 +430,7 @@ export function DiscoveryBoard({
 }
 
 function WorthConsideringCompareBox({
+  trayRef,
   selected,
   maxHint,
   canCompare,
@@ -370,6 +439,7 @@ function WorthConsideringCompareBox({
   onClear,
   onCompare,
 }: {
+  trayRef: RefObject<HTMLDivElement | null>;
   selected: DiscoveryCandidateView[];
   maxHint: boolean;
   canCompare: boolean;
@@ -379,8 +449,22 @@ function WorthConsideringCompareBox({
   onCompare: () => void;
 }) {
   const t = useTranslations("Discovery");
-  return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone bg-surface/95 px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] backdrop-blur">
+  // Portal to body so `fixed` is viewport-relative. A parent with
+  // `.animate-rise` (transform) would otherwise become the containing block
+  // and push the tray below the viewport when the spacer grows.
+  const mounted = useSyncExternalStore(
+    subscribeNoop,
+    getMountedClient,
+    getMountedServer,
+  );
+  if (!mounted) return null;
+
+  return createPortal(
+    <div
+      ref={trayRef}
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-stone bg-surface/95 px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] backdrop-blur"
+      data-discovery-compare-tray=""
+    >
       <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
@@ -428,6 +512,64 @@ function WorthConsideringCompareBox({
           </button>
         </div>
       </div>
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * WAVE-2 §7 — a mis-tap must not shrink the founder's world. The server owns
+ * the window and the gate re-check; a refusal is explained here rather than
+ * failing silently. The list is session-scoped, so refresh / new session empties
+ * it and this note disappears with it.
+ */
+function UndoRejectNote({ rejects }: { rejects: UndoableReject[] }) {
+  const t = useTranslations("Discovery");
+  const [pending, startTransition] = useTransition();
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function undo(candidateId: string) {
+    setError(null);
+    setRestoringId(candidateId);
+    startTransition(async () => {
+      const result = await undoRejectAction(candidateId);
+      if (result.ok) return;
+      setRestoringId(null);
+      setError(
+        result.error === "accepted"
+          ? t("undoRejectAccepted")
+          : result.error === "no_longer_accept_ready"
+            ? t("undoRejectNoLongerReady")
+            : result.error === "not_rejected"
+              ? t("undoRejectNotRejected")
+              : result.error === "expired"
+                ? t("undoRejectExpired")
+                : t("undoRejectFailed"),
+      );
+    });
+  }
+
+  return (
+    <div className="rounded-md border border-stone bg-surface-subtle px-4 py-3">
+      <p className="text-sm font-medium text-ink">{t("undoRejectTitle")}</p>
+      <p className="mt-1 text-sm text-stone-dark">{t("undoRejectBody")}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {rejects.map((r) => (
+          <button
+            key={r.candidateId}
+            type="button"
+            disabled={pending}
+            onClick={() => undo(r.candidateId)}
+            className="rounded-md border border-stone bg-surface px-3 py-1.5 text-xs font-semibold text-ink transition hover:bg-sand disabled:opacity-60"
+          >
+            {pending && restoringId === r.candidateId
+              ? t("undoRejectPending")
+              : t("undoReject", { name: r.name })}
+          </button>
+        ))}
+      </div>
+      {error ? <p className="mt-2 text-xs text-amber-800">{error}</p> : null}
     </div>
   );
 }
@@ -453,6 +595,38 @@ function EditOnboardingNote({
       >
         {t("editOnboardingCta")}
       </Link>
+    </div>
+  );
+}
+
+/**
+ * WAVE-2 §8 — empty board because the market read is missing or failed.
+ *
+ * Deliberately offers no profile-edit CTA: this is our pipeline, not their
+ * onboarding, and a link that cannot fix it would only send them in circles.
+ */
+function MarketDataNotReadyNote({
+  state,
+}: {
+  state: NonNullable<DiscoveryView["shortlistEmptyState"]>;
+}) {
+  const t = useTranslations("Discovery");
+  return (
+    <div className="surface-card p-6">
+      <h3 className="font-display text-lg text-ink">
+        {t("emptyNoScoresTitle")}
+      </h3>
+      <p className="mt-2 max-w-2xl text-sm text-stone-dark">
+        {t("emptyNoScoresBody")}
+      </p>
+      <p className="mt-2 max-w-2xl text-sm text-stone-dark">
+        {state.reason === "score_refresh_failed"
+          ? t("emptyNoScoresFailed")
+          : t("emptyNoScoresPending")}
+      </p>
+      <p className="mt-3 rounded-md border border-stone bg-surface-subtle px-3 py-2 text-xs text-stone-dark">
+        {t("emptyNoScoresOps")}
+      </p>
     </div>
   );
 }
@@ -856,6 +1030,7 @@ function ProductCard({
         <MarginPill label={t("marginAfter")} value={c.marginAfter} pass={c.marginsPass} />
       </div>
       <p className="text-[11px] text-stone-dark">{t("estimateNote")}</p>
+      <ScoreFreshnessNote freshness={c.scoreFreshness} />
 
       {c.sourceCostHint && (
         <div className="rounded-md border border-stone bg-surface-subtle px-3 py-2 text-[11px] text-stone-dark">
@@ -1004,10 +1179,31 @@ function ProductCard({
   );
 }
 
-/** Portal target only exists on the client; keep SSR and first paint aligned. */
-const subscribeNoop = () => () => {};
-const getMountedClient = () => true;
-const getMountedServer = () => false;
+/**
+ * WAVE-2 §7 — how old the market read behind this card is. Display only: this
+ * never changes rank, strength, or an accept gate. A never-measured product
+ * keeps the same estimate-only voice §6.1 uses, so the founder is not told a
+ * heuristic seed is a market check.
+ */
+function ScoreFreshnessNote({
+  freshness,
+}: {
+  freshness: DiscoveryCandidateView["scoreFreshness"];
+}) {
+  const t = useTranslations("Discovery");
+  const note = scoreFreshnessNote(freshness);
+  const dated = freshness.state !== "never";
+  return (
+    <p
+      className={`text-[11px] ${
+        freshness.state === "fresh" ? "text-stone-dark" : "text-amber-800"
+      }`}
+    >
+      <span className="font-medium">{t("scoreFreshnessLabel")}: </span>
+      {dated ? t(note.key, note.values) : t("scoreFreshnessNever")}
+    </p>
+  );
+}
 
 function WhySuggestedModal({
   title,
@@ -1212,7 +1408,7 @@ function CompareResultModal({
             {error ? (
               <p className="text-sm leading-relaxed text-amber-800">{error}</p>
             ) : null}
-            {advisedName && displayBody ? (
+            {advisedName ? (
               <p className="rounded-md border border-cedar/30 bg-cedar/10 px-3 py-2 text-sm text-cedar-deep">
                 <span className="font-semibold">{advisedLabel}: </span>
                 {advisedName}

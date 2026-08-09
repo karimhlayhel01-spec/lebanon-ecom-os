@@ -19,8 +19,17 @@ import {
   showMore,
   startDiscoverySession,
   submitDiscoveryPassFeedback,
+  undoRejectCandidate,
   type AcceptResult,
+  type UndoRejectResult,
 } from "@/lib/discovery/service";
+import {
+  candidateMetricDedupeKey,
+  compareFailureDedupeKey,
+  compareRunDedupeKey,
+  explainFailureDedupeKey,
+} from "@/lib/discovery/metrics/events";
+import { recordDiscoveryMetric } from "@/lib/discovery/metrics/store";
 import type { AppLocale } from "@/i18n/routing";
 
 async function workspaceForRequest() {
@@ -130,6 +139,18 @@ export async function rejectCandidateAction(candidateId: string) {
   revalidatePath("/", "layout");
 }
 
+export async function undoRejectAction(
+  candidateId: string,
+): Promise<UndoRejectResult> {
+  await ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false, error: "not_found" };
+
+  const result = await undoRejectCandidate(workspace.id, candidateId);
+  if (result.ok) revalidatePath("/", "layout");
+  return result;
+}
+
 export async function acceptProductAction(
   candidateId: string,
   riskReadAck: boolean,
@@ -184,7 +205,20 @@ export async function explainWhyThisPickAction(
     locale: locale === "ar" ? "ar" : "en",
   });
 
+  // §7 measurement loop — one open per card, whatever the outcome.
+  await recordDiscoveryMetric({
+    workspaceId: workspace.id,
+    kind: "why_explain_opened",
+    dedupeKey: candidateMetricDedupeKey(candidateId, "why_explain_opened"),
+  });
+
   if (!result.ok) {
+    await recordDiscoveryMetric({
+      workspaceId: workspace.id,
+      kind: "explain_failed",
+      errorCode: result.error,
+      dedupeKey: explainFailureDedupeKey(candidateId, result.error),
+    });
     return {
       error: result.error,
       missingKey: result.error === "missing_key",
@@ -242,11 +276,27 @@ export async function compareWorthConsideringAction(
     locale: locale === "ar" ? "ar" : "en",
   });
 
+  // §7 measurement loop — one run per distinct selection, retries included.
+  await recordDiscoveryMetric({
+    workspaceId: workspace.id,
+    kind: "compare_run",
+    dedupeKey: compareRunDedupeKey(candidateIds),
+  });
+
   if (!result.ok) {
+    await recordDiscoveryMetric({
+      workspaceId: workspace.id,
+      kind: "compare_failed",
+      errorCode: result.error,
+      dedupeKey: compareFailureDedupeKey(candidateIds, result.error),
+    });
     return {
       error: result.error,
       missingKey: result.error === "missing_key",
       cacheVersion: COMPARE_CACHE_VERSION,
+      advisedCandidateId: result.advisedCandidateId,
+      advisedCatalogKey: result.advisedCatalogKey,
+      advisedName: result.advisedName,
     };
   }
   // Do not revalidatePath — compare must not reshuffle Discovery / scores.

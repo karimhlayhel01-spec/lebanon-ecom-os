@@ -6,10 +6,17 @@
 import { DISCOVERY_FALLBACK_SHORTLIST_MIN } from "@/lib/constants";
 import type { CatalogProduct } from "@/lib/discovery/catalog";
 import {
+  evaluateSystemDemandGate,
   isAcceptReadyForShortlist,
   resolveSystemDemandInput,
   type SystemDemandGateInput,
 } from "@/lib/discovery/dual-gate";
+import {
+  classifyShortlistBlocker,
+  tallyShortlistBlockers,
+  type ShortlistBlocker,
+  type ShortlistBlockerTally,
+} from "@/lib/discovery/empty-state";
 import type { ScoreRow } from "@/lib/discovery/scores";
 import { isSoftCompetitionBudgetEnabled } from "@/lib/discovery/flags";
 import { computeComposite, riskReadForOkayReason, type OkayReason } from "@/lib/discovery/scoring/composite";
@@ -69,6 +76,16 @@ function systemInputFromCache(
   };
 }
 
+export type Wave2ShortlistResult = {
+  ranked: Wave2RankedProduct[];
+  /**
+   * Why the products that did not make the shortlist were dropped (WAVE-2 §8).
+   * Read only to tell a data outage apart from profile filtering on an empty
+   * board — never by rank, strength, or an accept gate.
+   */
+  blockers: ShortlistBlockerTally;
+};
+
 /**
  * Rank pool products with Wave 2 composite when score cache rows exist.
  * Shortlist = **accept-ready only** (hard margins, !oversized, demand gate,
@@ -86,12 +103,41 @@ export function rankWave2Shortlist(
     liveSearchEnabled?: boolean;
   } = {},
 ): Wave2RankedProduct[] {
+  return rankWave2ShortlistWithBlockers(
+    profile,
+    catalog,
+    scoresByKey,
+    hintsByKey,
+    softCompetitionBudget,
+    opts,
+  ).ranked;
+}
+
+/**
+ * Same ranking, plus why the rest of the pool was excluded. The listing rules
+ * are identical — the tally is an observation of the filter, not a new filter.
+ */
+export function rankWave2ShortlistWithBlockers(
+  profile: Wave2RankProfile,
+  catalog: readonly CatalogProduct[],
+  scoresByKey: ReadonlyMap<string, ScoreRow>,
+  hintsByKey: ReadonlyMap<string, Wave2ScoreHints> = new Map(),
+  softCompetitionBudget: boolean = isSoftCompetitionBudgetEnabled(),
+  opts: {
+    systemGateEnabled?: boolean;
+    liveSearchEnabled?: boolean;
+  } = {},
+): Wave2ShortlistResult {
   const systemGateEnabled = opts.systemGateEnabled !== false;
   const liveSearchEnabled = opts.liveSearchEnabled;
   const evaluated: Wave2RankedProduct[] = [];
+  const blockers: (ShortlistBlocker | null)[] = [];
 
   for (const p of catalog) {
-    if (p.oversized) continue;
+    if (p.oversized) {
+      blockers.push("profile");
+      continue;
+    }
 
     const landedCost = landedCostOf(p);
     const fit = computeFit(profile, {
@@ -164,6 +210,19 @@ export function rankWave2Shortlist(
       fit.riskRead,
     );
 
+    const listed = acceptReady && composite.listable;
+    blockers.push(
+      classifyShortlistBlocker({
+        included: listed,
+        marginsPass: margin.pass,
+        oversized: p.oversized,
+        fitNotRecommended: fit.notRecommended,
+        systemDemand: systemGateEnabled
+          ? evaluateSystemDemandGate(system)
+          : null,
+      }),
+    );
+
     evaluated.push({
       p,
       landedCost,
@@ -174,7 +233,7 @@ export function rankWave2Shortlist(
       strength: composite.listingStrength,
       okayReason: composite.okayReason,
       riskRead,
-      notRecommended: !acceptReady || !composite.listable,
+      notRecommended: !listed,
       explain: composite.explain,
       fallbackUsed: false,
     });
@@ -185,8 +244,10 @@ export function rankWave2Shortlist(
     .sort((a, b) => b.compositeScore - a.compositeScore);
 
   // Accept-ready only — never fill with soft_ok / weak / oversized / demand-fail.
-  return applyDiversityReorder(
+  const ranked = applyDiversityReorder(
     passers.map((e) => ({ ...e, category: e.p.category })),
     DISCOVERY_FALLBACK_SHORTLIST_MIN,
   ).map(({ category: _c, ...rest }) => rest);
+
+  return { ranked, blockers: tallyShortlistBlockers(blockers) };
 }

@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertFounderFriendlyCopy,
+  assertNoOkayScareWhenStrong,
   assertNoUngroundedMarketClaims,
   buildDeterministicWhyPick,
   canCiteMarketFromPayload,
   clampSuggestionBody,
   containsFounderJargon,
   containsVagueFluff,
+  containsBannedEnglishSkillLabels,
   finalizeSuggestionBody,
   isCompleteSuggestionBody,
   skillPayloadFromCandidateMeta,
@@ -30,6 +32,10 @@ import {
   narrateSuggestionWithGemini,
   resolveGeminiApiKey,
   resolveGeminiModel,
+  AR_WHY_GOOD_ESTIMATE_EXAMPLE,
+  AR_WHY_GOOD_LIVE_EXAMPLE,
+  AR_WHY_GOOD_STRONG_ESTIMATE_EXAMPLE,
+  AR_WHY_GOOD_STRONG_LIVE_EXAMPLE,
 } from "@/lib/discovery/explain/llm";
 import { evaluateAcceptDemandGate } from "@/lib/discovery/dual-gate";
 import { readFileSync } from "fs";
@@ -400,11 +406,23 @@ describe("Why we suggested this — grounding", () => {
       containsVagueFluff("Reusable produce bags have a strong fit at 100/100."),
     ).toBe(false);
     expect(
+      containsVagueFluff(
+        "Strong Fit clears the shortlist economics more cleanly than the rival.",
+      ),
+    ).toBe(false);
+    expect(
       containsVagueFluff("This product could be a good fit for your store."),
     ).toBe(true);
     expect(containsVagueFluff("This product looks promising for your store.")).toBe(
       true,
     );
+    // §6.2 feature language is not a filler verdict.
+    expect(
+      containsVagueFluff(
+        "Among these worth considering marks, skills advise starting with Widget.",
+      ),
+    ).toBe(false);
+    expect(containsVagueFluff("This product is worth considering.")).toBe(true);
   });
 
   it("accepts a complete 4-sentence paragraph", () => {
@@ -668,7 +686,64 @@ describe("Gemini narrator (mocked)", () => {
       expect(r.result.body).toContain("100/100");
       expect(r.result.body).toMatch(/تقدير|منخفضة الثقة/u);
       expect(r.result.body).toMatch(/عيّنة|لا تتوسّع/u);
+      expect(r.result.body).not.toMatch(/\bFit\b/);
+      expect(r.result.body).not.toMatch(/\bOkay\b/);
     }
+  });
+
+  it("sends Arabic fitLabel/strengthLabel and rejects English Fit/Okay labels in AR", async () => {
+    let requestBody = "";
+    const fetchFn: typeof fetch = async (_url, init) => {
+      requestBody = String(init?.body ?? "");
+      return responseWith(
+        "فرصة «أداة مطبخ» ما زالت فرضية قابلة للاختبار لأن أدلة بحث حي قابلة للاستشهاد غير محفوظة، لذلك لا يدّعي هذا الشرح وجود طلب خارجي أو محلي مثبت ولا أعداد بائعين أو فجوة سوق مؤكدة قبل جمع نتائج فعلية. " +
+          "درجة الملاءمة التشغيلية هي 100/100، وهوامش التخطيط التي تتجاوز هدفي ٧٠٪ قبل الإعلانات و٣٥٪ بعدها تشرح لماذا اجتاز المنتج فحوص القدرة والميزانية والاقتصاد للقائمة الجاهزة للقبول. " +
+          "طريقة السعي إلى ميزة هي اختبار زاوية العرض المنسّقة التي تجمع الاستخدام الآمن مع التخزين الواضح كفائدة محددة للعميل، مع اعتبارها فكرة اختبار لا دليلاً على أن السوق يطلبها حالياً. " +
+          "التوصية مقبولة بسبب قراءة سوق تقديرية ومنخفضة الثقة، وليس لأن الملاءمة متوسطة، ولذلك يتمثل عدم اليقين الحقيقي في إثبات الطلب المدفوع وتكلفة اكتساب العميل لا في قدرة المؤسس التشغيلية. " +
+          "اختبر عيّنة صغيرة بإعلانات محدودة، وقِس الطلبات المدفوعة ولا تتوسّع اعتماداً على التقدير وحده، ثم اقبل العيّنة فقط إن كنت ستكمل هذا التحقق قبل طلب أكبر؛ وإلا فتخطَّ المنتج واحمِ الميزانية.",
+      )(_url, init);
+    };
+    const ok = await narrateSuggestionWithGemini(
+      {
+        ...heuristicPayload,
+        productName: "أداة مطبخ",
+        fitScore: 100,
+        strength: "Okay",
+        okayReason: "low_evidence_confidence",
+      },
+      "ar",
+      { apiKey: "test", fetchFn },
+    );
+    expect(ok.ok).toBe(true);
+    const parsed = JSON.parse(requestBody) as {
+      systemInstruction: { parts: { text: string }[] };
+      contents: { parts: { text: string }[] }[];
+    };
+    const system = parsed.systemInstruction.parts[0].text;
+    expect(system).toContain("الملاءمة");
+    expect(system).toContain("مقبول");
+    expect(system).toContain("التوصية مقبولة");
+    expect(system).not.toContain("التوصية قوية");
+    expect(system).not.toMatch(/Report the operational score as “Fit/);
+    const facts = JSON.parse(parsed.contents[0].parts[0].text) as {
+      fitLabel: string;
+      strengthLabel: string;
+    };
+    expect(facts.fitLabel).toBe("الملاءمة");
+    expect(facts.strengthLabel).toBe("مقبول");
+
+    const englishLabels =
+      "فرصة «أداة مطبخ» ما زالت فرضية قابلة للاختبار لأن أدلة بحث حي قابلة للاستشهاد غير محفوظة، لذلك لا يدّعي هذا الشرح وجود طلب خارجي أو محلي مثبت ولا أعداد بائعين أو فجوة سوق مؤكدة قبل جمع نتائج فعلية. " +
+      "Fit 100/100 وهوامش التخطيط التي تتجاوز هدفي ٧٠٪ قبل الإعلانات و٣٥٪ بعدها تشرح لماذا اجتاز المنتج فحوص القدرة والميزانية والاقتصاد للقائمة الجاهزة للقبول. " +
+      "طريقة السعي إلى ميزة هي اختبار زاوية العرض المنسّقة التي تجمع الاستخدام الآمن مع التخزين الواضح كفائدة محددة للعميل، مع اعتبارها فكرة اختبار لا دليلاً على أن السوق يطلبها حالياً. " +
+      "The Okay recommendation reflects low-confidence market evidence rather than moderate Fit، ولذلك يتمثل عدم اليقين الحقيقي في إثبات الطلب المدفوع وتكلفة اكتساب العميل لا في قدرة المؤسس التشغيلية. " +
+      "اختبر عيّنة صغيرة بإعلانات محدودة، وقِس الطلبات المدفوعة ولا تتوسّع اعتماداً على التقدير وحده، ثم اقبل العيّنة فقط إن كنت ستكمل هذا التحقق قبل طلب أكبر؛ وإلا فتخطَّ المنتج واحمِ الميزانية.";
+    expect(containsBannedEnglishSkillLabels(englishLabels)).toBe(true);
+    const rewritten = finalizeSuggestionBody(englishLabels, "أداة مطبخ", "ar");
+    expect(rewritten).not.toBeNull();
+    expect(containsBannedEnglishSkillLabels(rewritten!)).toBe(false);
+    expect(rewritten!).toContain("الملاءمة");
+    expect(rewritten!).toMatch(/مقبول|قوي|التوصية مقبولة/);
   });
 
   it("high competition requires differentiation or ads mitigation", async () => {
@@ -714,6 +789,71 @@ describe("Gemini narrator (mocked)", () => {
     });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.result.body).not.toMatch(/Okay recommendation|marked Okay/i);
+  });
+
+  it("Arabic Strong rejects مقبول scare and accepts قوي body", async () => {
+    const strongOk =
+      "فرصة «أداة مطبخ» ما زالت فرضية قابلة للاختبار لأن أدلة بحث حي قابلة للاستشهاد غير محفوظة، لذلك لا يدّعي هذا الشرح وجود طلب خارجي أو محلي مثبت ولا أعداد بائعين أو فجوة سوق مؤكدة قبل جمع نتائج فعلية. " +
+      "درجة الملاءمة التشغيلية هي 100/100، وهوامش التخطيط التي تتجاوز هدفي ٧٠٪ قبل الإعلانات و٣٥٪ بعدها تشرح لماذا اجتاز المنتج فحوص القدرة والميزانية والاقتصاد للقائمة الجاهزة للقبول. " +
+      "طريقة السعي إلى ميزة هي اختبار زاوية العرض المنسّقة التي تجمع الاستخدام الآمن مع التخزين الواضح كفائدة محددة للعميل، مع اعتبارها فكرة اختبار لا دليلاً على أن السوق يطلبها حالياً. " +
+      "التوصية قوية لأن القدرة والميزانية والاقتصاد واضحة لهذه البطاقة، والفرصة تستحق عيّنة صغيرة رغم أن قراءة السوق تقديرية ولم تُثبت بعد بأدلة حية محفوظة. " +
+      "اختبر عيّنة صغيرة بإعلانات محدودة، وقِس الطلبات المدفوعة قبل أي توسّع، ثم اقبل العيّنة إن كنت ستكمل هذا التحقق؛ وإلا فتخطَّ المنتج واحمِ الميزانية حتى لا تعتمد على التقدير وحده.";
+    const strongScare =
+      "فرصة «أداة مطبخ» ما زالت فرضية قابلة للاختبار لأن أدلة بحث حي قابلة للاستشهاد غير محفوظة، لذلك لا يدّعي هذا الشرح وجود طلب خارجي أو محلي مثبت ولا أعداد بائعين أو فجوة سوق مؤكدة قبل جمع نتائج فعلية. " +
+      "درجة الملاءمة التشغيلية هي 100/100، وهوامش التخطيط التي تتجاوز هدفي ٧٠٪ قبل الإعلانات و٣٥٪ بعدها تشرح لماذا اجتاز المنتج فحوص القدرة والميزانية والاقتصاد للقائمة الجاهزة للقبول. " +
+      "طريقة السعي إلى ميزة هي اختبار زاوية العرض المنسّقة التي تجمع الاستخدام الآمن مع التخزين الواضح كفائدة محددة للعميل، مع اعتبارها فكرة اختبار لا دليلاً على أن السوق يطلبها حالياً. " +
+      "التوصية مقبولة بسبب قراءة سوق تقديرية ومنخفضة الثقة، وليس لأن الملاءمة متوسطة، ولذلك يتمثل عدم اليقين الحقيقي في إثبات الطلب المدفوع وتكلفة اكتساب العميل لا في قدرة المؤسس التشغيلية. " +
+      "اختبر عيّنة صغيرة بإعلانات محدودة، وقِس الطلبات المدفوعة ولا تتوسّع اعتماداً على التقدير وحده، ثم اقبل العيّنة فقط إن كنت ستكمل هذا التحقق قبل طلب أكبر؛ وإلا فتخطَّ المنتج واحمِ الميزانية.";
+
+    expect(assertNoOkayScareWhenStrong(strongScare, "Strong")).toBe(false);
+    expect(assertNoOkayScareWhenStrong(strongOk, "Strong")).toBe(true);
+
+    let requestBody = "";
+    const ok = await narrateSuggestionWithGemini(
+      {
+        ...heuristicPayload,
+        productName: "أداة مطبخ",
+        fitScore: 100,
+        strength: "Strong",
+        okayReason: null,
+      },
+      "ar",
+      {
+        apiKey: "test",
+        fetchFn: async (_url, init) => {
+          requestBody = String(init?.body ?? "");
+          return responseWith(strongOk)(_url, init);
+        },
+      },
+    );
+    expect(ok.ok).toBe(true);
+    const system = (
+      JSON.parse(requestBody) as {
+        systemInstruction: { parts: { text: string }[] };
+      }
+    ).systemInstruction.parts[0].text;
+    expect(system).toContain("التوصية قوية");
+    expect(system).toContain("ممنوع تماماً");
+    expect(system).toContain("GOOD قوي");
+    expect(system).not.toContain("GOOD مقبول");
+    expect(system).toContain("التوصية قوية لأن القدرة والميزانية");
+    expect(system).not.toContain(
+      "وليس لأن الملاءمة متوسطة، ولذلك يتمثل عدم اليقين الحقيقي",
+    );
+
+    const scare = await narrateSuggestionWithGemini(
+      {
+        ...heuristicPayload,
+        productName: "أداة مطبخ",
+        fitScore: 100,
+        strength: "Strong",
+        okayReason: null,
+      },
+      "ar",
+      { apiKey: "test", fetchFn: responseWith(strongScare) },
+    );
+    expect(scare.ok).toBe(false);
+    if (!scare.ok) expect(scare.error).toBe("okay_mismatch");
   });
 
   it("accepts a numeric strong-fit reading that used to read as fluff", async () => {
@@ -865,6 +1005,9 @@ describe("Gemini narrator (mocked)", () => {
       honestyPath: string;
       okayReason: string | null;
       marketEvidence: unknown;
+      fitLabel: string;
+      strengthLabel: string;
+      strength: string;
     };
     expect(facts.productName).toBe("Widget");
     expect(facts.category).toBe("home");
@@ -875,6 +1018,9 @@ describe("Gemini narrator (mocked)", () => {
     expect(facts.okayReason).toBeNull();
     expect(facts.marketEvidence).toBeNull();
     expect(facts.marginBeforePct).toBe(72);
+    expect(facts.fitLabel).toBe("Fit");
+    expect(facts.strength).toBe("Strong");
+    expect(facts.strengthLabel).toBe("Strong");
     if (r.ok) {
       expect(r.result.body).toContain("Widget");
       expect(r.result.body.length).toBeLessThanOrEqual(SUGGESTION_BODY_MAX_CHARS);
@@ -1044,7 +1190,7 @@ describe("cache + rate limit + Gemini flags", () => {
   it("caches per session/candidate/locale with version bust", () => {
     const key = whyPickCacheKey("s1", "c1", "en");
     expect(key).toContain(WHY_PICK_CACHE_VERSION);
-    expect(WHY_PICK_CACHE_VERSION).toMatch(/^v8-/);
+    expect(WHY_PICK_CACHE_VERSION).toMatch(/^v12-/);
     const value = buildDeterministicWhyPick({
       productName: "A",
       fitScore: 50,
@@ -1149,5 +1295,28 @@ describe("no paste fields in Discovery UI", () => {
     expect(src).toContain("evaluateAcceptDemandGate");
     expect(src).not.toMatch(/error:\s*"needs_demand"/);
     expect(src).not.toContain("pasteConfirmed");
+  });
+});
+
+describe("AR Why GOOD prompt examples meet min length", () => {
+  it("Okay and Strong AR GOOD examples are within the locked 800–1100 window", () => {
+    for (const example of [
+      AR_WHY_GOOD_ESTIMATE_EXAMPLE,
+      AR_WHY_GOOD_LIVE_EXAMPLE,
+    ]) {
+      expect(example.length).toBeGreaterThanOrEqual(SUGGESTION_BODY_MIN_CHARS);
+      expect(example.length).toBeLessThanOrEqual(SUGGESTION_BODY_MAX_CHARS);
+      expect(example).toContain("التوصية مقبولة");
+    }
+    for (const example of [
+      AR_WHY_GOOD_STRONG_ESTIMATE_EXAMPLE,
+      AR_WHY_GOOD_STRONG_LIVE_EXAMPLE,
+    ]) {
+      expect(example.length).toBeGreaterThanOrEqual(SUGGESTION_BODY_MIN_CHARS);
+      expect(example.length).toBeLessThanOrEqual(SUGGESTION_BODY_MAX_CHARS);
+      expect(example).toMatch(/التوصية قوية|قوي/);
+      expect(example).not.toMatch(/(?:التوصية|التقييم)[^.،]{0,24}مقبول/u);
+      expect(example).not.toContain("مقبول");
+    }
   });
 });

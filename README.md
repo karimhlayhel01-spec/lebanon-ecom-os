@@ -66,6 +66,7 @@ npm run test:integration
 | `npm run discovery:intake` | Wave 2 Path 1 intake job (CLI only — not page load) |
 | `npm run discovery:score` | Wave 2 Approach A score-refresh job (CLI only) |
 | `npm run discovery:refresh` | Run intake then score |
+| `npm run discovery:metrics` | Wave 2 §7 funnel rates over a window (read-only; `-- --days=N`, `-- --json`) |
 
 ## Wave 2 Discovery (Approach A)
 
@@ -82,6 +83,17 @@ npm run dev -- -p 3005      # shortlist ranks from score cache; system demand ga
 ```
 
 With a large Path 1 pool, prefer `npm run discovery:score -- --limit=50` (or cron batches) so SerpAPI caps stay manageable. Discovery **GET** still never live-searches.
+
+Each card states how fresh its market read is (`DISCOVERY_SCORE_STALE_AFTER_DAYS`, default 7). A product with no successful read yet says **estimate only**. Freshness is display only — it never changes rank, strength, or an accept gate.
+
+### Measuring the funnel (WAVE-2 §7)
+
+```bash
+npm run discovery:metrics              # last 30 days
+npm run discovery:metrics -- --days=7  # shorter window; add --json for raw output
+```
+
+Reports empty rate, accept rate, and edit-onboarding rate. Counters are **append-only**, deduped so re-renders and retries count once, and are never read back into scoring, rank, or gates — a human tunes thresholds from them.
 
 With flags **off**, Discovery stays Wave 1 (in-memory catalog; accept uses margins / Tier-1 / oversized — no paste).
 
@@ -189,8 +201,6 @@ After accept, work happens on the **shop hub** and **per-SKU pages** (`/sku/[id]
 ### Supplier / Import (`src/lib/supplier/`)
 
 - **3 primaries + 2 backups each = 9 options**, with years/rating/red-flag signals
-- **Sample-first** flow: request → received → decide (`sample_decision` approval)
-- Parallel **same-source spare** samples; spare approve does not switch the working path; **can’t-fulfill** prefers warm spares; cost quotes go stale on **path switch** only
 - Per-option **email draft**, **payment map**, quality checklist, and a **clearance-partner TBD** placeholder
 - **>$10k MOQ** shows a soft warning and a stuck ladder; high-MOQ alternatives surfaced where possible
 - Approvals: `sample_decision`, `batch_ordered`, `batch_arrived_ready` — **`batch_ordered` never requires `store_ready`**

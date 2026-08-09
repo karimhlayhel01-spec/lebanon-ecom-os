@@ -158,6 +158,11 @@ export const productCandidates = pgTable("product_candidates", {
   demandConfirmed: boolean("demand_confirmed").notNull().default(false),
   status: text("status").notNull().default("shown"), // shown | accepted | rejected
   rank: integer("rank").notNull().default(0),
+  /**
+   * When the founder rejected this card — bounds the WAVE-2 §7 undo window.
+   * Null on legacy rejects (never undoable) and cleared again on undo.
+   */
+  rejectedAt: text("rejected_at"),
   createdAt: text("created_at").notNull(),
 });
 
@@ -468,4 +473,39 @@ export const discoveryProductScores = pgTable("discovery_product_scores", {
   rawEvidenceJson: text("raw_evidence_json"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * Wave 2 §7 — monthly search-spend ledger (one row per UTC month).
+ * Checked before each query batch so a run stops cleanly at the configured cap
+ * instead of burning a paid quota. Global, like the pool: no workspace_id.
+ */
+export const discoverySearchUsage = pgTable("discovery_search_usage", {
+  id: text("id").primaryKey(),
+  /** UTC month bucket, `YYYY-MM`. */
+  monthKey: text("month_key").notNull().unique(),
+  queriesUsed: integer("queries_used").notNull().default(0),
+  lastRunAt: text("last_run_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * Wave 2 §7 "Measure" — append-only Discovery funnel counters.
+ * Rows are never updated: `dedupe_key` is unique so a re-render, revalidate, or
+ * retried request records one event. Read only by the metrics CLI — nothing
+ * here may feed scoring, rank, or accept gates.
+ */
+export const discoveryMetricEvents = pgTable("discovery_metric_events", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id),
+  /** Session context when the event has one; null for card-scoped events. */
+  sessionId: text("session_id"),
+  kind: text("kind").notNull(),
+  /** Typed action error code for failure kinds — never founder-facing text. */
+  errorCode: text("error_code"),
+  dedupeKey: text("dedupe_key").notNull().unique(),
+  createdAt: text("created_at").notNull(),
 });

@@ -37,6 +37,7 @@ import {
   skillPayloadFromCandidateMeta,
   type WhyPickLocale,
 } from "@/lib/discovery/explain/why-pick";
+import { resolveDisplayProductName } from "@/lib/discovery/localize";
 import { getScoreForPoolProduct } from "@/lib/discovery/scores";
 
 export type CompareServiceResult =
@@ -57,8 +58,14 @@ export type CompareServiceResult =
         | "stale_selection"
         | "api_error"
         | "ungrounded"
+        | "misaligned"
+        | "incomplete"
         | "empty"
         | "error";
+      /** Skills pick — present once the winner was computed, even on narrate failure. */
+      advisedCandidateId?: string;
+      advisedCatalogKey?: string;
+      advisedName?: string;
     };
 
 function parseScoreEvidence(
@@ -91,6 +98,12 @@ async function loadCompareProductPayload(input: {
   let scoreEvidenceSource: string | null = null;
   let scoreEvidence: Record<string, unknown> | null = null;
   let curatedDifferentiation = candidate.differentiation?.trim() || null;
+  let displayProductName = resolveDisplayProductName({
+    locale,
+    nameEn: candidate.name,
+    nameAr: "",
+    fallbackName: candidate.name,
+  });
   let scoreCache: {
     demandPath?: string | null;
     competitionScore?: number | null;
@@ -102,6 +115,8 @@ async function loadCompareProductPayload(input: {
     const poolRow = await db
       .select({
         id: schema.discoveryProductPool.id,
+        nameEn: schema.discoveryProductPool.nameEn,
+        nameAr: schema.discoveryProductPool.nameAr,
         differentiationEn: schema.discoveryProductPool.differentiationEn,
         differentiationAr: schema.discoveryProductPool.differentiationAr,
       })
@@ -109,6 +124,12 @@ async function loadCompareProductPayload(input: {
       .where(eq(schema.discoveryProductPool.catalogKey, catalogKey))
       .then((rows) => rows[0]);
     if (poolRow) {
+      displayProductName = resolveDisplayProductName({
+        locale,
+        nameEn: poolRow.nameEn,
+        nameAr: poolRow.nameAr,
+        fallbackName: candidate.name,
+      });
       const score = await getScoreForPoolProduct(poolRow.id);
       const parsedEvidence = parseScoreEvidence(score?.rawEvidenceJson);
       scoreEvidenceSource = parsedEvidence.source;
@@ -130,7 +151,7 @@ async function loadCompareProductPayload(input: {
   }
 
   const base = skillPayloadFromCandidateMeta({
-    productName: candidate.name,
+    productName: displayProductName,
     category: candidate.category,
     fitScore: candidate.fitScore,
     strength: candidate.strength === "Strong" ? "Strong" : "Okay",
@@ -260,11 +281,17 @@ export async function explainWorthConsideringCompare(input: {
     products: orderedProducts,
   });
 
+  const advisedMeta = {
+    advisedCandidateId: payload.advisedCandidateId,
+    advisedCatalogKey: payload.advisedCatalogKey,
+    advisedName: payload.advisedName,
+  };
+
   const narrated = await narrateCompareWithGemini(payload, input.locale, {
     apiKey,
   });
   if (!narrated.ok) {
-    return { ok: false, error: narrated.error };
+    return { ok: false, error: narrated.error, ...advisedMeta };
   }
 
   recordWhyPickRateHit(input.workspaceId);

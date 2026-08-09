@@ -51,6 +51,9 @@ export async function resetWorkspaceJourney(
       .delete(schema.financeVerdicts)
       .where(eq(schema.financeVerdicts.workspaceId, id));
     await tx
+      .delete(schema.discoveryMetricEvents)
+      .where(eq(schema.discoveryMetricEvents.workspaceId, id));
+    await tx
       .delete(schema.orchestratorEvents)
       .where(eq(schema.orchestratorEvents.workspaceId, id));
     await tx

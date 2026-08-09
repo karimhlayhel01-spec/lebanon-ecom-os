@@ -131,15 +131,114 @@ describe("Wave 2 Discovery isolation", () => {
     expect(board).toContain("canRefreshSuggestions");
   });
 
-  it("score fail helper does not clear numeric fields in source", () => {
-    const scores = read("lib/discovery/scores.ts");
-    const failFn = scores.slice(
-      scores.indexOf("export function buildFailedScoreRefreshPatch"),
-      scores.indexOf("/** Ensure a score row exists"),
+  it("live search stays behind the seam — no page-load or server-action path", () => {
+    const forbidden = [
+      "createSerpApiProvider",
+      "createBraveSearchProvider",
+      "createSerperSearchProvider",
+      "getDiscoverySearchProvider",
+      "search-usage",
+      "BRAVE_SEARCH_API_KEY",
+      "SERPER_API_KEY",
+      "DISCOVERY_SEARCH_VENDOR",
+    ];
+    const surfaces = [
+      "lib/discovery/service.ts",
+      "actions/discovery.ts",
+      "lib/discovery/explain/service.ts",
+      "lib/discovery/explain/compare-service.ts",
+    ];
+    for (const file of surfaces) {
+      const src = read(file);
+      for (const needle of forbidden) {
+        expect(src, `${file} must not reference ${needle}`).not.toContain(
+          needle,
+        );
+      }
+    }
+  });
+
+  it("providers are constructed only by the search-provider seam", () => {
+    // getDiscoverySearchProvider() is the single production bind point: jobs
+    // receive a provider, they never build one.
+    for (const file of [
+      "lib/discovery/jobs/intake.ts",
+      "lib/discovery/jobs/score-refresh.ts",
+    ]) {
+      const src = read(file);
+      expect(src).toContain("getDiscoverySearchProvider");
+      expect(src).not.toContain("createSerpApiProvider");
+      expect(src).not.toContain("createBraveSearchProvider");
+      expect(src).not.toContain("createSerperSearchProvider");
+    }
+    const seam = read("lib/discovery/search-provider.ts");
+    expect(seam).toContain("createSerpApiProvider");
+    expect(seam).toContain("createBraveSearchProvider");
+    expect(seam).toContain("createSerperSearchProvider");
+  });
+
+  it("every outbound search goes through the bounded-attempt wrapper", () => {
+    for (const file of [
+      "lib/discovery/providers/serpapi.ts",
+      "lib/discovery/providers/brave.ts",
+      "lib/discovery/providers/serper.ts",
+    ]) {
+      const src = read(file);
+      expect(src).toContain("runBoundedSearchAttempts");
+      // Without the abort signal on the request, the timeout is decorative.
+      expect(src).toMatch(/fetchFn\(url, \{[\s\S]*?signal,[\s\S]*?\}\)/);
+    }
+  });
+
+  it("keeps the metrics table workspace-scoped, unlike the global pool", () => {
+    // Funnel counters carry a workspace id, so they must be wiped with the
+    // workspace — no founder identifier outlives the account.
+    expect(WORKSPACE_CASCADE_TABLES).toContain("discovery_metric_events");
+  });
+
+  it("undo restores through the same gate the shortlist filters with", () => {
+    const service = read("lib/discovery/service.ts");
+    expect(service).toContain("export async function undoRejectCandidate");
+    expect(service).toContain("function resolveCandidateGate");
+    // One resolver for the page and for undo — they cannot drift apart.
+    const viewFn = service.slice(
+      service.indexOf("export async function getDiscoveryView"),
     );
-    expect(failFn).toContain('lastScoreStatus: "failed"');
-    expect(failFn).toContain("lastError");
-    expect(failFn).not.toContain("abroadDemandScore");
-    expect(failFn).not.toContain("compositeScore");
+    expect(viewFn).toContain("resolveCandidateGate");
+    const actions = read("actions/discovery.ts");
+    expect(actions).toContain("undoRejectAction");
+    const board = read("components/discovery/DiscoveryBoard.tsx");
+    expect(board).toContain("undoRejectAction");
+    expect(board).toContain("undoableRejects");
+  });
+
+  it("score freshness reaches the card as display-only view data", () => {
+    const service = read("lib/discovery/service.ts");
+    expect(service).toContain("resolveScoreFreshness");
+    expect(service).toContain("scoreFreshness");
+    const board = read("components/discovery/DiscoveryBoard.tsx");
+    expect(board).toContain("scoreFreshnessNote");
+    // Freshness must not be wired into accept or shortlist filtering.
+    expect(service).not.toContain("scoreFreshness.state ===");
+    expect(service).not.toMatch(/acceptReady[^\n]*freshness/i);
+  });
+
+  it("Compare tray spacer clears Coaching nested under DiscoveryBoard", () => {
+    const board = read("components/discovery/DiscoveryBoard.tsx");
+    expect(board).toContain("data-discovery-compare-tray-spacer");
+    expect(board).toContain("data-discovery-compare-tray");
+    expect(board).toContain("ResizeObserver");
+    expect(board).toContain("children?: ReactNode");
+    expect(board).not.toMatch(/className="space-y-5 pb-24"/);
+    // Fixed tray must portal to body — not sit under `.animate-rise` transform.
+    const trayFn = board.slice(
+      board.indexOf("function WorthConsideringCompareBox"),
+      board.indexOf("function UndoRejectNote"),
+    );
+    expect(trayFn).toContain("createPortal");
+    expect(trayFn).toContain("document.body");
+    const page = read("app/[locale]/dashboard/page.tsx");
+    expect(page).toContain("<DiscoveryBoard view={discovery}>");
+    expect(page).toContain("OrchestratorPanel view={orchestration} coachingOnly");
   });
 });

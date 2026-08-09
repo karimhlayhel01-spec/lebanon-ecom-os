@@ -11,9 +11,9 @@ const compareCache = new Map<string, CompareExplainResult>();
 const hits: { workspaceId: string; at: number }[] = [];
 
 /** Bump to invalidate in-memory explain paragraphs after copy/voice changes. */
-export const WHY_PICK_CACHE_VERSION = "v8-single-reason-retry";
+export const WHY_PICK_CACHE_VERSION = "v12-ar-strong-examples";
 /** Bump when compare brief shape / voice changes. */
-export const COMPARE_CACHE_VERSION = "v1-worth-considering-compare";
+export const COMPARE_CACHE_VERSION = "v6-ar-example-length";
 
 /** Max explains (Why + Compare) per workspace inside the sliding window. */
 export const WHY_PICK_RATE_LIMIT = 12;
