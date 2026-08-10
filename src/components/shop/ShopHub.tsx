@@ -13,6 +13,7 @@ import {
 } from "@/actions/sku";
 import { ToolsRow } from "@/components/shop/ToolsRow";
 import { UnitsLeftGlanceBlock } from "@/components/shop/UnitsLeftGlance";
+import { SupplierDisplayNameEditor } from "@/components/supplier/SupplierDisplayNameEditor";
 import type { UnitsLeftGlance } from "@/lib/finance/sku-runway";
 import {
   buildToolsHrefs,
@@ -28,6 +29,8 @@ export type ShopSkuChip = {
   attention: Array<{ label: string; href: string }>;
   /** Working/path supplier only — never spare-only names. */
   workingSupplierName: string | null;
+  /** When name is set — enables founder rename after sample. */
+  workingSupplierId: string | null;
   /**
    * Spare insurance unlocked for this SKU’s journey.
    * When false, omit the spares line (don’t list cold backups).
@@ -204,11 +207,24 @@ export function ShopHub({
                         </span>
                       )}
                     </div>
-                    <p className="mt-0.5 ps-6 text-[11px] text-stone-dark">
-                      {sku.workingSupplierName
-                        ? t("workingSupplier", { name: sku.workingSupplierName })
-                        : t("workingSupplierNone")}
-                    </p>
+                    <div className="mt-0.5 ps-6 text-[11px] text-stone-dark">
+                      {sku.workingSupplierName && sku.workingSupplierId ? (
+                        <span className="inline-flex min-w-0 flex-wrap items-baseline gap-x-1">
+                          <span>{t("workingSupplierPrefix")}</span>
+                          <SupplierDisplayNameEditor
+                            supplierId={sku.workingSupplierId}
+                            skuId={sku.id}
+                            name={sku.workingSupplierName}
+                            nameClassName="text-[11px] font-medium text-ink"
+                            compact
+                          />
+                        </span>
+                      ) : sku.workingSupplierName ? (
+                        t("workingSupplier", { name: sku.workingSupplierName })
+                      ) : (
+                        t("workingSupplierNone")
+                      )}
+                    </div>
                     {sku.insuranceAvailable && (
                       <p className="mt-0.5 ps-6 text-[11px] text-stone-dark">
                         {sku.warmedSpareNames.length > 0 ? (

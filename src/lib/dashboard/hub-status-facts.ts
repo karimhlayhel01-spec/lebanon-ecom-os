@@ -22,6 +22,11 @@ import {
 export type HubSupplierStatusFacts = {
   activeSampleStatus: string | null;
   supplierName: string | null;
+  /** When supplierName is set — id for founder rename after sample. */
+  supplierId: string | null;
+  /** Founder-entered path contacts — never scraped. */
+  contactEmail: string | null;
+  contactWhatsapp: string | null;
   etaFounderSet: boolean;
   etaSummaryEn: string;
   etaSummaryAr: string;
@@ -33,22 +38,32 @@ export function resolveHubSupplierStatusFactsFromRows(args: {
     supplierId: string;
     status: string;
   }[];
-  supplierRows: readonly { id: string; name: string }[];
+  supplierRows: readonly {
+    id: string;
+    name: string;
+    contactEmail: string | null;
+    contactWhatsapp: string | null;
+  }[];
   batchArrivalEtaJson: string | null;
   reorderPathSupplierId: string | null;
   reorderSupplierId: string | null;
 }): HubSupplierStatusFacts {
-  const nameById = new Map(
-    args.supplierRows.map((s) => [s.id, s.name] as const),
-  );
+  const byId = new Map(args.supplierRows.map((s) => [s.id, s] as const));
   const inFlight = findInFlightSample(args.sampleRows);
 
   let activeSampleStatus: string | null = null;
+  let supplierId: string | null = null;
   let supplierName: string | null = null;
+  let contactEmail: string | null = null;
+  let contactWhatsapp: string | null = null;
 
   if (inFlight) {
     activeSampleStatus = inFlight.status;
-    supplierName = nameById.get(inFlight.supplierId) ?? null;
+    supplierId = inFlight.supplierId;
+    const row = byId.get(inFlight.supplierId);
+    supplierName = row?.name ?? null;
+    contactEmail = row?.contactEmail?.trim() || null;
+    contactWhatsapp = row?.contactWhatsapp?.trim() || null;
   } else {
     const firstApproved = findFirstApprovedSample(args.sampleRows);
     const pathId = resolveWorkingPathSupplierId({
@@ -56,13 +71,21 @@ export function resolveHubSupplierStatusFactsFromRows(args: {
       reorderSupplierId: args.reorderSupplierId,
       firstApprovedSupplierId: firstApproved?.supplierId ?? null,
     });
-    supplierName = pathId ? (nameById.get(pathId) ?? null) : null;
+    supplierId = pathId;
+    const row = pathId ? byId.get(pathId) : undefined;
+    supplierName = row?.name ?? null;
+    contactEmail = row?.contactEmail?.trim() || null;
+    contactWhatsapp = row?.contactWhatsapp?.trim() || null;
   }
 
   const eta = resolveBatchArrivalEta(args.batchArrivalEtaJson);
+  const named = !!supplierName;
   return {
     activeSampleStatus,
     supplierName,
+    supplierId: named ? supplierId : null,
+    contactEmail: named ? contactEmail : null,
+    contactWhatsapp: named ? contactWhatsapp : null,
     etaFounderSet: eta.founderSet,
     etaSummaryEn: eta.summaryEn,
     etaSummaryAr: eta.summaryAr,
@@ -94,6 +117,8 @@ export async function loadHubSupplierStatusFacts(args: {
       .select({
         id: schema.supplierOptions.id,
         name: schema.supplierOptions.name,
+        contactEmail: schema.supplierOptions.contactEmail,
+        contactWhatsapp: schema.supplierOptions.contactWhatsapp,
       })
       .from(schema.supplierOptions)
       .where(eq(schema.supplierOptions.skuId, args.skuId)),

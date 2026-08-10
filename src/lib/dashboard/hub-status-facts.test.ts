@@ -18,8 +18,18 @@ describe("mapSkuJourneysBySkuId", () => {
 
 describe("resolveHubSupplierStatusFactsFromRows", () => {
   const suppliers = [
-    { id: "s1", name: "Shenzhen Co" },
-    { id: "s2", name: "Local Bridge" },
+    {
+      id: "s1",
+      name: "Shenzhen Co",
+      contactEmail: "sales@sz.com",
+      contactWhatsapp: "+8613800138000",
+    },
+    {
+      id: "s2",
+      name: "Local Bridge",
+      contactEmail: null,
+      contactWhatsapp: null,
+    },
   ];
 
   it("names in-flight sample supplier and status", () => {
@@ -35,6 +45,9 @@ describe("resolveHubSupplierStatusFactsFromRows", () => {
     });
     expect(facts.activeSampleStatus).toBe("requested");
     expect(facts.supplierName).toBe("Shenzhen Co");
+    expect(facts.supplierId).toBe("s1");
+    expect(facts.contactEmail).toBe("sales@sz.com");
+    expect(facts.contactWhatsapp).toBe("+8613800138000");
     expect(facts.etaFounderSet).toBe(false);
   });
 
@@ -48,6 +61,9 @@ describe("resolveHubSupplierStatusFactsFromRows", () => {
     });
     expect(facts.activeSampleStatus).toBeNull();
     expect(facts.supplierName).toBe("Local Bridge");
+    expect(facts.supplierId).toBe("s2");
+    expect(facts.contactEmail).toBeNull();
+    expect(facts.contactWhatsapp).toBeNull();
   });
 
   it("surfaces founder-set batch ETA summaries", () => {

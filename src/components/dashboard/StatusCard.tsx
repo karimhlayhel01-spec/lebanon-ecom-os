@@ -1,5 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
+import { SupplierContactsEditor } from "@/components/supplier/SupplierContactsEditor";
+import { SupplierDisplayNameEditor } from "@/components/supplier/SupplierDisplayNameEditor";
 import type {
   DashboardStatusView,
   MarketingStatusRow,
@@ -22,6 +24,8 @@ export async function SupplierStatusBlock({
     ? view.supplier.supplierName
     : titleForSupplierKind(view.supplier.kind, t);
   const supplierHint = hintForSupplier(view.supplier, t);
+  const canRename =
+    !!view.supplier.supplierName && !!view.supplier.supplierId;
 
   return (
     <div className="surface-card p-5">
@@ -31,13 +35,44 @@ export async function SupplierStatusBlock({
         forSku={t("forSku", { name: view.skuName })}
       />
       <div className="mt-4">
-        <StatusFacts
-          title={supplierTitle}
-          titleDirAuto={Boolean(view.supplier.supplierName)}
-          hint={supplierHint}
-          href={view.supplier.href}
-          openLabel={t("open")}
-        />
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            {canRename ? (
+              <SupplierDisplayNameEditor
+                supplierId={view.supplier.supplierId!}
+                skuId={view.skuId}
+                name={view.supplier.supplierName!}
+                nameClassName="text-sm font-semibold text-ink"
+              />
+            ) : (
+              <p
+                className="truncate text-sm font-semibold text-ink"
+                dir={view.supplier.supplierName ? "auto" : undefined}
+                title={supplierTitle}
+              >
+                {supplierTitle}
+              </p>
+            )}
+            <p className="mt-0.5 text-xs leading-relaxed text-stone-dark">
+              {supplierHint}
+            </p>
+            {canRename ? (
+              <SupplierContactsEditor
+                supplierId={view.supplier.supplierId!}
+                skuId={view.skuId}
+                contactEmail={view.supplier.contactEmail}
+                contactWhatsapp={view.supplier.contactWhatsapp}
+                compact
+              />
+            ) : null}
+          </div>
+          <Link
+            href={view.supplier.href}
+            className="mt-0.5 shrink-0 text-xs font-medium text-sea underline-offset-2 hover:underline"
+          >
+            {t("open")}
+          </Link>
+        </div>
       </div>
     </div>
   );

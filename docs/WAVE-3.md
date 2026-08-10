@@ -16,7 +16,10 @@ Product and engineering locks for **Wave 3**.
 
 **UX target:**
 - Keep **sample-first**, **Import | Local** tabs, **3 primaries + 2 backups** per source, batch/store locks from Wave 1.
-- Prefer **live leads** when enabled; **heuristic invent remains the safe fallback** (never empty the panel because search failed).
+- Prefer **live leads** when enabled (auto on Accept / first ensure — Refresh optional).
+  - **Import (live on):** real seats or honest empty + retry — never silent invent theater.
+  - **Import (live off):** invent Planning estimates remain the safe fallback.
+  - **Local (live on):** accurate only — empty or partial live shortlist; never invent Lebanese theater as truth.
 - Email: keep the negotiation draft; add **Gmail compose / send** when connected — never silent auto-send.
 
 **Out of scope for Wave 3 (parked):**
@@ -34,7 +37,7 @@ Product and engineering locks for **Wave 3**.
 | --- | --- |
 | **No rewrite** | Extend `ensureSuppliers` / `generateSuppliers*` / panel email UI. Do not replace the Supplier FSM. |
 | **Post-accept only** | Live leads bind when the Supplier panel (or an explicit refresh action) runs for an owned SKU — never on Discovery accept, never on Discovery card render. |
-| **Approach A for search** | Page loads must **not** re-query marketplaces every time. Persist leads on first successful fill (or explicit “Refresh supplier leads”). Failed live gather → keep / fall back to heuristic; never wipe a good shortlist. |
+| **Approach A for search** | Page loads must **not** re-query marketplaces every time. Persist leads on first successful fill (or explicit Refresh). **Import:** failed live gather → keep / fall back to heuristic; never wipe a good Import shortlist. **Local (live on):** failed/empty gather → empty Local (no invent pad); skip Local auto-backfill so empty does not re-query every visit — use **Refresh Local**. |
 | **Idempotent fill** | Same Wave 2 `supplierGenerationPlan`: generate only missing sources; do not duplicate rows on every visit. |
 | **Truthful provenance** | Each option records whether it came from `heuristic` or `live_search` (and platform / source URL when live). UI may show a calm “live lead” vs “planning estimate” hint — never fake “verified Alibaba Gold” without evidence. |
 
@@ -48,15 +51,18 @@ Product and engineering locks for **Wave 3**.
 | --- | --- |
 | **Alibaba.com / AliExpress** (public web/shopping search) | Primary **Import** lead surface via search SaaS (`site:alibaba.com`, `site:aliexpress.com`, or shopping results) — **not** official Alibaba partner API unless later locked |
 | **Other public B2B / marketplace SERP** | Allowed behind the same provider seam if they return title/url/(optional price) |
-| **Local (Lebanon)** | May stay heuristic longer; live local directories are optional later (directories / SERP `gl=lb`) — do not block Import live on Local |
+| **Local (Lebanon)** | Live via Serper when `SUPPLIER_LIVE_LEADS=1` (`gl=lb`, Lebanon / لبنان queries). **Accurate only** — no invent pad as Local truth. Zero usable leads → empty Local + calm “may not be sourcable locally” note. Prefer fewer live seats over fake Lebanese names. |
 
 ### 3.2 Provider seam
 
 - Introduce `SupplierLeadProvider` (name flexible) with a single bind point (mirror Discovery’s `getDiscoverySearchProvider` idea).
 - Env flag default **off**: `SUPPLIER_LIVE_LEADS=0`. When off, behavior = today’s invent shortlist.
-- When on + key present: gather bounded leads → map into 3+2 shape → pad with heuristic if fewer than 9 per source → persist.
+- When on + key present: gather bounded leads → map into 3+2 shape on **Accept / first ensure** (auto; Refresh optional).
+  - **Import (live on):** no invent pad — real seats, partial OK, or honest empty + retry. (Live off → invent Planning estimates.)
+  - **Local (live on):** never invent-pad; partial live shortlist or empty state only.
 - Reuse Serper / SerpAPI keys already in `.env` when possible; **count spend** (prefer shared monthly search ledger or a supplier bucket — do not unbounded-burn Serper trial).
 - Timeouts + bounded retries (same spirit as Discovery resilience).
+- **Refresh vs warm/sample:** in-flight sample on that source → Refresh **blocked**; approved/warm/chosen → Refresh requires explicit confirm (warns progress wipe).
 
 ### 3.3 Schema (additive columns)
 
@@ -65,7 +71,7 @@ Nullable / default-safe fields on `supplier_options` (names may vary in migratio
 | Field | Purpose |
 | --- | --- |
 | `leadSource` | `heuristic` \| `live_search` |
-| `platform` | e.g. `alibaba`, `aliexpress`, `other`, null for heuristic |
+| `platform` | e.g. `alibaba`, `aliexpress`, `local_web`, `other`, null for heuristic |
 | `sourceUrl` | Public listing / company URL when known |
 | `externalTitle` | Raw title from search (optional) |
 
@@ -115,7 +121,8 @@ Never commit secrets.
 - Live search on every Supplier page load
 - Auto-emailing suppliers without confirm
 - Moving Supplier onto Discovery cards
-- Clearing heuristic shortlists when live returns empty
+- Invent Local shortlist posing as real when `SUPPLIER_LIVE_LEADS` is on (empty > invent)
+- Clearing a good **Import** shortlist when Import live returns empty (Import still heuristic-pads)
 - Discovery photo gallery in this wave
 
 ---
@@ -136,6 +143,18 @@ Never commit secrets.
 | 2026-08-09 | **Card UI hides Primary/Backup** — shortlist/chosen supplier chips no longer show Primary/Backup (seat labels from 3+2 invent/live fill); internal `role` remains for sample flow, layout, and CTAs. |
 | 2026-08-09 | **Card commercialTermsHint removed** — shortlist/chosen supplier cards no longer show the commercial-terms disclaimer line; Assess / Open listing / sample CTAs unchanged. |
 | 2026-08-09 | **Card invent red-flag ⚠ hidden** — shortlist cards no longer show the ⚠ / invent tooltip; live merge clears invent `redFlags` on live_search seats. |
+| 2026-08-09 | **Live Local (Lebanon)** **LOCKED** — same `SUPPLIER_LIVE_LEADS` + `SERPER_API_KEY`; Serper `gl=lb` + Lebanon/لبنان queries (≤3); persist only http(s) URL + contact-facing name; **no invent pad** when live on (0 → empty Local + “may not be sourcable locally”; partial live OK). **Refresh Local leads** mirrors Import confirm/quota gates; Import path untouched. Approach A: skip Local auto-backfill when live on so empty does not re-query every page load. |
+| 2026-08-09 | **Local product relevance** — Local SERP hits must match SKU modifiers/distinctive tokens (`isLocalHitRelevantToProduct`); quoted product queries; loose category matches (e.g. food containers without collapsible) → drop; 0 strict matches → empty Local. Import gather unchanged. |
+| 2026-08-09 | **Local marketplace ban** — Local URL gate allows only `.lb` or Google Maps + Lebanon signal; deny Ubuy/eBay/Amazon/Noon/… brand labels on any TLD; no longer accept arbitrary hosts just because snippet says “Lebanon”. |
+| 2026-08-09 | **Both-tab Local empty note** — when Both (or frozen Both) has Import groups but zero Local groups, show a compact `bothTabNoLocalNote`; Local tab empty banner unchanged. |
+| 2026-08-09 | **Supplier Both/sample-first copy** — `intro` + `bothTabDensityNote` no longer claim dual full 3+2 / primary+backup shortlists; match empty/partial Local reality. |
+| 2026-08-09 | **Auto live fill + Refresh/warm locks** — Accept/`ensureSuppliers` one-shot live Import+Local when flag+key (Approach A; no re-query once filled). Live ON → **no invent pad** for Import or Local (empty + retry CTA). Refresh: **block** while sample in-flight on that source; **confirm** for approved/warm/chosen wipe. Refresh optional, not required for first shortlist. |
+| 2026-08-09 | **Marketing “Set ETA on Supplier”** **LOCKED** — CTA links to `#batch-arrival-eta` on SKU surface (cross-page: `/sku/{id}#batch-arrival-eta`; fallback `/supplier#batch-arrival-eta`). Same-document clicks scroll via hash (Next Link hash-only can no-op). `BatchArrivalEtaBlock` mounts with stable `id="batch-arrival-eta"` whenever sample approved **or** batch ordered, until batch arrived — so the CTA is never dead on pre-launch. Save gate (`canEditBatchArrivalEta`) matches. |
+| 2026-08-09 | **Generate kit stay on Marketing** **LOCKED** — intentional `#batch-arrival-eta` scrolls once then locks that locationKey (remount/revalidate with leftover hash must not re-scroll). Generate / Regenerate kit and Save creatives on SKU surface pin `#marketing` + suppress before revalidate (mirror Topic A stay-put). Fresh `/sku/{id}#batch-arrival-eta` still lands on ETA once. |
+| 2026-08-10 | **Founder rename supplier after sample** **LOCKED** — after ≥1 `sample_records` row for a supplier, founder may rename `supplier_options.name` (SKU SampleTracker + Shop hub Status/chip + Sample/Working supplier card). Fail-closed ownership. Assess `persistAssessedSupplierName` stays no-op (no auto-rename). No rename on shortlist/Assess cards. One DB write → hub + SKU sync via revalidate. |
+| 2026-08-10 | **Contact supplier door (path/working card)** **LOCKED** — after sample path is chosen, `ChosenSupplierSummary` (Sample supplier / Working supplier) is the **primary contact surface** for the whole SKU journey (sample → approve → batch → selling/reorder). Door opens a portal modal (same pattern as Assess) with Open listing (when URL), honesty `emailDraftHint`, read-only `negotiationDraft`, Copy draft, Open in Gmail (Phase 3a). OS does **not** auto-email or invent inboxes. Shortlist card email remains for browse/pick only. Additive; no FSM rewrite; no Phase 3b Zapier send. Card stays multi-target (Rename / Open listing / View shortlist keep working). |
+| 2026-08-10 | **Founder-stored supplier email + WhatsApp** **LOCKED** — nullable `supplier_options.contact_email` / `contact_whatsapp` (founder-entered only; never Serper/Assess/scrape). Same sample-request gate as rename (≥1 `sample_records`). Surfaces: Shop hub Supplier Status + Contact supplier door (shared editor). One DB write → hub + SKU sync via revalidate. Open in Gmail prefills `to` when email set; Open WhatsApp → `wa.me/{digits}` when set. Do **not** use `store_readiness.whatsappNumber`. OS still does not auto-email/auto-WhatsApp. Shortlist cards: no contact edit. No Phase 3b. |
+| 2026-08-10 | **Spare rename + contacts + Contact door** **LOCKED** — same sample-request gate applies to path **or** spare (`supplier_options` SoT; path vs spare is display only). SKU Supplier panel: every SampleTracker (incl. spare) gets Rename + contacts + Contact door; warmed-spares list on Sample/Working card and warm switch list get Rename + Contact (modal parameterized by that spare’s `SupplierView`). Hub Status stays **working/path only**. Shortlist cold seats: still no rename/contacts. Additive; no FSM / flight-cap / scrape changes. |
 
 ### Assess listing recommendation tiers (skills pick; Gemini narrates)
 

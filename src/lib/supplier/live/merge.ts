@@ -1,5 +1,7 @@
 /**
- * Merge live Import leads into the 3+2 GenSupplier shape; pad with heuristic.
+ * Merge live leads into the 3+2 GenSupplier shape.
+ * Import: pad remaining seats with heuristic (planning estimates).
+ * Local (live on): never invent-pad — only real live seats (partial shortlist OK).
  */
 
 import type { SupplierSource } from "@/lib/supplier/source";
@@ -28,15 +30,21 @@ export type MergeableSupplier = {
 const MOQ_LADDER = [50, 100, 150, 200, 300, 500];
 
 /**
- * Prefer live leads for Import slots; fill remaining 3+2 seats from heuristic.
- * Local rows stay heuristic-only in this pass.
+ * Overlay live leads onto heuristic seat templates.
+ * - `padHeuristic: true` (Import default): fill remaining seats from invent.
+ * - `padHeuristic: false` (Local live): emit only live seats; empty → [].
  */
 export function mergeLiveLeadsIntoShortlist(input: {
   source: SupplierSource;
   liveLeads: SupplierLead[];
   heuristic: MergeableSupplier[];
+  /** Default true for Import. Local live must pass false. */
+  padHeuristic?: boolean;
 }): MergeableSupplier[] {
-  if (input.source !== "import" || input.liveLeads.length === 0) {
+  const padHeuristic = input.padHeuristic ?? true;
+
+  if (input.liveLeads.length === 0) {
+    if (!padHeuristic) return [];
     return input.heuristic.map((h) => ({
       ...h,
       leadSource: h.leadSource ?? "heuristic",
@@ -53,13 +61,15 @@ export function mergeLiveLeadsIntoShortlist(input: {
   for (const seat of seats) {
     const lead = input.liveLeads[liveIdx];
     if (!lead) {
-      out.push({
-        ...seat,
-        leadSource: "heuristic",
-        platform: null,
-        sourceUrl: null,
-        externalTitle: null,
-      });
+      if (padHeuristic) {
+        out.push({
+          ...seat,
+          leadSource: "heuristic",
+          platform: null,
+          sourceUrl: null,
+          externalTitle: null,
+        });
+      }
       continue;
     }
     liveIdx += 1;

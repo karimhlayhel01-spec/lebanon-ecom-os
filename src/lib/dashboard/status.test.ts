@@ -42,10 +42,16 @@ describe("mapSupplierStatusRow", () => {
         sampleStatus: "in_flight",
         activeSampleStatus: "requested",
         supplierName: "Shenzhen Co",
+        supplierId: "sup-1",
+        contactEmail: "sales@sz.com",
+        contactWhatsapp: "+86138",
       }),
     ).toMatchObject({
       kind: "sample_in_flight",
       supplierName: "Shenzhen Co",
+      supplierId: "sup-1",
+      contactEmail: "sales@sz.com",
+      contactWhatsapp: "+86138",
       etaSummary: null,
     });
   });

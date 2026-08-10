@@ -1,12 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type MouseEvent } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import {
   generateKitAction,
   saveKitCreativesAction,
 } from "@/actions/marketing";
+import {
+  isElementStartInView,
+  isSkuPagePathname,
+  markBatchArrivalEtaDeepLinkConsumed,
+  markStayOnMarketingAfterKitAction,
+  skuFocusLocationKey,
+} from "@/lib/sku/suppress-auto-scroll";
 import type {
   Creative,
   MarketingKitView,
@@ -15,6 +22,12 @@ import type {
 import { compareCreativesByCalendar } from "@/lib/marketing/creatives";
 import type { BatchArrivalEtaView } from "@/lib/supplier/batch-eta";
 import type { MarketingStage } from "@/lib/constants";
+
+/** Pin #marketing + suppress leftover ETA hash before kit writes on SKU spine. */
+function stayOnMarketingForKitWrite(skuId: string | null | undefined) {
+  if (!skuId || !isSkuPagePathname()) return;
+  markStayOnMarketingAfterKitAction(skuId);
+}
 
 export function MarketingPanel({
   view,
@@ -144,10 +157,13 @@ export function MarketingPanel({
         !view.stages.some((s) => s.stage === "launch" && s.unlocked) && (
           <PreLaunchEtaBanner
             eta={view.batchArrivalEta}
+            skuId={view.selectedSkuId}
             supplierHref={
               view.selectedSkuId
-                ? `/sku/${view.selectedSkuId}#supplier`
-                : "/supplier"
+                ? surface === "sku"
+                  ? "#batch-arrival-eta"
+                  : `/sku/${view.selectedSkuId}#batch-arrival-eta`
+                : "/supplier#batch-arrival-eta"
             }
           />
         )}
@@ -187,7 +203,14 @@ export function MarketingPanel({
           activeKits
             .slice()
             .reverse()
-            .map((kit) => <KitBlock key={kit.id} kit={kit} />)
+            .map((kit) => (
+              <KitBlock
+                key={kit.id}
+                kit={kit}
+                skuId={view.isShopKit ? null : view.selectedSkuId}
+                surface={surface}
+              />
+            ))
         )}
       </div>
     </div>
@@ -197,13 +220,31 @@ export function MarketingPanel({
 function PreLaunchEtaBanner({
   eta,
   supplierHref,
+  skuId,
 }: {
   eta: BatchArrivalEtaView;
   supplierHref: string;
+  skuId: string | null;
 }) {
   const t = useTranslations("Marketing");
   const locale = useLocale();
   const summary = locale === "ar" ? eta.summaryAr : eta.summaryEn;
+
+  function goToEta(e: MouseEvent<HTMLAnchorElement>) {
+    // Next.js Link often skips same-document hash-only navigations.
+    if (typeof window === "undefined") return;
+    const el = document.getElementById("batch-arrival-eta");
+    if (!el) return;
+    e.preventDefault();
+    if (window.location.hash !== "#batch-arrival-eta") {
+      window.history.pushState(null, "", "#batch-arrival-eta");
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    // One-shot: remount with leftover hash must not re-scroll (Generate kit).
+    if (skuId) {
+      markBatchArrivalEtaDeepLinkConsumed(skuId, skuFocusLocationKey());
+    }
+  }
 
   return (
     <div className="mt-3 rounded-md border border-stone bg-surface-subtle px-3 py-2.5 text-xs text-ink">
@@ -220,6 +261,7 @@ function PreLaunchEtaBanner({
           {t("etaDefaultNote")}{" "}
           <Link
             href={supplierHref}
+            onClick={goToEta}
             className="font-semibold text-cedar-deep underline underline-offset-2"
           >
             {t("etaGoSupplier")}
@@ -332,6 +374,8 @@ function StageCard({
               e.stopPropagation();
               setError(null);
               startTransition(async () => {
+                // Stay on Marketing: clear leftover #batch-arrival-eta before revalidate.
+                stayOnMarketingForKitWrite(kitSkuId);
                 // Button click acknowledges launch budget rules (no checkbox).
                 // Shop kits: null. SKU kits: always pass kitSkuId (never undefined).
                 const res = await generateKitAction(
@@ -348,6 +392,16 @@ function StageCard({
                   return;
                 }
                 onGenerated(stage);
+                // Soft-scroll only if Marketing left the viewport (prefer stay put).
+                if (surface === "sku" && typeof document !== "undefined") {
+                  const m = document.getElementById("marketing");
+                  if (
+                    m &&
+                    !isElementStartInView(m.getBoundingClientRect().top, 160)
+                  ) {
+                    m.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }
+                }
               });
             }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -361,13 +415,28 @@ function StageCard({
   );
 }
 
-function KitBlock({ kit }: { kit: MarketingKitView }) {
+function KitBlock({
+  kit,
+  skuId,
+  surface,
+}: {
+  kit: MarketingKitView;
+  skuId: string | null;
+  surface: "deep" | "sku";
+}) {
   if (kit.kind === "intro_lesson" && kit.lesson) {
     return <IntroLessonBlock kit={kit} lesson={kit.lesson} />;
   }
   // Remount when regenerate swaps creative ids so local edit state resets.
   const creativesKey = kit.creatives.map((c) => c.id).join(",") || kit.id;
-  return <CreativeKitBlock key={creativesKey} kit={kit} />;
+  return (
+    <CreativeKitBlock
+      key={creativesKey}
+      kit={kit}
+      skuId={skuId}
+      surface={surface}
+    />
+  );
 }
 
 /** Intro lesson accordion — one section open at a time. */
@@ -466,7 +535,15 @@ function LessonBody({ text }: { text: string }) {
   );
 }
 
-function CreativeKitBlock({ kit }: { kit: MarketingKitView }) {
+function CreativeKitBlock({
+  kit,
+  skuId,
+  surface,
+}: {
+  kit: MarketingKitView;
+  skuId: string | null;
+  surface: "deep" | "sku";
+}) {
   const t = useTranslations("Marketing");
   const locale = useLocale();
   const isAr = locale === "ar";
@@ -502,6 +579,7 @@ function CreativeKitBlock({ kit }: { kit: MarketingKitView }) {
 
   function persistSchedule(next: Creative[]) {
     startTransition(async () => {
+      if (surface === "sku") stayOnMarketingForKitWrite(skuId);
       const res = await saveKitCreativesAction(kit.id, next);
       if (res.ok) setSaved(true);
     });
@@ -595,6 +673,7 @@ function CreativeKitBlock({ kit }: { kit: MarketingKitView }) {
           disabled={pending}
           onClick={() =>
             startTransition(async () => {
+              if (surface === "sku") stayOnMarketingForKitWrite(skuId);
               const res = await saveKitCreativesAction(kit.id, creatives);
               if (res.ok) setSaved(true);
             })

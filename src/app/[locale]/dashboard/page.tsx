@@ -13,7 +13,7 @@ import { getShopOrchestration } from "@/lib/orchestrator/service";
 import { normalizeReorderStatus } from "@/lib/supplier/reorder";
 import {
   resolveWarmedSparesBySku,
-  resolveWorkingSupplierNamesBySku,
+  resolveWorkingSuppliersBySku,
 } from "@/lib/supplier/working-path";
 import { db, schema } from "@/db";
 import { asc, eq } from "drizzle-orm";
@@ -234,8 +234,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
       await listSkuJourneysForSkus(live.map((s) => s.id)),
     );
     const liveIds = live.map((s) => s.id);
-    const [workingNames, warmedBySku] = await Promise.all([
-      resolveWorkingSupplierNamesBySku(liveIds, journeyBySkuId),
+    const [workingSuppliers, warmedBySku] = await Promise.all([
+      resolveWorkingSuppliersBySku(liveIds, journeyBySkuId),
       resolveWarmedSparesBySku(liveIds, journeyBySkuId),
     ]);
 
@@ -289,12 +289,14 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         insuranceAvailable: false,
         warmedSpareNames: [],
       };
+      const working = workingSuppliers.get(s.id) ?? null;
       skuChips.push({
         id: s.id,
         name: s.name,
         primaryState: effState,
         paused: j?.primaryState === "paused" || shopPaused,
-        workingSupplierName: workingNames.get(s.id) ?? null,
+        workingSupplierName: working?.name ?? null,
+        workingSupplierId: working?.id ?? null,
         insuranceAvailable: spares.insuranceAvailable,
         warmedSpareNames: spares.warmedSpareNames,
         unitsLeftGlance: showUnits ? unitsLeftGlance : null,

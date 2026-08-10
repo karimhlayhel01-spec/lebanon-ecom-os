@@ -24,6 +24,11 @@ export type SupplierStatusRow = {
   kind: SupplierStatusKind;
   /** Only when a sample is tied to a specific supplier. */
   supplierName: string | null;
+  /** Present with supplierName — enables founder rename after sample. */
+  supplierId: string | null;
+  /** Founder-entered path contacts — never scraped. */
+  contactEmail: string | null;
+  contactWhatsapp: string | null;
   /** Founder-set ETA summary for the active locale; null when omitted. */
   etaSummary: string | null;
   /** Deep link — Wave 1 hub uses `/sku/[id]#supplier`. */
@@ -49,6 +54,9 @@ export type MapSupplierStatusInput = {
   /** Active sample record status (requested | received | approved), if any. */
   activeSampleStatus: string | null;
   supplierName: string | null;
+  supplierId?: string | null;
+  contactEmail?: string | null;
+  contactWhatsapp?: string | null;
   batchOrdered: boolean;
   batchArrivedReady: boolean;
   etaFounderSet: boolean;
@@ -59,6 +67,20 @@ export type MapSupplierStatusInput = {
   href?: string;
 };
 
+function emptyContacts() {
+  return { contactEmail: null as string | null, contactWhatsapp: null as string | null };
+}
+
+function contactsFrom(input: MapSupplierStatusInput) {
+  const name = input.supplierName?.trim() || null;
+  const supplierId = name ? (input.supplierId?.trim() || null) : null;
+  if (!supplierId) return emptyContacts();
+  return {
+    contactEmail: input.contactEmail?.trim() || null,
+    contactWhatsapp: input.contactWhatsapp?.trim() || null,
+  };
+}
+
 /**
  * Pure mapper: side/sample flags → supplier Status row.
  * No coaching, CTAs, money, or invented ETA.
@@ -68,15 +90,26 @@ export function mapSupplierStatusRow(
 ): SupplierStatusRow {
   const href = input.href ?? "/supplier";
   const name = input.supplierName?.trim() || null;
+  const supplierId = name ? (input.supplierId?.trim() || null) : null;
+  const contacts = contactsFrom(input);
 
   if (!input.productAccepted) {
-    return { kind: "no_product", supplierName: null, etaSummary: null, href };
+    return {
+      kind: "no_product",
+      supplierName: null,
+      supplierId: null,
+      ...emptyContacts(),
+      etaSummary: null,
+      href,
+    };
   }
 
   if (input.sampleStatus === "rejected") {
     return {
       kind: "sample_rejected",
       supplierName: null,
+      supplierId: null,
+      ...emptyContacts(),
       etaSummary: null,
       href,
     };
@@ -86,6 +119,8 @@ export function mapSupplierStatusRow(
     return {
       kind: "batch_arrived",
       supplierName: name,
+      supplierId,
+      ...contacts,
       etaSummary: null,
       href,
     };
@@ -102,6 +137,8 @@ export function mapSupplierStatusRow(
       return {
         kind: "batch_ordered",
         supplierName: name,
+        supplierId,
+        ...contacts,
         etaSummary,
         href,
       };
@@ -109,6 +146,8 @@ export function mapSupplierStatusRow(
     return {
       kind: "sample_approved",
       supplierName: name,
+      supplierId,
+      ...contacts,
       etaSummary: null,
       href,
     };
@@ -122,6 +161,8 @@ export function mapSupplierStatusRow(
     return {
       kind: "sample_received",
       supplierName: name,
+      supplierId,
+      ...contacts,
       etaSummary: null,
       href,
     };
@@ -134,13 +175,22 @@ export function mapSupplierStatusRow(
     return {
       kind: "sample_in_flight",
       supplierName: name,
+      supplierId,
+      ...contacts,
       etaSummary: null,
       href,
     };
   }
 
   // sampleStatus "none" after replace, or product accepted with no sample yet.
-  return { kind: "no_sample", supplierName: null, etaSummary: null, href };
+  return {
+    kind: "no_sample",
+    supplierName: null,
+    supplierId: null,
+    ...emptyContacts(),
+    etaSummary: null,
+    href,
+  };
 }
 
 export type MapMarketingStatusInput = {
@@ -234,6 +284,9 @@ export async function getDashboardStatus(args: {
     : {
         activeSampleStatus: null,
         supplierName: null,
+        supplierId: null,
+        contactEmail: null,
+        contactWhatsapp: null,
         etaFounderSet: false,
         etaSummaryEn: "",
         etaSummaryAr: "",
@@ -266,6 +319,9 @@ export async function getDashboardStatus(args: {
     sampleStatus: args.sampleStatus,
     activeSampleStatus: facts.activeSampleStatus,
     supplierName: facts.supplierName,
+    supplierId: facts.supplierId,
+    contactEmail: facts.contactEmail,
+    contactWhatsapp: facts.contactWhatsapp,
     batchOrdered,
     batchArrivedReady,
     etaFounderSet: facts.etaFounderSet,

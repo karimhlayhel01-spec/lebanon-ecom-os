@@ -1,5 +1,5 @@
 /**
- * Wave 3 — Serper organic leads for Import (Alibaba / AliExpress listing queries).
+ * Wave 3 — Serper organic leads for Import (Alibaba / AliExpress) and Local (Lebanon).
  * Approach A: called only from ensureSuppliers / explicit refresh, not every render.
  */
 
@@ -13,7 +13,11 @@ import {
   parseRetryAfterMs,
 } from "@/lib/discovery/providers/resilience";
 import { resolveContactFacingLeadName } from "@/lib/supplier/live/company-name";
-import { isAllowedImportListingUrl } from "@/lib/supplier/live/url-filter";
+import { isLocalHitRelevantToProduct } from "@/lib/supplier/live/local-relevance";
+import {
+  isAllowedImportListingUrl,
+  isAllowedLocalListingUrl,
+} from "@/lib/supplier/live/url-filter";
 import type {
   GatherSupplierLeadsInput,
   GatherSupplierLeadsResult,
@@ -35,7 +39,7 @@ function platformFromUrl(url: string): SupplierLeadPlatform {
 }
 
 /**
- * Map one organic hit → live lead, or null when URL is not a listing/company page.
+ * Map one organic hit → live Import lead, or null when URL is not a listing/company page.
  * Pure — unit-tested with fixtures (no network).
  */
 export function mapOrganicHitToImportLead(
@@ -70,6 +74,41 @@ export function mapOrganicHitToImportLead(
   };
 }
 
+/**
+ * Map one organic hit → live Local (Lebanon) lead, or null when URL/snippet
+ * fails the Lebanon gate or the hit is not product-relevant to the SKU.
+ * Pure — unit-tested with fixtures (no network).
+ */
+export function mapOrganicHitToLocalLead(
+  row: SerperOrganic,
+  productName: string,
+): SupplierLead | null {
+  const url = (row.link ?? "").trim();
+  const title = (row.title ?? "").trim();
+  if (!url || !/^https?:\/\//i.test(url)) return null;
+  if (!isAllowedLocalListingUrl(url, row.snippet)) return null;
+  if (!isLocalHitRelevantToProduct(productName, title, row.snippet)) return null;
+
+  const product = productName.replace(/\s+/g, " ").trim() || "product";
+  const externalTitle = title || product;
+  const { name } = resolveContactFacingLeadName({
+    title: externalTitle,
+    url,
+    snippet: row.snippet,
+    productName: product,
+    platform: "local_web",
+  });
+
+  return {
+    name,
+    platform: "local_web",
+    sourceUrl: url,
+    externalTitle: externalTitle.slice(0, 240),
+    unitPriceHint: null,
+    leadSource: "live_search",
+  };
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
@@ -78,7 +117,10 @@ async function serperOrganicSearch(
   apiKey: string,
   q: string,
   num: number,
+  opts?: { gl?: string; hl?: string },
 ): Promise<{ results: SerperOrganic[]; ok: boolean }> {
+  const gl = opts?.gl ?? "us";
+  const hl = opts?.hl ?? "en";
   let lastRetryAfter: number | null = null;
   for (let attempt = 1; attempt <= DISCOVERY_SEARCH_MAX_ATTEMPTS; attempt++) {
     const ctrl = new AbortController();
@@ -93,7 +135,7 @@ async function serperOrganicSearch(
           "Content-Type": "application/json",
           "X-API-KEY": apiKey,
         },
-        body: JSON.stringify({ q, gl: "us", hl: "en", num }),
+        body: JSON.stringify({ q, gl, hl, num }),
         signal: ctrl.signal,
       });
       if (!res.ok) {
@@ -124,7 +166,6 @@ async function serperOrganicSearch(
 
 /**
  * Import leads: listing-biased site queries (2 max).
- * Local source returns empty (heuristic pads) until a Local live path is locked.
  */
 export async function gatherImportLeadsWithSerper(
   input: GatherSupplierLeadsInput,
@@ -149,12 +190,68 @@ export async function gatherImportLeadsWithSerper(
 
   for (const q of queries) {
     if (leads.length >= input.limit) break;
-    const { results, ok } = await serperOrganicSearch(apiKey, q, perSite);
+    const { results, ok } = await serperOrganicSearch(apiKey, q, perSite, {
+      gl: "us",
+      hl: "en",
+    });
     queriesUsed += 1;
     if (ok) anyOk = true;
     for (const row of results) {
       if (leads.length >= input.limit) break;
       const lead = mapOrganicHitToImportLead(row, product);
+      if (!lead) continue;
+      const key = lead.sourceUrl.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      leads.push(lead);
+    }
+  }
+
+  return {
+    leads,
+    queriesUsed,
+    noop: false,
+    error: anyOk || leads.length > 0 ? undefined : "serper_gather_failed",
+  };
+}
+
+/**
+ * Local (Lebanon) leads: quoted product phrase + Lebanon bias (≤3), gl=lb.
+ * Prefer fewer product-relevant seats over invent theater or loose category hits.
+ */
+export async function gatherLocalLeadsWithSerper(
+  input: GatherSupplierLeadsInput,
+  apiKey: string,
+): Promise<GatherSupplierLeadsResult> {
+  if (input.source !== "local") {
+    return { leads: [], queriesUsed: 0, noop: false };
+  }
+
+  const product = input.productName.replace(/\s+/g, " ").trim() || "product";
+  const quoted = `"${product.replace(/"/g, "")}"`;
+  const perQuery = Math.max(4, Math.ceil(input.limit / 2));
+  const queries: Array<{ q: string; gl: string; hl: string }> = [
+    { q: `${quoted} wholesale Lebanon`, gl: "lb", hl: "en" },
+    { q: `${quoted} supplier Lebanon`, gl: "lb", hl: "en" },
+    { q: `${quoted} مورد لبنان`, gl: "lb", hl: "ar" },
+  ];
+
+  const leads: SupplierLead[] = [];
+  const seen = new Set<string>();
+  let queriesUsed = 0;
+  let anyOk = false;
+
+  for (const { q, gl, hl } of queries) {
+    if (leads.length >= input.limit) break;
+    const { results, ok } = await serperOrganicSearch(apiKey, q, perQuery, {
+      gl,
+      hl,
+    });
+    queriesUsed += 1;
+    if (ok) anyOk = true;
+    for (const row of results) {
+      if (leads.length >= input.limit) break;
+      const lead = mapOrganicHitToLocalLead(row, product);
       if (!lead) continue;
       const key = lead.sourceUrl.toLowerCase();
       if (seen.has(key)) continue;

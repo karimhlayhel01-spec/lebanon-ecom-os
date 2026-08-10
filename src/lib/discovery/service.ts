@@ -1199,6 +1199,15 @@ export async function acceptProduct(
     dedupeKey: candidateMetricDedupeKey(candidate.id, "accept"),
   });
 
+  // Wave 3: start live Import/Local fill before the founder opens Supplier
+  // (Approach A one-shot). Failures stay soft — panel may show empty + retry.
+  try {
+    const { ensureSuppliers } = await import("@/lib/supplier/service");
+    await ensureSuppliers(workspaceId, skuId);
+  } catch {
+    // Soft: accept still succeeds; getSupplierPanel will retry ensure.
+  }
+
   return { ok: true, skuId };
 }
 

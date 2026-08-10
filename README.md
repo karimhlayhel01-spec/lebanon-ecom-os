@@ -201,7 +201,7 @@ After accept, work happens on the **shop hub** and **per-SKU pages** (`/sku/[id]
 ### Supplier / Import (`src/lib/supplier/`)
 
 - **3 primaries + 2 backups each = 9 options** per source (Import + Local), with years/rating/red-flag signals
-- **Wave 3 (additive):** optional **live Import leads** from public Alibaba/AliExpress SERP (`SUPPLIER_LIVE_LEADS=1` + `SERPER_API_KEY`) — Approach A one-shot on first fill; heuristic fallback. See `docs/WAVE-3.md`
+- **Wave 3 (additive):** optional **live Import + Local leads** via Serper (`SUPPLIER_LIVE_LEADS=1` + `SERPER_API_KEY`) — Approach A one-shot / Refresh; Import may pad with planning estimates; Local never invent-pads (empty or partial live only). See `docs/WAVE-3.md`
 - **Email:** negotiation draft + **Copy** / **Open in Gmail** (compose URL). Confirmed in-app Gmail send via Zapier/MCP is Phase 3b
 - **Sample-first** flow: request → received → decide (`sample_decision` approval)
 - Parallel **same-source spare** samples; spare approve does not switch the working path; **can’t-fulfill** prefers warm spares; cost quotes go stale on **path switch** only

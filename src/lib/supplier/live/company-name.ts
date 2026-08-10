@@ -68,12 +68,15 @@ function platformFallback(
   if (platform === "aliexpress") {
     return clampName(`AliExpress seller listing · ${short}`);
   }
+  if (platform === "local_web") {
+    return clampName(`Local listing · ${short}`);
+  }
   return clampName(`Marketplace listing · ${short}`);
 }
 
 /** True when the card still shows the honest platform listing placeholder. */
 export function isPlatformListingFallbackName(name: string): boolean {
-  return /^(Alibaba listing|AliExpress seller listing|Marketplace listing)\s*·/i.test(
+  return /^(Alibaba listing|AliExpress seller listing|Marketplace listing|Local listing)\s*·/i.test(
     name.trim(),
   );
 }

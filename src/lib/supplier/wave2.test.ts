@@ -364,6 +364,22 @@ describe("source tabs + grouping + backfill plan", () => {
       generateImport: false,
       generateLocal: false,
     });
+    // Live empty pools are intentional — skip auto-backfill (Refresh only).
+    expect(
+      supplierGenerationPlan(["import"], { skipLocalBackfill: true }),
+    ).toEqual({
+      generateImport: false,
+      generateLocal: false,
+    });
+    expect(
+      supplierGenerationPlan(["local"], {
+        skipImportBackfill: true,
+        skipLocalBackfill: true,
+      }),
+    ).toEqual({
+      generateImport: false,
+      generateLocal: false,
+    });
   });
 });
 

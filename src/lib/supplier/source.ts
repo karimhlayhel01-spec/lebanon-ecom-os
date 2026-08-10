@@ -95,7 +95,22 @@ export function groupSuppliersBySourceAndRank<
 }
 
 /** What to generate when ensuring suppliers for a SKU. */
-export function supplierGenerationPlan(existingSources: SupplierSource[]): {
+export function supplierGenerationPlan(
+  existingSources: SupplierSource[],
+  opts?: {
+    /**
+     * When live Local is on, an empty Local pool is intentional (no invent pad).
+     * Skip auto-backfill so Approach A does not re-query every page load —
+     * founders use Refresh Local instead.
+     */
+    skipLocalBackfill?: boolean;
+    /**
+     * When live Import is on, empty Import after a failed/empty gather is
+     * intentional (honest empty + retry). Skip invent backfill / re-query.
+     */
+    skipImportBackfill?: boolean;
+  },
+): {
   generateImport: boolean;
   generateLocal: boolean;
 } {
@@ -105,7 +120,7 @@ export function supplierGenerationPlan(existingSources: SupplierSource[]): {
     return { generateImport: true, generateLocal: true };
   }
   return {
-    generateImport: !hasImport,
-    generateLocal: !hasLocal,
+    generateImport: !hasImport && !opts?.skipImportBackfill,
+    generateLocal: !hasLocal && !opts?.skipLocalBackfill,
   };
 }

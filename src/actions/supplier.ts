@@ -13,7 +13,10 @@ import {
   reportSupplierCantFulfill,
   requestSample,
   refreshImportLeads,
+  refreshLocalLeads,
+  renameSupplierDisplayName,
   saveCostQuotes,
+  saveSupplierContacts,
   setBatchArrivalEta,
   setReorderArrivalEta,
   switchReorderBackup,
@@ -22,9 +25,12 @@ import {
   type OrderBatchResult,
   type OrderNextBatchResult,
   type RefreshImportLeadsResult,
+  type RefreshLocalLeadsResult,
+  type RenameSupplierDisplayNameResult,
   type ReportCantFulfillResult,
   type SampleDecision,
   type SaveCostQuotesResult,
+  type SaveSupplierContactsResult,
   type SetBatchArrivalEtaResult,
   type SetReorderArrivalEtaResult,
   type SwitchReorderBackupResult,
@@ -79,12 +85,67 @@ export async function refreshImportLeadsAction(
   return res;
 }
 
+export async function refreshLocalLeadsAction(
+  skuId: string,
+  opts?: { confirmResetProgress?: boolean },
+): Promise<RefreshLocalLeadsResult> {
+  await ensureMigrated();
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await refreshLocalLeads(ctx.workspace.id, skuId, opts);
+  revalidatePath("/", "layout");
+  return res;
+}
+
 export async function requestSampleAction(supplierId: string) {
   await ensureMigrated();
   const ctx = await workspaceForRequest();
   if (!ctx.ok) return { ok: false, error: ctx.error };
   const res = await requestSample(ctx.workspace.id, supplierId);
   revalidatePath("/", "layout");
+  return res;
+}
+
+/**
+ * Founder rename of supplier card/hub display name after sample request.
+ * Fail-closed ownership; gate requires ≥1 sample_records row for supplierId.
+ */
+export async function renameSupplierDisplayNameAction(
+  supplierId: string,
+  nextName: string,
+): Promise<RenameSupplierDisplayNameResult> {
+  await ensureMigrated();
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  const res = await renameSupplierDisplayName(
+    ctx.workspace.id,
+    supplierId,
+    nextName,
+  );
+  if (res.ok) {
+    revalidatePath("/", "layout");
+  }
+  return res;
+}
+
+/**
+ * Founder save of path-supplier email / WhatsApp after sample request.
+ * Fail-closed ownership; gate requires ≥1 sample_records row for supplierId.
+ */
+export async function saveSupplierContactsAction(
+  supplierId: string,
+  input: { email?: string | null; whatsapp?: string | null },
+): Promise<SaveSupplierContactsResult> {
+  await ensureMigrated();
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  const res = await saveSupplierContacts(ctx.workspace.id, supplierId, input);
+  if (res.ok) {
+    revalidatePath("/", "layout");
+  }
   return res;
 }
 

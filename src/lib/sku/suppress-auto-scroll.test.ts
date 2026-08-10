@@ -2,14 +2,17 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import {
   clearSkuAutoScrollSuppress,
   clearStayOnFinanceAfterTopicAAction,
+  consumeBatchArrivalEtaDeepLinkOnce,
   consumeDeepLinkIfUnlocked,
   consumeStayOnFinanceAfterTopicAAction,
   isElementStartInView,
   isSkuAutoScrollSuppressed,
   isSkuPagePathname,
   isStayOnFinanceAfterTopicAAction,
+  markBatchArrivalEtaDeepLinkConsumed,
   markStayOnFinanceAfterTopicAAction,
   markStayOnFinanceAfterStartSelling,
+  markStayOnMarketingAfterKitAction,
   shouldBlockSkuFocusScroll,
   suppressSkuAutoScroll,
   suppressSkuAutoScrollAfterBatchAction,
@@ -24,6 +27,9 @@ const BATCH_WITH_LEFTOVER_FINANCE = `/en/sku/${SKU}?attn=batch#finance`;
 const REORDER_WITH_LEFTOVER = `/en/sku/${SKU}?attn=reorder#supplier`;
 const EXPLICIT_FINANCE_CTA = `/en/sku/${SKU}?attn=selling#finance`;
 const REORDER_NEW_CTA = `/en/sku/${SKU}?attn=reorder#supplier&fresh=1`;
+const ETA_KEY = `/en/sku/${SKU}#batch-arrival-eta`;
+const MARKETING_KEY = `/en/sku/${SKU}#marketing`;
+const ETA_KEY_FRESH_QUERY = `/en/sku/${SKU}?attn=batch#batch-arrival-eta`;
 
 describe("suppressSkuAutoScroll (durable sample-card lock)", () => {
   beforeEach(() => {
@@ -269,6 +275,74 @@ describe("stay on finance after Topic A actions (Start selling / Save week)", ()
   it("markStay is a no-op on /finance (not a SKU page)", () => {
     markStayOnFinanceAfterTopicAAction(SKU, "/en/finance");
     expect(isStayOnFinanceAfterTopicAAction(SKU)).toBe(false);
+  });
+});
+
+describe("batch-arrival-eta deep-link one-shot + Generate kit stay on Marketing", () => {
+  beforeEach(() => {
+    clearSkuAutoScrollSuppress();
+    clearStayOnFinanceAfterTopicAAction();
+  });
+
+  afterEach(() => {
+    clearSkuAutoScrollSuppress();
+    clearStayOnFinanceAfterTopicAAction();
+  });
+
+  it("leftover same #batch-arrival-eta locationKey blocks second scroll", () => {
+    expect(consumeBatchArrivalEtaDeepLinkOnce(SKU, ETA_KEY)).toBe(true);
+    markBatchArrivalEtaDeepLinkConsumed(SKU, ETA_KEY);
+    expect(consumeBatchArrivalEtaDeepLinkOnce(SKU, ETA_KEY)).toBe(false);
+    expect(isSkuAutoScrollSuppressed(SKU)).toBe(true);
+  });
+
+  it("new intentional ETA location key allows scroll once again", () => {
+    markBatchArrivalEtaDeepLinkConsumed(SKU, ETA_KEY);
+    expect(consumeBatchArrivalEtaDeepLinkOnce(SKU, ETA_KEY)).toBe(false);
+    expect(consumeBatchArrivalEtaDeepLinkOnce(SKU, ETA_KEY_FRESH_QUERY)).toBe(
+      true,
+    );
+    expect(isSkuAutoScrollSuppressed(SKU)).toBe(false);
+  });
+
+  it("Generate kit pins #marketing and blocks leftover ETA remount scroll", () => {
+    const loc: { pathname: string; search: string; hash: string } = {
+      pathname: `/en/sku/${SKU}`,
+      search: "",
+      hash: "#batch-arrival-eta",
+    };
+    const replaceState = vi.fn(
+      (_state: unknown, _title: string, url: string) => {
+        const hashIdx = url.indexOf("#");
+        loc.hash = hashIdx >= 0 ? url.slice(hashIdx) : "";
+      },
+    );
+    vi.stubGlobal("window", {
+      location: {
+        get pathname() {
+          return loc.pathname;
+        },
+        get search() {
+          return loc.search;
+        },
+        get hash() {
+          return loc.hash;
+        },
+      },
+      history: { replaceState },
+    });
+
+    markStayOnMarketingAfterKitAction(SKU, SKU_PATH);
+    expect(loc.hash).toBe("#marketing");
+    expect(replaceState).toHaveBeenCalled();
+    expect(isSkuAutoScrollSuppressed(SKU)).toBe(true);
+    // Remount still on Marketing stay-put — do not unlock for leftover ETA key
+    // after pin (lock is at #marketing). Leftover ETA consume is a different key
+    // so a stale BatchArrivalEtaBlock check against ETA_KEY would unlock —
+    // Generate clears hash first, so remount sees #marketing only.
+    expect(consumeDeepLinkIfUnlocked(SKU, MARKETING_KEY)).toBe(false);
+
+    vi.unstubAllGlobals();
   });
 });
 

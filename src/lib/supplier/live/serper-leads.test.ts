@@ -8,8 +8,11 @@ import {
   resolveContactFacingLeadName,
   resolveNameUpdateAfterAssess,
 } from "@/lib/supplier/live/company-name";
-import { mapOrganicHitToImportLead } from "@/lib/supplier/live/serper-leads";
-import { isAllowedImportListingUrl } from "@/lib/supplier/live/url-filter";
+import { mapOrganicHitToImportLead, mapOrganicHitToLocalLead } from "@/lib/supplier/live/serper-leads";
+import {
+  isAllowedImportListingUrl,
+  isAllowedLocalListingUrl,
+} from "@/lib/supplier/live/url-filter";
 import { mergeLiveLeadsIntoShortlist } from "@/lib/supplier/live/merge";
 import type { SupplierLead } from "@/lib/supplier/live/types";
 
@@ -267,5 +270,124 @@ describe("mapOrganicHitToImportLead", () => {
     expect(merged[0]?.leadSource).toBe("live_search");
     expect(merged[0]?.sourceUrl).toContain("product-detail");
     expect(merged[0]?.name).toMatch(/Ningbo Bar Trading/i);
+  });
+});
+
+describe("isAllowedLocalListingUrl", () => {
+  it("accepts .lb business URLs", () => {
+    expect(isAllowedLocalListingUrl("https://www.beirutgoods.lb/wholesale")).toBe(
+      true,
+    );
+    expect(
+      isAllowedLocalListingUrl("https://example.lb/wholesaler", "Kitchen goods"),
+    ).toBe(true);
+  });
+
+  it("accepts Maps place URLs with Lebanon signal", () => {
+    expect(
+      isAllowedLocalListingUrl(
+        "https://www.google.com/maps/place/Widget+Shop+Beirut",
+        "Wholesale in Beirut Lebanon",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects Ubuy / eBay even when snippet mentions Lebanon", () => {
+    expect(
+      isAllowedLocalListingUrl(
+        "https://www.ubuy.com/lb/collapsible-food-containers",
+        "Ships to Lebanon — buy online",
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedLocalListingUrl(
+        "https://www.ebay.com/itm/123456",
+        "Delivery to Beirut Lebanon",
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedLocalListingUrl(
+        "https://www.ebay.de/itm/999",
+        "Lebanon shipping available",
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedLocalListingUrl(
+        "https://www.amazon.ae/dp/B00TEST",
+        "Ships to Lebanon",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects arbitrary hosts that only mention Lebanon in the snippet", () => {
+    expect(
+      isAllowedLocalListingUrl(
+        "https://randomshop.example/product",
+        "Great for customers in Lebanon",
+      ),
+    ).toBe(false);
+    expect(isAllowedLocalListingUrl("https://example.com/shop")).toBe(false);
+  });
+
+  it("rejects Alibaba / social / blog junk for Local", () => {
+    expect(
+      isAllowedLocalListingUrl(
+        "https://www.alibaba.com/product-detail/x.html",
+        "Lebanon",
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedLocalListingUrl("https://www.facebook.com/somepage", "Lebanon"),
+    ).toBe(false);
+    expect(
+      isAllowedLocalListingUrl(
+        "https://example.com/blog/lebanon-guide",
+        "Lebanon wholesale tips",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("mapOrganicHitToLocalLead", () => {
+  it("maps a product-relevant .lb hit to local_web live_search lead", () => {
+    const lead = mapOrganicHitToLocalLead(
+      {
+        title: "Beirut Home Goods Co. — Collapsible containers",
+        link: "https://www.beiruthome.lb/products/containers",
+        snippet: "Wholesale collapsible food storage in Beirut, Lebanon",
+      },
+      "Collapsible Food Containers",
+    );
+    expect(lead).not.toBeNull();
+    expect(lead!.platform).toBe("local_web");
+    expect(lead!.leadSource).toBe("live_search");
+    expect(lead!.sourceUrl).toContain(".lb");
+    expect(lead!.name.length).toBeGreaterThan(2);
+  });
+
+  it("rejects Lebanon hits that only match the broad category", () => {
+    expect(
+      mapOrganicHitToLocalLead(
+        {
+          title: "Food Containers Wholesale Beirut",
+          link: "https://www.beirutgoods.lb/wholesale",
+          snippet: "Kitchen food containers supplier in Lebanon",
+        },
+        "Collapsible Food Containers",
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null for Import marketplace URLs", () => {
+    expect(
+      mapOrganicHitToLocalLead(
+        {
+          title: "Factory listing",
+          link: "https://www.alibaba.com/product-detail/x.html",
+          snippet: "Ships to Lebanon",
+        },
+        "Widget",
+      ),
+    ).toBeNull();
   });
 });

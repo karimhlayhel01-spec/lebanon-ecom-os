@@ -287,6 +287,10 @@ export const supplierOptions = pgTable("supplier_options", {
   sourceUrl: text("source_url"),
   /** Wave 3: raw SERP title when live */
   externalTitle: text("external_title"),
+  /** Wave 3: founder-entered supplier email (never auto-scraped). */
+  contactEmail: text("contact_email"),
+  /** Wave 3: founder-entered supplier WhatsApp (never store WhatsApp). */
+  contactWhatsapp: text("contact_whatsapp"),
   createdAt: text("created_at").notNull(),
 });
 

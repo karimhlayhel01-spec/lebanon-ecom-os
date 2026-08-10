@@ -3,7 +3,11 @@
  * Mapped into supplier_options; heuristic remains the fallback.
  */
 
-export type SupplierLeadPlatform = "alibaba" | "aliexpress" | "other";
+export type SupplierLeadPlatform =
+  | "alibaba"
+  | "aliexpress"
+  | "other"
+  | "local_web";
 
 export type SupplierLeadSourceKind = "heuristic" | "live_search";
 
@@ -19,9 +23,9 @@ export type SupplierLead = {
 
 export type GatherSupplierLeadsInput = {
   productName: string;
-  /** import → Alibaba/AliExpress-class; local → optional later */
+  /** import → Alibaba/AliExpress-class; local → Lebanon-biased SERP */
   source: "import" | "local";
-  /** Max leads to return (Import fill uses up to 9 for 3+2). */
+  /** Max leads to return (Import/Local fill uses up to 9 for 3+2 seats). */
   limit: number;
 };
 

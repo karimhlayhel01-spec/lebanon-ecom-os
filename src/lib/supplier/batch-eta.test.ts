@@ -39,21 +39,31 @@ describe("panel-scoped first-batch skuId (arrived / ETA)", () => {
 });
 
 describe("batch arrival ETA", () => {
-  it("ETA editable only while ordered and not arrived", () => {
+  it("ETA editable once sample approved (or batch ordered) until arrived", () => {
     expect(
       canEditBatchArrivalEta({
+        sampleApproved: false,
         batchOrdered: false,
         batchArrivedReady: false,
       }),
     ).toBe(false);
     expect(
       canEditBatchArrivalEta({
+        sampleApproved: true,
+        batchOrdered: false,
+        batchArrivedReady: false,
+      }),
+    ).toBe(true);
+    expect(
+      canEditBatchArrivalEta({
+        sampleApproved: true,
         batchOrdered: true,
         batchArrivedReady: false,
       }),
     ).toBe(true);
     expect(
       canEditBatchArrivalEta({
+        sampleApproved: true,
         batchOrdered: true,
         batchArrivedReady: true,
       }),

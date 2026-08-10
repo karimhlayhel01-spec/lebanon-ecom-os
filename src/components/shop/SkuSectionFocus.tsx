@@ -9,6 +9,7 @@ import {
   consumeStayOnFinanceAfterTopicAAction,
   isSkuAutoScrollSuppressed,
   isTopicAFinanceAnchorInView,
+  markBatchArrivalEtaDeepLinkConsumed,
   scrollToTopicAFinanceAnchor,
   shouldBlockSkuFocusScroll,
   skuFocusLocationKey,
@@ -104,14 +105,17 @@ function SkuSectionFocusInner({
         window.location.search,
         hashRaw,
       );
-      const hashSection = normalizeSectionId(hashRaw.replace(/^#/, ""));
+      const hashId = hashRaw.replace(/^#/, "");
+      const hashSection = normalizeSectionId(hashId);
+      // Non-section anchors (e.g. #batch-arrival-eta) must not fall through to cold scroll.
+      const hasElementHash = !!hashId && !hashSection;
       const attn = attnParam && isAttnKey(attnParam) ? attnParam : null;
       const coldRaw = normalizeSectionId(coldFocusSection);
       // Never auto-scroll to Topic A / finance on cold open — only explicit CTAs.
       const cold = coldRaw === "finance" ? null : coldRaw;
 
-      const fromDeepLink = !!(hashSection || attn);
-      const fromCold = !hashSection && !attn && !!cold;
+      const fromDeepLink = !!(hashSection || attn || hasElementHash);
+      const fromCold = !hashSection && !attn && !hasElementHash && !!cold;
 
       if (activeEl) {
         activeEl.classList.remove("sku-section-focus");
@@ -123,7 +127,10 @@ function SkuSectionFocusInner({
       // Topic A remount (Start selling / Save week): one calm restore, no banner.
       // Explicit other-section deep links (e.g. ?attn=reorder#supplier) cancel it.
       if (
-        consumeStayOnFinanceAfterTopicAAction(skuId, { hashSection, attn })
+        consumeStayOnFinanceAfterTopicAAction(skuId, {
+          hashSection: hashSection ?? (hasElementHash ? hashId : null),
+          attn,
+        })
       ) {
         clearSkuAutoScrollSuppress(skuId);
         if (window.location.hash !== "#finance") {
@@ -144,6 +151,16 @@ function SkuSectionFocusInner({
         hashSection ?? (fromCold ? cold : null);
 
       if (!section) {
+        // Element deep-link (Marketing → #batch-arrival-eta): scroll once if present.
+        if (hasElementHash && fromDeepLink) {
+          const el = document.getElementById(hashId);
+          if (el && consumeDeepLinkIfUnlocked(skuId, locationKey)) {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+            if (hashId === "batch-arrival-eta") {
+              markBatchArrivalEtaDeepLinkConsumed(skuId, locationKey);
+            }
+          }
+        }
         setBanner(null);
         return;
       }

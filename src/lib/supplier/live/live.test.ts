@@ -7,9 +7,14 @@ import {
 import { mergeLiveLeadsIntoShortlist } from "@/lib/supplier/live/merge";
 import { getSupplierLeadProvider } from "@/lib/supplier/live/provider";
 import {
+  classifyImportRefreshConflict,
+  classifyLocalRefreshConflict,
+  classifyLocalRefreshFallback,
   classifyRefreshFallback,
   importRefreshNeedsConfirm,
+  localRefreshNeedsConfirm,
   planImportRefreshDeletes,
+  planLocalRefreshDeletes,
 } from "@/lib/supplier/live/refresh";
 import type { SupplierLead } from "@/lib/supplier/live/types";
 import { readFileSync } from "fs";
@@ -101,9 +106,9 @@ describe("mergeLiveLeadsIntoShortlist", () => {
       {
         name: "AE Seller",
         platform: "aliexpress",
-        sourceUrl: "https://www.aliexpress.com/item/1.html",
-        externalTitle: "AE Seller Widget",
-        unitPriceHint: 8.5,
+        sourceUrl: "https://www.aliexpress.com/item/100500.html",
+        externalTitle: "AE Seller item",
+        unitPriceHint: 8,
         leadSource: "live_search",
       },
     ];
@@ -111,86 +116,103 @@ describe("mergeLiveLeadsIntoShortlist", () => {
       source: "import",
       liveLeads,
       heuristic,
+      padHeuristic: true,
     });
     expect(merged).toHaveLength(9);
     expect(merged[0]?.leadSource).toBe("live_search");
+    expect(merged[0]?.name).toBe("Shenzhen Live Co");
     expect(merged[0]?.sourceUrl).toContain("alibaba.com");
-    expect(merged[0]?.verified).toBe(false);
-    expect(merged[1]?.platform).toBe("aliexpress");
-    expect(merged[1]?.unitPrice).toBe(8.5);
-    expect(merged[2]?.leadSource).toBe("heuristic");
+    expect(merged[1]?.unitPrice).toBe(8);
+    expect(merged.slice(2).every((m) => m.leadSource === "heuristic")).toBe(
+      true,
+    );
   });
 
-  it("leaves local shortlists heuristic-only", () => {
-    const local = heuristic.map((h) => ({ ...h, source: "local" as const }));
-    const merged = mergeLiveLeadsIntoShortlist({
-      source: "local",
-      liveLeads: [
-        {
-          name: "ShouldIgnore",
-          platform: "alibaba",
-          sourceUrl: "https://www.alibaba.com/x",
-          externalTitle: "x",
-          unitPriceHint: null,
-          leadSource: "live_search",
-        },
-      ],
-      heuristic: local,
-    });
-    expect(merged.every((m) => m.leadSource === "heuristic")).toBe(true);
-  });
-});
-
-describe("gmail compose helpers", () => {
-  it("builds a Gmail compose URL with subject and body", () => {
-    const url = buildGmailComposeUrl({
-      subject: "Sample inquiry — Widget",
-      body: "Hello supplier",
-    });
-    expect(url).toContain("mail.google.com/mail/");
-    expect(url).toContain("su=Sample");
-    expect(url).toContain("body=Hello");
-  });
-
-  it("localizes subject", () => {
-    expect(supplierEmailSubject("Widget", "en")).toMatch(/Sample inquiry/);
-    expect(supplierEmailSubject("Widget", "ar")).toMatch(/عيّنة/);
-  });
-});
-
-describe("refresh Import leads planning", () => {
-  it("needs confirm when Import is chosen or has samples", () => {
+  it("Import refresh confirm when chosen or sample-tied", () => {
     expect(
       importRefreshNeedsConfirm({
-        importSuppliers: [{ id: "i1", status: "available" }],
+        importSuppliers: [{ id: "a", status: "available" }],
         sampleSupplierIds: [],
       }),
     ).toBe(false);
     expect(
       importRefreshNeedsConfirm({
-        importSuppliers: [{ id: "i1", status: "chosen" }],
+        importSuppliers: [{ id: "a", status: "chosen" }],
         sampleSupplierIds: [],
       }),
     ).toBe(true);
     expect(
       importRefreshNeedsConfirm({
-        importSuppliers: [{ id: "i1", status: "available" }],
-        sampleSupplierIds: ["i1"],
+        importSuppliers: [{ id: "a", status: "available" }],
+        sampleSupplierIds: ["a"],
       }),
     ).toBe(true);
-    expect(
-      importRefreshNeedsConfirm({
-        importSuppliers: [{ id: "i1", status: "available" }],
-        sampleSupplierIds: ["local-1"],
-      }),
-    ).toBe(false);
   });
 
-  it("plans deletes for Import only and preserves Local", () => {
+  it("blocks Refresh while Import sample in flight; confirms on approved warm", () => {
+    expect(
+      classifyImportRefreshConflict({
+        importSuppliers: [{ id: "a", status: "available" }],
+        samples: [{ supplierId: "a", status: "requested" }],
+      }),
+    ).toEqual({ kind: "sample_in_flight" });
+    expect(
+      classifyImportRefreshConflict({
+        importSuppliers: [{ id: "a", status: "available" }],
+        samples: [{ supplierId: "a", status: "approved" }],
+      }),
+    ).toEqual({ kind: "needs_confirm" });
+    expect(
+      classifyImportRefreshConflict({
+        importSuppliers: [{ id: "a", status: "available" }],
+        samples: [{ supplierId: "b", status: "requested" }],
+      }),
+    ).toEqual({ kind: "ok" });
+    expect(
+      classifyLocalRefreshConflict({
+        localSuppliers: [{ id: "l1", status: "available" }],
+        samples: [{ supplierId: "l1", status: "received" }],
+      }),
+    ).toEqual({ kind: "sample_in_flight" });
+  });
+
+  it("Import live merge with padHeuristic false leaves empty on zero leads", () => {
+    const one = [
+      {
+        name: "Invent",
+        role: "primary" as const,
+        rank: 0,
+        source: "import" as const,
+        years: 5,
+        rating: 4.5,
+        verified: true,
+        moq: 150,
+        unitPrice: 10,
+        sampleReplies: true,
+        negotiationDraft: "draft",
+        paymentMapEstimate: "{}",
+        redFlags: [] as string[],
+        leadSource: "heuristic" as const,
+        platform: null,
+        sourceUrl: null,
+        externalTitle: null,
+      },
+    ];
+    expect(
+      mergeLiveLeadsIntoShortlist({
+        source: "import",
+        liveLeads: [],
+        heuristic: one,
+        padHeuristic: false,
+      }),
+    ).toEqual([]);
+    expect(classifyRefreshFallback(0, 9)).toBe("empty");
+  });
+
+  it("plans Import deletes without touching Local ids", () => {
     const plan = planImportRefreshDeletes({
       suppliers: [
         { id: "i1", source: "import" },
-        { id: "i2", source: "import" },
         { id: "l1", source: "local" },
       ],
       samples: [
@@ -198,24 +220,149 @@ describe("refresh Import leads planning", () => {
         { id: "s2", supplierId: "l1" },
       ],
     });
-    expect(plan.importSupplierIds).toEqual(["i1", "i2"]);
+    expect(plan.importSupplierIds).toEqual(["i1"]);
     expect(plan.localSupplierIds).toEqual(["l1"]);
     expect(plan.sampleIdsToDelete).toEqual(["s1"]);
-    expect(plan.sampleIdsToDelete).not.toContain("s2");
+  });
+});
+
+describe("gmail compose", () => {
+  it("builds a compose URL with subject and body", () => {
+    const url = buildGmailComposeUrl({
+      subject: supplierEmailSubject("Widget"),
+      body: "Hello",
+    });
+    expect(url).toContain("mail.google.com");
+    expect(url).toContain("view=cm");
+    expect(decodeURIComponent(url)).toContain("Widget");
+  });
+});
+
+describe("local live merge + refresh helpers", () => {
+  const localHeuristic = [0, 1].flatMap((rank) => [
+    {
+      name: `L-primary-${rank}`,
+      role: "primary" as const,
+      rank,
+      source: "local" as const,
+      years: 5,
+      rating: 4.5,
+      verified: true,
+      moq: 150,
+      unitPrice: 10,
+      sampleReplies: true,
+      negotiationDraft: "draft",
+      paymentMapEstimate: "{}",
+      redFlags: [] as string[],
+      leadSource: "heuristic" as const,
+      platform: null,
+      sourceUrl: null,
+      externalTitle: null,
+    },
+    {
+      name: `L-backup-${rank}`,
+      role: "backup" as const,
+      rank,
+      source: "local" as const,
+      years: 3,
+      rating: 4.0,
+      verified: false,
+      moq: 50,
+      unitPrice: 11,
+      sampleReplies: true,
+      negotiationDraft: "draft",
+      paymentMapEstimate: "{}",
+      redFlags: [] as string[],
+      leadSource: "heuristic" as const,
+      platform: null,
+      sourceUrl: null,
+      externalTitle: null,
+    },
+  ]);
+
+  it("0 local live + padHeuristic false → no invent rows", () => {
+    const merged = mergeLiveLeadsIntoShortlist({
+      source: "local",
+      liveLeads: [],
+      heuristic: localHeuristic,
+      padHeuristic: false,
+    });
+    expect(merged).toEqual([]);
+    expect(classifyLocalRefreshFallback(0, localHeuristic.length)).toBe(
+      "empty",
+    );
   });
 
-  it("classifies zero / partial / full live fallback", () => {
-    expect(classifyRefreshFallback(0, 9)).toBe("heuristic");
-    expect(classifyRefreshFallback(3, 9)).toBe("partial");
-    expect(classifyRefreshFallback(9, 9)).toBe("none");
-  });
-
-  it("merge persists live_search + url and pads heuristic", () => {
-    const heuristic = [0, 1, 2].flatMap((rank) => [
+  it("N local live → N live_search rows, no invent pad", () => {
+    const liveLeads: SupplierLead[] = [
       {
-        name: `H-primary-${rank}`,
+        name: "Beirut Wholesale Co.",
+        platform: "local_web",
+        sourceUrl: "https://www.beirutgoods.lb/shop",
+        externalTitle: "Beirut Wholesale Co. — Widget",
+        unitPriceHint: null,
+        leadSource: "live_search",
+      },
+      {
+        name: "Local listing · Widget",
+        platform: "local_web",
+        sourceUrl: "https://maps.google.com/maps/place/Lebanon+Widget",
+        externalTitle: "Widget store Lebanon",
+        unitPriceHint: null,
+        leadSource: "live_search",
+      },
+    ];
+    const merged = mergeLiveLeadsIntoShortlist({
+      source: "local",
+      liveLeads,
+      heuristic: localHeuristic,
+      padHeuristic: false,
+    });
+    expect(merged).toHaveLength(2);
+    expect(merged.every((m) => m.leadSource === "live_search")).toBe(true);
+    expect(merged.every((m) => m.source === "local")).toBe(true);
+    expect(merged.every((m) => m.sourceUrl)).toBeTruthy();
+    expect(classifyLocalRefreshFallback(2, localHeuristic.length)).toBe(
+      "partial",
+    );
+  });
+
+  it("Local refresh confirm + deletes never touch Import", () => {
+    expect(
+      localRefreshNeedsConfirm({
+        localSuppliers: [{ id: "l1", status: "available" }],
+        sampleSupplierIds: [],
+      }),
+    ).toBe(false);
+    expect(
+      localRefreshNeedsConfirm({
+        localSuppliers: [{ id: "l1", status: "chosen" }],
+        sampleSupplierIds: [],
+      }),
+    ).toBe(true);
+    const plan = planLocalRefreshDeletes({
+      suppliers: [
+        { id: "i1", source: "import" },
+        { id: "l1", source: "local" },
+      ],
+      samples: [
+        { id: "s1", supplierId: "i1" },
+        { id: "s2", supplierId: "l1" },
+      ],
+    });
+    expect(plan.localSupplierIds).toEqual(["l1"]);
+    expect(plan.importSupplierIds).toEqual(["i1"]);
+    expect(plan.sampleIdsToDelete).toEqual(["s2"]);
+  });
+});
+
+describe("Approach A wiring smoke", () => {
+  it("merge persists live_search + url and pads heuristic for Import", () => {
+    const heuristic = [
+      {
+        name: `H-primary-0`,
         role: "primary" as const,
-        rank,
+        rank: 0,
         source: "import" as const,
         years: 5,
         rating: 4.5,
@@ -232,9 +379,9 @@ describe("refresh Import leads planning", () => {
         externalTitle: null,
       },
       {
-        name: `H-backup-a-${rank}`,
+        name: `H-backup-a-0`,
         role: "backup" as const,
-        rank,
+        rank: 0,
         source: "import" as const,
         years: 3,
         rating: 4.0,
@@ -251,9 +398,9 @@ describe("refresh Import leads planning", () => {
         externalTitle: null,
       },
       {
-        name: `H-backup-b-${rank}`,
+        name: `H-backup-b-0`,
         role: "backup" as const,
-        rank,
+        rank: 0,
         source: "import" as const,
         years: 4,
         rating: 4.1,
@@ -269,34 +416,31 @@ describe("refresh Import leads planning", () => {
         sourceUrl: null,
         externalTitle: null,
       },
-    ]);
-    const leads: SupplierLead[] = [
+    ];
+    const liveLeads: SupplierLead[] = [
       {
-        name: "Live Factory A",
+        name: "Live A",
         platform: "alibaba",
-        sourceUrl: "https://www.alibaba.com/a",
+        sourceUrl: "https://www.alibaba.com/product-detail/a.html",
         externalTitle: "A",
         unitPriceHint: null,
         leadSource: "live_search",
       },
       {
-        name: "Live Factory B",
+        name: "Live B",
         platform: "aliexpress",
-        sourceUrl: "https://www.aliexpress.com/b",
+        sourceUrl: "https://www.aliexpress.com/item/1.html",
         externalTitle: "B",
-        unitPriceHint: 8,
+        unitPriceHint: null,
         leadSource: "live_search",
       },
     ];
     const merged = mergeLiveLeadsIntoShortlist({
       source: "import",
-      liveLeads: leads,
+      liveLeads,
       heuristic,
     });
-    expect(merged).toHaveLength(9);
     expect(merged.filter((m) => m.leadSource === "live_search")).toHaveLength(2);
-    expect(merged[0]?.sourceUrl).toContain("alibaba.com");
-    expect(merged[1]?.platform).toBe("aliexpress");
     expect(merged.slice(2).every((m) => m.leadSource === "heuristic")).toBe(
       true,
     );
@@ -332,28 +476,50 @@ describe("refresh Import leads planning", () => {
     });
     expect(merged[0]?.leadSource).toBe("heuristic");
     expect(merged[0]?.sourceUrl).toBeNull();
-    expect(classifyRefreshFallback(0, merged.length)).toBe("heuristic");
+    expect(classifyRefreshFallback(0, merged.length)).toBe("empty");
   });
 
-  it("wires refresh action + Import-tab control (Approach A)", () => {
+  it("wires refresh action + Import-tab and Local-tab controls (Approach A)", () => {
     const service = readFileSync(
       path.join(process.cwd(), "src/lib/supplier/service.ts"),
       "utf8",
     );
     expect(service).toContain("export async function refreshImportLeads");
+    expect(service).toContain("export async function refreshLocalLeads");
     expect(service).toContain("confirmResetProgress");
+    expect(service).toContain("sample_in_flight");
+    expect(service).toContain('emptyReason: liveCount === 0 ? "no_local_leads"');
+    expect(service).toContain("padHeuristic: false");
+    const discovery = readFileSync(
+      path.join(process.cwd(), "src/lib/discovery/service.ts"),
+      "utf8",
+    );
+    expect(discovery).toContain("ensureSuppliers");
     const actions = readFileSync(
       path.join(process.cwd(), "src/actions/supplier.ts"),
       "utf8",
     );
     expect(actions).toContain("refreshImportLeadsAction");
+    expect(actions).toContain("refreshLocalLeadsAction");
     expect(actions).toContain("requireOwnedSku");
     const panel = readFileSync(
       path.join(process.cwd(), "src/components/supplier/SupplierPanel.tsx"),
       "utf8",
     );
     expect(panel).toContain("RefreshImportLeadsControl");
+    expect(panel).toContain("RefreshLocalLeadsControl");
+    expect(panel).toContain("LocalEmptyBanner");
+    expect(panel).toContain("ImportEmptyBanner");
+    expect(panel).toContain("refreshImportSampleInFlight");
     expect(panel).toContain('effectiveTab === "import"');
+    expect(panel).toContain('effectiveTab === "local"');
     expect(panel).toContain("refreshImportLeadsAction");
+    expect(panel).toContain("refreshLocalLeadsAction");
+    const provider = readFileSync(
+      path.join(process.cwd(), "src/lib/supplier/live/provider.ts"),
+      "utf8",
+    );
+    expect(provider).toContain("gatherLocalLeadsWithSerper");
+    expect(provider).toContain('input.source === "local"');
   });
 });

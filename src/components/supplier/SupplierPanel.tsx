@@ -3,7 +3,6 @@
 import {
   useEffect,
   useId,
-  useRef,
   useState,
   useSyncExternalStore,
   useTransition,
@@ -19,6 +18,7 @@ import {
   orderBatchAction,
   orderNextBatchAction,
   refreshImportLeadsAction,
+  refreshLocalLeadsAction,
   reportSupplierCantFulfillAction,
   requestSampleAction,
   saveCostQuotesAction,
@@ -27,14 +27,20 @@ import {
   switchReorderBackupAction,
 } from "@/actions/supplier";
 import { UnitsLeftGlanceBlock } from "@/components/shop/UnitsLeftGlance";
+import { SupplierDisplayNameEditor } from "@/components/supplier/SupplierDisplayNameEditor";
+import { SupplierContactsEditor } from "@/components/supplier/SupplierContactsEditor";
 import {
   suppressSkuAutoScroll,
   suppressSkuAutoScrollAfterBatchAction,
+  consumeBatchArrivalEtaDeepLinkOnce,
+  markBatchArrivalEtaDeepLinkConsumed,
+  skuFocusLocationKey,
 } from "@/lib/sku/suppress-auto-scroll";
 import {
   buildGmailComposeUrl,
   supplierEmailSubject,
 } from "@/lib/supplier/email/gmail-compose";
+import { buildWhatsAppChatUrl } from "@/lib/supplier/contacts";
 import { canAssessListingUrl } from "@/lib/supplier/diligence/listing-url";
 import type {
   AssessListingSuccess,
@@ -86,7 +92,18 @@ const getMountedServer = () => false;
 function platformLabel(platform: string | null): string {
   if (platform === "aliexpress") return "AliExpress";
   if (platform === "alibaba") return "Alibaba";
+  if (platform === "local_web") return "Local web";
   return "Web";
+}
+
+/** Flat id → SupplierView for path + spare contact/rename wiring. */
+function indexSuppliersById(view: SupplierPanelView): Map<string, SupplierView> {
+  const map = new Map<string, SupplierView>();
+  for (const g of view.groups) {
+    if (g.primary) map.set(g.primary.id, g.primary);
+    for (const b of g.backups) map.set(b.id, b);
+  }
+  return map;
 }
 
 function recommendationBadgeClass(tier: DiligenceRecommendation): string {
@@ -159,6 +176,10 @@ function RefreshImportLeadsControl({ skuId }: { skuId: string }) {
     startTransition(async () => {
       const res = await refreshImportLeadsAction(skuId);
       if (!res.ok) {
+        if (res.error === "sample_in_flight") {
+          setError(t("refreshImportSampleInFlight"));
+          return;
+        }
         if (res.error === "needs_confirm") {
           const ok = window.confirm(t("refreshImportConfirm"));
           if (!ok) {
@@ -169,7 +190,11 @@ function RefreshImportLeadsControl({ skuId }: { skuId: string }) {
             confirmResetProgress: true,
           });
           if (!confirmed.ok) {
-            setError(t("refreshImportFailed"));
+            setError(
+              confirmed.error === "sample_in_flight"
+                ? t("refreshImportSampleInFlight")
+                : t("refreshImportFailed"),
+            );
             return;
           }
           applySuccess(confirmed);
@@ -192,10 +217,10 @@ function RefreshImportLeadsControl({ skuId }: { skuId: string }) {
     function applySuccess(res: {
       liveCount: number;
       heuristicCount: number;
-      fallback: "none" | "partial" | "heuristic";
+      fallback: "none" | "partial" | "heuristic" | "empty";
     }) {
-      if (res.fallback === "heuristic" || res.liveCount === 0) {
-        setMessage(t("refreshImportFallbackHeuristic"));
+      if (res.fallback === "empty" || res.liveCount === 0) {
+        setMessage(t("refreshImportEmpty"));
       } else if (res.fallback === "partial") {
         setMessage(
           t("refreshImportPartial", {
@@ -236,6 +261,138 @@ function RefreshImportLeadsControl({ skuId }: { skuId: string }) {
   );
 }
 
+function RefreshLocalLeadsControl({ skuId }: { skuId: string }) {
+  const t = useTranslations("Supplier");
+  const [pending, startTransition] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function run() {
+    setMessage(null);
+    setError(null);
+    startTransition(async () => {
+      const res = await refreshLocalLeadsAction(skuId);
+      if (!res.ok) {
+        if (res.error === "sample_in_flight") {
+          setError(t("refreshLocalSampleInFlight"));
+          return;
+        }
+        if (res.error === "needs_confirm") {
+          const ok = window.confirm(t("refreshLocalConfirm"));
+          if (!ok) {
+            setError(t("refreshLocalNeedsConfirm"));
+            return;
+          }
+          const confirmed = await refreshLocalLeadsAction(skuId, {
+            confirmResetProgress: true,
+          });
+          if (!confirmed.ok) {
+            setError(
+              confirmed.error === "sample_in_flight"
+                ? t("refreshLocalSampleInFlight")
+                : t("refreshLocalFailed"),
+            );
+            return;
+          }
+          applySuccess(confirmed);
+          return;
+        }
+        const key =
+          res.error === "live_disabled"
+            ? "refreshLocalLiveDisabled"
+            : res.error === "missing_key"
+              ? "refreshLocalMissingKey"
+              : res.error === "quota"
+                ? "refreshLocalQuota"
+                : "refreshLocalFailed";
+        setError(t(key));
+        return;
+      }
+      applySuccess(res);
+    });
+
+    function applySuccess(res: {
+      liveCount: number;
+      fallback: "none" | "partial" | "empty";
+      emptyReason?: "no_local_leads";
+    }) {
+      if (res.fallback === "empty" || res.liveCount === 0) {
+        setMessage(t("refreshLocalEmpty"));
+      } else if (res.fallback === "partial") {
+        setMessage(t("refreshLocalPartial", { live: res.liveCount }));
+      } else {
+        setMessage(t("refreshLocalLive", { live: res.liveCount }));
+      }
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-stone bg-sand/40 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-stone-dark">{t("refreshLocalHint")}</p>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => run()}
+          className="shrink-0 rounded-md border border-stone bg-surface px-3 py-1.5 text-xs font-semibold text-ink transition hover:bg-sand disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {pending ? t("refreshLocalPending") : t("refreshLocalButton")}
+        </button>
+      </div>
+      {message ? (
+        <p className="mt-1.5 text-xs text-ink" role="status">
+          {message}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="mt-1.5 text-xs text-amber-800" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function LocalEmptyBanner() {
+  const t = useTranslations("Supplier");
+  return (
+    <div
+      className="rounded-md border border-stone bg-surface-subtle px-3 py-3"
+      role="status"
+    >
+      <p className="text-sm font-medium text-ink">{t("localEmptyTitle")}</p>
+      <p className="mt-1 text-xs leading-snug text-stone-dark">
+        {t("localEmptyBody")}
+      </p>
+    </div>
+  );
+}
+
+function ImportEmptyBanner() {
+  const t = useTranslations("Supplier");
+  return (
+    <div
+      className="rounded-md border border-stone bg-surface-subtle px-3 py-3"
+      role="status"
+    >
+      <p className="text-sm font-medium text-ink">{t("importEmptyTitle")}</p>
+      <p className="mt-1 text-xs leading-snug text-stone-dark">
+        {t("importEmptyBody")}
+      </p>
+    </div>
+  );
+}
+
+/** Compact note for Both tab when Import shows but Local has no seats. */
+function BothTabNoLocalNote() {
+  const t = useTranslations("Supplier");
+  return (
+    <p className="text-[11px] leading-snug text-stone-dark" role="status">
+      {t("bothTabNoLocalNote")}
+    </p>
+  );
+}
+
 function SourceBadge({ source }: { source: "import" | "local" }) {
   const t = useTranslations("Supplier");
   return (
@@ -260,6 +417,7 @@ export function SupplierPanel({ view }: { view: SupplierPanelView }) {
   const allSuppliers = view.groups.flatMap((g) =>
     [g.primary, ...g.backups].filter(Boolean),
   ) as SupplierView[];
+  const suppliersById = indexSuppliersById(view);
 
   const showShortlist = view.showShortlist;
   const effectiveTab = view.sourceTabsFrozen ? "both" : tab;
@@ -365,7 +523,13 @@ export function SupplierPanel({ view }: { view: SupplierPanelView }) {
       {view.samples.length > 0 && (
         <div className={supplierBlockClass(boss, ["sample"])}>
           {view.samples.map((s) => (
-            <SampleTracker key={s.id} sample={s} skuId={view.skuId} />
+            <SampleTracker
+              key={s.id}
+              sample={s}
+              skuId={view.skuId}
+              skuName={view.skuName}
+              supplier={suppliersById.get(s.supplierId) ?? null}
+            />
           ))}
         </div>
       )}
@@ -417,12 +581,15 @@ export function SupplierPanel({ view }: { view: SupplierPanelView }) {
           chosenSupplier && (
             <ChosenSupplierSummary
               s={chosenSupplier}
+              skuId={view.skuId}
+              skuName={view.skuName}
               selling={view.batchArrivedReady}
               onViewShortlist={viewFullShortlist}
               insuranceAvailable={view.reorder.insuranceAvailable}
-              warmedSpareNames={view.reorder.backups
+              warmedSpares={view.reorder.backups
                 .filter((b) => b.warm)
-                .map((b) => b.name)}
+                .map((b) => suppliersById.get(b.id))
+                .filter((x): x is SupplierView => !!x)}
             />
           )
         )}
@@ -445,8 +612,12 @@ export function SupplierPanel({ view }: { view: SupplierPanelView }) {
         </div>
       )}
 
-      {view.batchOrdered && !view.batchArrivedReady && (
-        <div className={supplierBlockClass(boss, ["batch_transit"])}>
+      {/* ETA: show whenever Marketing can use it (sample approved or batch
+          ordered) until arrived — keeps “Set ETA on Supplier” CTA live. */}
+      {view.sampleApproved && !view.batchArrivedReady && (
+        <div
+          className={supplierBlockClass(boss, ["batch_transit", "costs_batch"])}
+        >
           <BatchArrivalEtaBlock eta={view.batchArrivalEta} skuId={view.skuId} />
         </div>
       )}
@@ -567,6 +738,8 @@ function SupplierShortlistSection({
   const tabsLocked =
     view.sourceTabsFrozen || (browseBanner && sampleInFlight);
   const unavailable = view.reorder.unavailable;
+  const hasLocalGroups = view.groups.some((g) => g.source === "local");
+  const hasImportGroups = view.groups.some((g) => g.source === "import");
 
   function ctaFor(s: SupplierView): SupplierCardSampleCta {
     return supplierCardSampleCta({
@@ -644,12 +817,30 @@ function SupplierShortlistSection({
       </div>
 
       {effectiveTab === "import" ? (
-        <RefreshImportLeadsControl skuId={view.skuId} />
+        <>
+          <RefreshImportLeadsControl skuId={view.skuId} />
+          {!hasImportGroups ? <ImportEmptyBanner /> : null}
+        </>
+      ) : null}
+
+      {effectiveTab === "local" ? (
+        <>
+          <RefreshLocalLeadsControl skuId={view.skuId} />
+          {visibleGroups.length === 0 ? <LocalEmptyBanner /> : null}
+        </>
       ) : null}
 
       {effectiveTab === "both" && (
         <p className="text-[11px] text-stone-dark">{t("bothTabDensityNote")}</p>
       )}
+
+      {effectiveTab === "both" && !hasLocalGroups ? (
+        <BothTabNoLocalNote />
+      ) : null}
+
+      {effectiveTab === "both" && !hasImportGroups ? (
+        <ImportEmptyBanner />
+      ) : null}
 
       {visibleGroups.map((g) => (
         <div key={`${g.source}-${g.rank}`}>
@@ -1072,46 +1263,207 @@ function AssessListingModal({
   );
 }
 
+/** Contact door for any sampled supplier (path or spare) — Wave 3 Phase 3a. */
+function SupplierContactModal({
+  s,
+  skuId,
+  skuName,
+  onClose,
+}: {
+  s: SupplierView;
+  skuId: string;
+  skuName: string;
+  onClose: () => void;
+}) {
+  const t = useTranslations("Supplier");
+  const locale = useLocale();
+  const titleId = useId();
+  const [copied, setCopied] = useState(false);
+  const [contactEmail, setContactEmail] = useState(s.contactEmail);
+  const [contactWhatsapp, setContactWhatsapp] = useState(s.contactWhatsapp);
+  const mounted = useSyncExternalStore(
+    subscribeNoop,
+    getMountedClient,
+    getMountedServer,
+  );
+
+  useEffect(() => {
+    setContactEmail(s.contactEmail);
+    setContactWhatsapp(s.contactWhatsapp);
+  }, [s.contactEmail, s.contactWhatsapp]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  if (!mounted) return null;
+
+  const whatsappUrl = buildWhatsAppChatUrl(contactWhatsapp);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90]" role="presentation">
+      <button
+        type="button"
+        aria-label={t("contactClose")}
+        className="absolute inset-0 bg-ink/40"
+        onClick={onClose}
+      />
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className="pointer-events-auto max-h-[min(90vh,40rem)] w-full max-w-md overflow-y-auto rounded-lg border border-stone bg-surface p-5 shadow-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <h2
+              id={titleId}
+              className="font-display text-lg font-semibold text-ink"
+            >
+              {t("contactSupplierTitle")}
+            </h2>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t("contactClose")}
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-ink transition hover:bg-sand"
+            >
+              <span aria-hidden className="text-xl leading-none">
+                ×
+              </span>
+            </button>
+          </div>
+
+          <p
+            className="mt-2 text-sm font-semibold text-ink [unicode-bidi:plaintext]"
+            title={s.name}
+          >
+            {s.name}
+          </p>
+
+          <SupplierContactsEditor
+            supplierId={s.id}
+            skuId={skuId}
+            contactEmail={contactEmail}
+            contactWhatsapp={contactWhatsapp}
+            onSaved={(next) => {
+              setContactEmail(next.contactEmail);
+              setContactWhatsapp(next.contactWhatsapp);
+            }}
+          />
+
+          <div className="mt-4 space-y-3">
+            {s.sourceUrl ? (
+              <a
+                href={s.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex w-full items-center justify-center rounded-md border border-sea/40 bg-sea/5 px-3 py-2 text-center text-xs font-semibold text-sea transition hover:bg-sea/10"
+              >
+                {t("openListing", { platform: platformLabel(s.platform) })}
+              </a>
+            ) : null}
+
+            <p className="text-[11px] leading-relaxed text-stone-dark">
+              {t("emailDraftHint")}
+            </p>
+            <textarea
+              readOnly
+              value={s.negotiationDraft}
+              rows={8}
+              className="w-full rounded border border-stone bg-surface p-2 text-[11px] text-stone-dark"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(s.negotiationDraft);
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 2000);
+                  } catch {
+                    setCopied(false);
+                  }
+                }}
+                className="rounded-md border border-stone px-2.5 py-1 text-[11px] font-medium text-ink transition hover:bg-sand"
+              >
+                {copied ? t("emailCopied") : t("copyEmailDraft")}
+              </button>
+              <a
+                href={buildGmailComposeUrl({
+                  to: contactEmail ?? undefined,
+                  subject: supplierEmailSubject(
+                    skuName || s.name,
+                    locale === "ar" ? "ar" : "en",
+                  ),
+                  body: s.negotiationDraft,
+                })}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md border border-sea/40 bg-sea/5 px-2.5 py-1 text-[11px] font-medium text-sea transition hover:bg-sea/10"
+              >
+                {t("openInGmail")}
+              </a>
+              {whatsappUrl ? (
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-md border border-cedar/40 bg-cedar/5 px-2.5 py-1 text-[11px] font-medium text-cedar-deep transition hover:bg-cedar/10"
+                >
+                  {t("openInWhatsapp")}
+                </a>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-stone px-3 py-1.5 text-sm font-medium text-ink transition hover:bg-sand"
+            >
+              {t("contactClose")}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function ChosenSupplierSummary({
   s,
+  skuId,
+  skuName,
   selling,
   onViewShortlist,
   insuranceAvailable,
-  warmedSpareNames,
+  warmedSpares,
 }: {
   s: SupplierView;
+  skuId: string;
+  skuName: string;
   selling: boolean;
   onViewShortlist?: () => void;
   /** Same gate as hub — omit spares line before insurance is available. */
   insuranceAvailable: boolean;
   /** Approved same-source non-path only (`warm === true`). */
-  warmedSpareNames: string[];
+  warmedSpares: SupplierView[];
 }) {
   const t = useTranslations("Supplier");
-  const morePopupId = useId();
-  const moreRootRef = useRef<HTMLSpanElement>(null);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const shownNames = warmedSpareNames.slice(0, 2);
-  const remainingNames = warmedSpareNames.slice(2);
-  const moreCount = remainingNames.length;
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    function onPointerDown(e: MouseEvent) {
-      if (!moreRootRef.current?.contains(e.target as Node)) {
-        setMoreOpen(false);
-      }
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setMoreOpen(false);
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [moreOpen]);
+  const [contactTarget, setContactTarget] = useState<SupplierView | null>(null);
 
   return (
     <div className="mt-4 rounded-lg border border-cedar/30 bg-surface-subtle p-4">
@@ -1120,7 +1472,14 @@ function ChosenSupplierSummary({
           <p className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
             {selling ? t("workingSupplier") : t("chosenSupplier")}
           </p>
-          <h4 className="mt-0.5 text-sm font-semibold text-ink">{s.name}</h4>
+          <div className="mt-0.5">
+            <SupplierDisplayNameEditor
+              supplierId={s.id}
+              skuId={skuId}
+              name={s.name}
+              nameClassName="text-sm font-semibold text-ink"
+            />
+          </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-dark">
             <SourceBadge source={s.source} />
           </div>
@@ -1140,63 +1499,49 @@ function ChosenSupplierSummary({
         </p>
       ) : null}
 
+      <button
+        type="button"
+        onClick={() => setContactTarget(s)}
+        className="mt-3 inline-flex w-full items-center justify-center rounded-md bg-cedar px-3 py-2 text-center text-xs font-semibold text-foam transition hover:bg-cedar-deep sm:w-auto"
+      >
+        {t("contactSupplier")}
+      </button>
+
       {insuranceAvailable && (
-        <div className="mt-2 text-[11px] text-stone-dark">
-          {warmedSpareNames.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {warmedSpares.length > 0 ? (
             <>
-              {t("warmedSparesReady", {
-                count: warmedSpareNames.length,
-                names: shownNames.join(", "),
-              })}
-              {moreCount > 0 && (
-                <>
-                  {" "}
-                  <span ref={moreRootRef} className="relative inline-block">
-                    <button
-                      type="button"
-                      aria-expanded={moreOpen}
-                      aria-controls={morePopupId}
-                      aria-haspopup="dialog"
-                      aria-label={t("warmedSparesMoreAria", { n: moreCount })}
-                      onClick={() => setMoreOpen((v) => !v)}
-                      className="font-semibold text-sea underline-offset-2 hover:underline"
-                    >
-                      {t("warmedSparesMore", { n: moreCount })}
-                    </button>
-                    {moreOpen && (
-                      <div
-                        id={morePopupId}
-                        role="dialog"
-                        aria-label={t("warmedSparesMoreTitle")}
-                        className="absolute start-0 top-full z-40 mt-1.5 w-56 max-w-[min(14rem,calc(100vw-2rem))] rounded-md border border-stone bg-surface px-3 py-2 text-start text-[11px] leading-snug text-stone-dark shadow-sm"
+              <p className="text-[11px] font-medium text-stone-dark">
+                {t("warmedSparesHeading", { count: warmedSpares.length })}
+              </p>
+              <ul className="space-y-2">
+                {warmedSpares.map((spare) => (
+                  <li
+                    key={spare.id}
+                    className="rounded-md border border-stone/70 bg-surface px-2.5 py-2"
+                  >
+                    <div className="flex flex-col items-start gap-1.5">
+                      <SupplierDisplayNameEditor
+                        supplierId={spare.id}
+                        skuId={skuId}
+                        name={spare.name}
+                        nameClassName="text-xs font-semibold text-ink"
+                        compact
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setContactTarget(spare)}
+                        className="text-[11px] font-medium text-sea underline-offset-2 hover:underline"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="font-semibold text-ink">
-                            {t("warmedSparesMoreTitle")}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => setMoreOpen(false)}
-                            className="shrink-0 text-[10px] font-semibold text-sea underline-offset-2 hover:underline"
-                          >
-                            {t("warmedSparesMoreClose")}
-                          </button>
-                        </div>
-                        <ul className="mt-1.5 list-disc space-y-0.5 ps-4">
-                          {remainingNames.map((name, i) => (
-                            <li key={`${name}-${i}`} dir="auto">
-                              {name}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </span>
-                </>
-              )}
+                        {t("contactSupplier")}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </>
           ) : (
-            t("warmedSparesNoneYet")
+            <p className="text-[11px] text-stone-dark">{t("warmedSparesNoneYet")}</p>
           )}
         </div>
       )}
@@ -1213,6 +1558,15 @@ function ChosenSupplierSummary({
           {t("viewFullShortlist")}
         </button>
       )}
+
+      {contactTarget ? (
+        <SupplierContactModal
+          s={contactTarget}
+          skuId={skuId}
+          skuName={skuName}
+          onClose={() => setContactTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1220,16 +1574,31 @@ function ChosenSupplierSummary({
 function SampleTracker({
   sample,
   skuId,
+  skuName,
+  supplier,
 }: {
   sample: SampleView;
   skuId: string;
+  skuName: string;
+  /** Full option row when present — enables Contact door (draft / listing). */
+  supplier: SupplierView | null;
 }) {
   const t = useTranslations("Supplier");
   const [pending, startTransition] = useTransition();
+  const [contactOpen, setContactOpen] = useState(false);
   const [checklist, setChecklist] = useState<Record<string, boolean>>(
     sample.checklist,
   );
   const [photoNotes, setPhotoNotes] = useState(sample.photoNotes);
+  const [contactEmail, setContactEmail] = useState(sample.contactEmail);
+  const [contactWhatsapp, setContactWhatsapp] = useState(
+    sample.contactWhatsapp,
+  );
+
+  useEffect(() => {
+    setContactEmail(sample.contactEmail);
+    setContactWhatsapp(sample.contactWhatsapp);
+  }, [sample.contactEmail, sample.contactWhatsapp]);
 
   const isRequested = sample.status === "requested";
   const isReceived = sample.status === "received";
@@ -1244,9 +1613,35 @@ function SampleTracker({
       className="mt-4 scroll-mt-6 rounded-lg border border-cedar/30 bg-cedar/5 p-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-ink">
-          {t("sampleTitle")} — {sample.supplierName}
-        </h3>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-stone-dark">{t("sampleTitle")}</p>
+          <SupplierDisplayNameEditor
+            supplierId={sample.supplierId}
+            skuId={skuId}
+            name={sample.supplierName}
+            nameClassName="text-sm font-semibold text-ink"
+          />
+          <SupplierContactsEditor
+            supplierId={sample.supplierId}
+            skuId={skuId}
+            contactEmail={contactEmail}
+            contactWhatsapp={contactWhatsapp}
+            compact
+            onSaved={(next) => {
+              setContactEmail(next.contactEmail);
+              setContactWhatsapp(next.contactWhatsapp);
+            }}
+          />
+          {supplier ? (
+            <button
+              type="button"
+              onClick={() => setContactOpen(true)}
+              className="mt-2 text-[11px] font-medium text-sea underline-offset-2 hover:underline"
+            >
+              {t("contactSupplier")}
+            </button>
+          ) : null}
+        </div>
         <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-cedar-deep">
           {t(`sampleStatus.${sample.status}` as never)}
         </span>
@@ -1348,6 +1743,19 @@ function SampleTracker({
           {t("sampleApprovedNote")}
         </p>
       )}
+
+      {contactOpen && supplier ? (
+        <SupplierContactModal
+          s={{
+            ...supplier,
+            contactEmail,
+            contactWhatsapp,
+          }}
+          skuId={skuId}
+          skuName={skuName}
+          onClose={() => setContactOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1971,6 +2379,26 @@ function BatchArrivalEtaBlock({
   const [planUpdated, setPlanUpdated] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Marketing “Set ETA on Supplier” → #batch-arrival-eta once (load / hashchange).
+  // Remount with leftover same hash must not re-scroll (Generate kit revalidate).
+  useEffect(() => {
+    function scrollIfTargeted() {
+      if (window.location.hash !== "#batch-arrival-eta") return;
+      const locationKey = skuFocusLocationKey();
+      if (!consumeBatchArrivalEtaDeepLinkOnce(skuId, locationKey)) return;
+      document
+        .getElementById("batch-arrival-eta")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      markBatchArrivalEtaDeepLinkConsumed(skuId, locationKey);
+    }
+    const timer = window.setTimeout(scrollIfTargeted, 50);
+    window.addEventListener("hashchange", scrollIfTargeted);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("hashchange", scrollIfTargeted);
+    };
+  }, [skuId]);
+
   const presets: { id: EtaPreset; labelKey: string }[] = [
     { id: "2w", labelKey: "etaPreset2w" },
     { id: "1m", labelKey: "etaPreset1m" },
@@ -1979,7 +2407,10 @@ function BatchArrivalEtaBlock({
   ];
 
   return (
-    <div className="mt-4 rounded-lg border border-stone bg-surface-subtle p-4">
+    <div
+      id="batch-arrival-eta"
+      className="mt-4 scroll-mt-6 rounded-lg border border-stone bg-surface-subtle p-4"
+    >
       <h3 className="text-sm font-semibold text-ink">{t("etaTitle")}</h3>
       <p className="mt-1 text-xs text-stone-dark">{t("etaIntro")}</p>
       <p className="mt-2 text-xs text-ink">
@@ -2437,7 +2868,9 @@ function CantFulfillBlock({
   const [skipAck, setSkipAck] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(view.reorder.exhaustedBackups);
+  const [contactTarget, setContactTarget] = useState<SupplierView | null>(null);
   const { reorder } = view;
+  const suppliersById = indexSuppliersById(view);
 
   if (!reorder.available) return null;
 
@@ -2620,44 +3053,74 @@ function CantFulfillBlock({
             </div>
           ) : (
             <ul className="space-y-2">
-              {warmBackups.map((b) => (
+              {warmBackups.map((b) => {
+                const spare = suppliersById.get(b.id);
+                return (
                 <li
                   key={b.id}
                   className="rounded border border-amber-200 bg-white px-2.5 py-2"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-ink">
-                      {b.name}{" "}
-                      <span className="text-stone-dark">({t("backupWarm")})</span>
-                    </span>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => {
-                        setError(null);
-                        startTransition(async () => {
-                          const res = await switchReorderBackupAction(
-                            view.skuId,
-                            b.id,
-                          );
-                          if (!res.ok) {
-                            setError("errorGeneric");
-                            return;
-                          }
-                          if (res.mode === "warm") {
-                            onPathSwitched?.();
-                          }
-                        });
-                      }}
-                      className="rounded-md bg-cedar px-2.5 py-1 text-[11px] font-semibold text-foam"
-                    >
-                      {t("switchWarm")}
-                    </button>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <SupplierDisplayNameEditor
+                        supplierId={b.id}
+                        skuId={view.skuId}
+                        name={spare?.name ?? b.name}
+                        nameClassName="text-xs font-semibold text-ink"
+                        compact
+                      />
+                      <span className="text-[10px] text-stone-dark">
+                        ({t("backupWarm")})
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {spare ? (
+                        <button
+                          type="button"
+                          onClick={() => setContactTarget(spare)}
+                          className="rounded-md border border-sea/40 bg-sea/5 px-2.5 py-1 text-[11px] font-semibold text-sea"
+                        >
+                          {t("contactSupplier")}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => {
+                          setError(null);
+                          startTransition(async () => {
+                            const res = await switchReorderBackupAction(
+                              view.skuId,
+                              b.id,
+                            );
+                            if (!res.ok) {
+                              setError("errorGeneric");
+                              return;
+                            }
+                            if (res.mode === "warm") {
+                              onPathSwitched?.();
+                            }
+                          });
+                        }}
+                        className="rounded-md bg-cedar px-2.5 py-1 text-[11px] font-semibold text-foam"
+                      >
+                        {t("switchWarm")}
+                      </button>
+                    </div>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
+          {contactTarget ? (
+            <SupplierContactModal
+              s={contactTarget}
+              skuId={view.skuId}
+              skuName={view.skuName}
+              onClose={() => setContactTarget(null)}
+            />
+          ) : null}
           {reorder.bridge && (
             <div className="rounded-md border border-sea/30 bg-sea/5 px-2.5 py-2 text-sea">
               <p className="font-semibold text-ink">{t("bridgeTitle")}</p>

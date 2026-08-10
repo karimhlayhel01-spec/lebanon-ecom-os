@@ -13,6 +13,9 @@
  * instead of jumping to Supplier / sample / Order next batch.
  * Batch/reorder actions must clear that stay-finance flag so it cannot leak.
  * Dedicated /finance never sets stay-finance (already on Finance).
+ *
+ * Marketing Generate/Save kit on /sku/[id]: pin #marketing + suppress so a
+ * leftover #batch-arrival-eta (Set ETA CTA) cannot re-scroll on revalidate.
  */
 
 const STORAGE_PREFIX = "lebanon-ecom:sku-cold-hold:";
@@ -147,6 +150,48 @@ export function markStayOnFinanceAfterTopicAAction(
 /** @deprecated Use markStayOnFinanceAfterTopicAAction */
 export const markStayOnFinanceAfterStartSelling =
   markStayOnFinanceAfterTopicAAction;
+
+/**
+ * Call BEFORE Generate / Regenerate kit or Save creatives on the SKU page.
+ * Pins #marketing and locks auto-scroll at that URL so remount/revalidate
+ * cannot jump to leftover #batch-arrival-eta (Marketing “Set ETA” CTA).
+ * No-op off /sku paths. Prefer stay-put — do not force-scroll Marketing.
+ */
+export function markStayOnMarketingAfterKitAction(
+  skuId: string,
+  pathname?: string | null,
+): void {
+  if (!isSkuPagePathname(pathname)) return;
+  if (typeof window === "undefined") return;
+  const path = `${window.location.pathname}${window.location.search}`;
+  if (window.location.hash !== "#marketing") {
+    window.history.replaceState(null, "", `${path}#marketing`);
+  }
+  suppressSkuAutoScroll(skuId, 5000, skuFocusLocationKey());
+}
+
+/**
+ * After an intentional #batch-arrival-eta scroll (CTA or fresh deep-link):
+ * lock that locationKey so remount/revalidate with the same leftover hash
+ * does not re-scroll. New location keys still unlock via consumeDeepLinkIfUnlocked.
+ */
+export function markBatchArrivalEtaDeepLinkConsumed(
+  skuId: string,
+  locationKey?: string,
+): void {
+  suppressSkuAutoScroll(skuId, 5000, locationKey ?? skuFocusLocationKey());
+}
+
+/**
+ * Allow one scroll to #batch-arrival-eta; remount with the same locationKey
+ * returns false. Call markBatchArrivalEtaDeepLinkConsumed after scrolling.
+ */
+export function consumeBatchArrivalEtaDeepLinkOnce(
+  skuId: string,
+  locationKey: string,
+): boolean {
+  return consumeDeepLinkIfUnlocked(skuId, locationKey);
+}
 
 export function isStayOnFinanceAfterTopicAAction(skuId: string): boolean {
   if (stayFinanceSkuIds.has(skuId)) return true;

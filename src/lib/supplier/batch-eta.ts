@@ -1,15 +1,20 @@
 /**
  * Batch arrival ETA — Shared Business Memory (side_statuses.batch_arrival_eta).
  * Presets → week counts for pre-launch plan kits. Default = 1 month (4 weeks).
- * Editable only while batch ordered and not yet arrived.
+ *
+ * Visible/editable when Marketing can use ETA (sample approved or batch ordered)
+ * until the batch has arrived — so Marketing “Set ETA on Supplier” never points
+ * at missing UI. Anchor: `#batch-arrival-eta`.
  */
 
-/** Founder may set/edit ETA only between order and arrival. */
+/** Founder may set/edit ETA once sample is approved (or batch ordered) until arrival. */
 export function canEditBatchArrivalEta(flags: {
+  sampleApproved?: boolean;
   batchOrdered: boolean;
   batchArrivedReady: boolean;
 }): boolean {
-  return flags.batchOrdered && !flags.batchArrivedReady;
+  const marketingCanUseEta = !!flags.sampleApproved || flags.batchOrdered;
+  return marketingCanUseEta && !flags.batchArrivedReady;
 }
 
 /**

@@ -21,7 +21,9 @@ import {
  * Same path id order as Supplier panel (`approvedSampleSupplierName`).
  * Spare / insurance-only approvals never appear unless they become the path.
  */
-export async function resolveWorkingSupplierNamesBySku(
+export type WorkingSupplierRef = { id: string; name: string };
+
+export async function resolveWorkingSuppliersBySku(
   skuIds: readonly string[],
   journeys: ReadonlyMap<
     string,
@@ -30,9 +32,9 @@ export async function resolveWorkingSupplierNamesBySku(
       reorderSupplierId: string | null;
     }
   >,
-): Promise<Map<string, string | null>> {
+): Promise<Map<string, WorkingSupplierRef | null>> {
   await ensureMigrated();
-  const out = new Map<string, string | null>();
+  const out = new Map<string, WorkingSupplierRef | null>();
   for (const id of skuIds) out.set(id, null);
   if (skuIds.length === 0) return out;
 
@@ -79,9 +81,30 @@ export async function resolveWorkingSupplierNamesBySku(
       reorderSupplierId: journey?.reorderSupplierId,
       firstApprovedSupplierId: firstApproved?.supplierId ?? null,
     });
-    out.set(skuId, pathId ? (nameBySupplierId.get(pathId) ?? null) : null);
+    const name = pathId ? (nameBySupplierId.get(pathId) ?? null) : null;
+    out.set(
+      skuId,
+      pathId && name ? { id: pathId, name } : null,
+    );
   }
 
+  return out;
+}
+
+/** @deprecated Prefer resolveWorkingSuppliersBySku (includes id for rename). */
+export async function resolveWorkingSupplierNamesBySku(
+  skuIds: readonly string[],
+  journeys: ReadonlyMap<
+    string,
+    {
+      reorderPathSupplierId: string | null;
+      reorderSupplierId: string | null;
+    }
+  >,
+): Promise<Map<string, string | null>> {
+  const refs = await resolveWorkingSuppliersBySku(skuIds, journeys);
+  const out = new Map<string, string | null>();
+  for (const [skuId, ref] of refs) out.set(skuId, ref?.name ?? null);
   return out;
 }
 
