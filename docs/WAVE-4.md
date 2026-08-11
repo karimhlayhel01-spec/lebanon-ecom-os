@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 4**.
 **Wave 1** (multi-SKU hub, stage-aware Marketing FSM, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery) and **Wave 3** (Supplier) remain locked — see `docs/WAVE-2.md`, `docs/WAVE-3.md`. Do not reopen those locks here.
 
-**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). Phases 3–7 remain roadmap (amend in § changelog when promoted).
+**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). Phases 4–7 remain roadmap (amend in § changelog when promoted).
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -30,7 +30,7 @@ Lebanon Ecom OS Marketing is **AI-native kits**: content tailored per SKU (and w
 | **Skills / gates own truth** | Unlocks, capacity tiers, COD-as-wow ban, margin honesty stay in skills/gates. **LLM does not** unlock stages or invent ROAS / money advice. |
 | **Approach A** | Generate / improve on **explicit founder click** — not every page load. |
 | **In-OS LLM** | **Gemini first** via a `MarketingLlmProvider` seam (name flexible). Claude API later = **provider swap**, not a rewrite. |
-| **External AI desk** | Claude / ChatGPT **role prompts** = roadmap **Phase 3+**. Cursor = optional advanced tip, **not** the default marketing manager. |
+| **External AI desk** | Claude / ChatGPT **role prompts** = **Phase 3 shipped** (copyable helpers; not SoT; no auto-fill). Cursor = optional advanced tip, **not** the default marketing manager. |
 | **Whole-shop kit** | When ≥3 live SKUs, kit may use `skuId` **null** — brand / multi-SKU only. **Intro AI is per-SKU only** (never whole-shop Intro). |
 | **Store pack** | Attractiveness / discoverability / SEO pack = **Store** side surface (roadmap Phase 2) — not a new Marketing stage. |
 | **Non-promises** | No Google Merchant API, ranking guarantees, or AI-chatbot citation promises in Wave 4. |
@@ -39,18 +39,30 @@ Lebanon Ecom OS Marketing is **AI-native kits**: content tailored per SKU (and w
 
 ## 3) Phase roadmap (**INTENT**)
 
-Amend dates / promotion in §7 changelog. Only **Phase 1** is firm to build next.
+Amend dates / promotion in §7 changelog.
 
 | Phase | Intent |
 | --- | --- |
 | **0** | Lock this doc |
 | **1** | Intro Gemini bodies + AI literacy + Intro UI harden — **shipped** |
 | **2** | Store attractive + discoverability pack (Store surface) — **shipped** |
-| **3** | AI-native creative kits + external AI desk roles |
+| **3** | AI-native creative kits + external AI desk roles — **shipped** |
 | **4** | This week’s one post + Posted / Skipped |
 | **5** | Tool suggest Nano Banana / Seedance + copyable prompts |
 | **6** | Optional in-app visual gen (capped spend) |
 | **7** | Harden / EN–AR / tests / spend ledger |
+
+---
+
+## 4c) Phase 3 — AI creative kits + external AI desk (**SHIPPED**)
+
+- Stages stay: `pre_launch` / `launch` / `monthly_refresh` (UI: weekly refresh). **No** Marketing FSM rewrite.
+- Approach A: **Generate kit** → Gemini fills niche creative **copy** (hooks, captions, angles, shots, series labels, why) EN/AR onto deterministic `buildCreatives` skeleton (ids/format/week/schedule locked).
+- Fail-closed without key / validate miss → template kit + calm honesty; optional **Try AI fill again** only when `source === "template"`.
+- Validate rejects COD-as-wow, pre_launch soft bans, required fields / length / product name.
+- Whole-kit generate only (no Store-style per-creative version picker; no visual gen).
+- **External AI desk:** 1–2 copyable Claude/ChatGPT role prompts (SKU + stage + rules; helper not SoT). Teaching copy only — founder opens Claude/ChatGPT themselves. No Claude/ChatGPT API; desk does **not** auto-fill kit cards.
+- Provider: `MarketingLlmProvider.improveCreativesKit` → `creatives-llm.ts`.
 
 ---
 
@@ -128,6 +140,7 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-11 | **Phase 3 shipped** — creative kits: Gemini fills copy onto `buildCreatives` skeleton (`improveCreativesKit`); validate (COD / pre_launch soft / fields); template fallback + Try AI fill again; external AI desk copyable Claude/ChatGPT role prompts (helper not SoT, no auto-fill, no visual gen). |
 | 2026-08-11 | Store page stronger: drop **Save drafts** — drafts read-only with **Copy** (+ Copy pack); paste-into-Shopify is guidance only (no Merchant write). |
 | 2026-08-11 | Phase 2 addendum — Store page copy **version picker**: always keep non-AI baseline; ≤3 successful Gemini snapshots; template/fail does not burn a slot; select active version; Regenerate disabled at cap. |
 | 2026-08-11 | **Phase 2 shipped** — Store “Make the page stronger”: Gemini improve EN/AR drafts + policies + discoverability pack (title/short/phrases/FAQs/tips); Approach A click; template fallback; persist `discoverability_pack`; honesty (no ranking / Merchant / citation promises). |

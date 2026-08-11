@@ -27,9 +27,13 @@ import { getMarketingLlmProvider } from "@/lib/marketing/intro-llm";
 import { isGeminiConfigured } from "@/lib/discovery/explain/llm";
 import {
   buildCreatives,
-  normalizeCreative,
   type Creative,
 } from "@/lib/marketing/creatives";
+import {
+  parseCreativesKitItems,
+  serializeCreativesKit,
+  type CreativesKitSource,
+} from "@/lib/marketing/creatives-ai";
 import { resolveBatchArrivalEta } from "@/lib/supplier/batch-eta";
 import type { BatchArrivalEtaView } from "@/lib/supplier/batch-eta";
 import {
@@ -92,6 +96,8 @@ export type MarketingKitView = {
   kind: "creatives" | "intro_lesson";
   creatives: Creative[];
   lesson: IntroLessonPayload | null;
+  /** How creative/lesson bodies were produced (Wave 4). */
+  source: "gemini" | "template" | null;
   createdAt: string;
 };
 
@@ -113,6 +119,8 @@ export type MarketingPanelView = {
   shopKitAvailable: boolean;
   /** True when viewing the whole-shop kit (skuId null). */
   isShopKit: boolean;
+  /** Active SKU category (shop kit → multi). */
+  selectedCategory: string;
   /** True when GEMINI_API_KEY (or Discovery Gemini alias) is set on the server. */
   geminiConfigured: boolean;
   /**
@@ -148,6 +156,7 @@ function parseKitItems(raw: string): {
   kind: "creatives" | "intro_lesson";
   creatives: Creative[];
   lesson: IntroLessonPayload | null;
+  source: "gemini" | "template" | null;
 } {
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -158,26 +167,27 @@ function parseKitItems(raw: string): {
       (parsed as IntroLessonPayload).kind === "intro_lesson" &&
       Array.isArray((parsed as IntroLessonPayload).sections)
     ) {
+      const lesson = ensureIntroLessonComplete(parsed as IntroLessonPayload);
       return {
         kind: "intro_lesson",
         creatives: [],
-        lesson: ensureIntroLessonComplete(parsed as IntroLessonPayload),
+        lesson,
+        source: lesson.source ?? null,
       };
     }
-    if (Array.isArray(parsed)) {
-      const creatives = parsed
-        .map(normalizeCreative)
-        .filter((c): c is Creative => c !== null);
+    const creativesKit = parseCreativesKitItems(parsed);
+    if (creativesKit) {
       return {
         kind: "creatives",
-        creatives,
+        creatives: creativesKit.creatives,
         lesson: null,
+        source: creativesKit.source,
       };
     }
   } catch {
     /* ignore */
   }
-  return { kind: "creatives", creatives: [], lesson: null };
+  return { kind: "creatives", creatives: [], lesson: null, source: null };
 }
 
 export async function getMarketingPanel(
@@ -296,6 +306,7 @@ export async function getMarketingPanel(
       kind: items.kind,
       creatives: items.creatives,
       lesson: items.lesson,
+      source: items.source,
       createdAt: k.createdAt,
     });
   }
@@ -349,6 +360,7 @@ export async function getMarketingPanel(
     liveSkus: live.map((s) => ({ id: s.id, name: s.name })),
     shopKitAvailable,
     isShopKit,
+    selectedCategory: isShopKit ? "multi" : (sku?.basics.category ?? ""),
     geminiConfigured: isGeminiConfigured(),
     needsMarginAck,
   };
@@ -463,12 +475,10 @@ export async function generateKit(
     ? "multi-SKU shop"
     : sku!.basics.differentiation;
 
-  let introSource: "gemini" | "template" | undefined;
+  let kitSource: CreativesKitSource | undefined;
   let introFillError: string | undefined;
-  let items:
-    | IntroLessonPayload
-    | ReturnType<typeof buildCreatives>
-    | [];
+  let itemsJson: string;
+  let creativeCount = 0;
 
   if (stage === "intro_pdf") {
     const introInput = {
@@ -480,17 +490,18 @@ export async function generateKit(
     // Approach A: Gemini on Generate lesson only; fail closed → template.
     const llm = getMarketingLlmProvider();
     const filled = await llm.fillIntroLessonBodies(introInput);
+    let lesson: IntroLessonPayload;
     if (filled.ok) {
-      items = filled.lesson;
-      introSource = "gemini";
+      lesson = filled.lesson;
+      kitSource = "gemini";
     } else {
-      // Honesty: template when key missing or validation/API failed.
-      items = buildIntroLesson(introInput);
-      introSource = "template";
+      lesson = buildIntroLesson(introInput);
+      kitSource = "template";
       introFillError = filled.error;
     }
+    itemsJson = JSON.stringify(lesson);
   } else if (creativeStage) {
-    items = buildCreatives({
+    const creativeInput = {
       name: productName,
       category,
       hooks,
@@ -498,14 +509,28 @@ export async function generateKit(
       capacityTier: panel.capacityTier,
       varianceSeed,
       weekCount: creativeStage === "pre_launch" ? eta.weekCount : undefined,
+    };
+    const skeleton = buildCreatives(creativeInput);
+    const llm = getMarketingLlmProvider();
+    const filled = await llm.improveCreativesKit(creativeInput, skeleton);
+    let creatives = skeleton;
+    let source: CreativesKitSource = "template";
+    if (filled.ok) {
+      creatives = filled.creatives;
+      source = "gemini";
+    }
+    kitSource = source;
+    creativeCount = creatives.length;
+    itemsJson = serializeCreativesKit({
+      kind: "creatives",
+      source,
+      creatives,
     });
   } else {
-    items = [];
+    itemsJson = "[]";
   }
 
-  const itemsJson = JSON.stringify(items);
   const capacityTier = String(panel.capacityTier);
-  const creativeCount = Array.isArray(items) ? items.length : 0;
 
   if (existing.length > 0) {
     const keep = existing[existing.length - 1]!;
@@ -568,7 +593,7 @@ export async function generateKit(
       replaced,
       skuId: panel.selectedSkuId,
       shopKit: isShopKit,
-      ...(introSource ? { introSource } : {}),
+      ...(kitSource ? { kitSource } : {}),
       ...(introFillError ? { introFillError } : {}),
     }),
     createdAt: now,
@@ -591,7 +616,19 @@ export async function saveKitCreatives(
   if (!kit || kit.workspaceId !== workspaceId) {
     return { ok: false, error: "not_found" };
   }
-  await founderEditMarketingKit(kitId, { items: JSON.stringify(creatives) });
+  // Preserve wrapped kit + source so AI/template honesty survives founder edits.
+  const prev = parseKitItems(kit.items);
+  const source =
+    prev.source === "gemini" || prev.source === "template"
+      ? prev.source
+      : "template";
+  await founderEditMarketingKit(kitId, {
+    items: serializeCreativesKit({
+      kind: "creatives",
+      source,
+      creatives,
+    }),
+  });
   return { ok: true };
 }
 

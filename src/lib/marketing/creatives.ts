@@ -8,7 +8,8 @@
  * name: weekly refresh) v1 = 1-week selling plan (open/convert + weekly
  * extras) with schedules.
  * Full regenerate resets scheduleIgnored (new creative ids).
- * No COD-as-marketing-wow. No LLM.
+ * No COD-as-marketing-wow. Deterministic builder = skeleton + fail-closed
+ * fallback; Wave 4 Gemini may fill text fields via creatives-llm.
  */
 
 /** v1 Launch plan length — not a permanent schema law (v2 may choose N). */

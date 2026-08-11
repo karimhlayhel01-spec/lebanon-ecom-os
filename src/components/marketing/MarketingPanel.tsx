@@ -25,6 +25,8 @@ import {
   isIntroLiteracySectionId,
 } from "@/lib/marketing/intro-lesson";
 import { compareCreativesByCalendar } from "@/lib/marketing/creatives";
+import { buildExternalAiDeskPrompts } from "@/lib/marketing/ai-desk";
+import { copyTextToClipboard } from "@/lib/store/clipboard";
 import type { BatchArrivalEtaView } from "@/lib/supplier/batch-eta";
 import type { MarketingStage } from "@/lib/constants";
 
@@ -214,6 +216,13 @@ export function MarketingPanel({
                 skuId={view.isShopKit ? null : view.selectedSkuId}
                 surface={surface}
                 geminiConfigured={view.geminiConfigured}
+                productName={
+                  view.isShopKit
+                    ? "Whole shop"
+                    : (view.liveSkus.find((s) => s.id === view.selectedSkuId)
+                        ?.name ?? "your product")
+                }
+                category={view.selectedCategory}
               />
             ))
         )}
@@ -430,11 +439,15 @@ function KitBlock({
   skuId,
   surface,
   geminiConfigured,
+  productName,
+  category,
 }: {
   kit: MarketingKitView;
   skuId: string | null;
   surface: "deep" | "sku";
   geminiConfigured: boolean;
+  productName: string;
+  category: string;
 }) {
   if (kit.kind === "intro_lesson" && kit.lesson) {
     return (
@@ -455,6 +468,9 @@ function KitBlock({
       kit={kit}
       skuId={skuId}
       surface={surface}
+      geminiConfigured={geminiConfigured}
+      productName={productName}
+      category={category}
     />
   );
 }
@@ -713,18 +729,27 @@ function CreativeKitBlock({
   kit,
   skuId,
   surface,
+  geminiConfigured,
+  productName,
+  category,
 }: {
   kit: MarketingKitView;
   skuId: string | null;
   surface: "deep" | "sku";
+  geminiConfigured: boolean;
+  productName: string;
+  category: string;
 }) {
   const t = useTranslations("Marketing");
   const locale = useLocale();
+  const router = useRouter();
   const isAr = locale === "ar";
   const [pending, startTransition] = useTransition();
+  const [regenPending, startRegen] = useTransition();
   const [creatives, setCreatives] = useState<Creative[]>(kit.creatives);
   const [saved, setSaved] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [copiedDesk, setCopiedDesk] = useState<string | null>(null);
 
   const isPreLaunchPlan = kit.stage === "pre_launch";
   const isLaunchPlan = kit.stage === "launch";
@@ -745,6 +770,29 @@ function CreativeKitBlock({
     .forEach((c, i) => {
       badgeById[c.id] = i + 1;
     });
+
+  const deskPrompts =
+    kit.stage === "pre_launch" ||
+    kit.stage === "launch" ||
+    kit.stage === "monthly_refresh"
+      ? buildExternalAiDeskPrompts({
+          productName,
+          category,
+          stage: kit.stage,
+          creative: (() => {
+            const c =
+              creatives.find((x) => !x.scheduleIgnored) ?? creatives[0];
+            if (!c) return undefined;
+            return {
+              hookEn: c.hookEn,
+              hookAr: c.hookAr,
+              captionEn: c.captionEn,
+              captionAr: c.captionAr,
+              shots: c.shots,
+            };
+          })(),
+        })
+      : [];
 
   function update(id: string, patch: Partial<Creative>) {
     setCreatives((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
@@ -768,6 +816,14 @@ function CreativeKitBlock({
     persistSchedule(next);
   }
 
+  function tryAiAgain() {
+    startRegen(async () => {
+      if (surface === "sku") stayOnMarketingForKitWrite(skuId);
+      const res = await generateKitAction(kit.stage, true, skuId);
+      if (res.ok) router.refresh();
+    });
+  }
+
   const fieldClass =
     "w-full rounded border border-stone px-2 py-1.5 outline-none focus:border-cedar";
 
@@ -788,6 +844,22 @@ function CreativeKitBlock({
           </button>
         </div>
       </div>
+
+      {kit.source === "template" && (
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-amber-900/90">
+            {geminiConfigured ? t("kitAiFallback") : t("kitAiUnavailable")}
+          </p>
+          <button
+            type="button"
+            disabled={regenPending}
+            onClick={tryAiAgain}
+            className="rounded-md border border-cedar/40 bg-cedar/10 px-3 py-1.5 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {regenPending ? t("generatingKit") : t("tryAiFillAgain")}
+          </button>
+        </div>
+      )}
 
       {isLaunchPlan && (
         <p className="mt-2 text-[11px] text-stone-dark">
@@ -856,6 +928,50 @@ function CreativeKitBlock({
         >
           {t("saveCreatives")}
         </button>
+      )}
+
+      {deskPrompts.length > 0 && (
+        <div className="mt-5 border-t border-stone pt-4">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-cedar-deep">
+            {t("deskTitle")}
+          </h4>
+          <p className="mt-1 text-xs text-stone-dark">{t("deskIntro")}</p>
+          <div className="mt-3 space-y-3">
+            {deskPrompts.map((p) => (
+              <div
+                key={p.id}
+                className="rounded-lg border border-stone bg-surface p-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs font-semibold text-ink">
+                    {t(p.titleKey)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = await copyTextToClipboard(p.body);
+                      if (!ok) return;
+                      setCopiedDesk(p.id);
+                      window.setTimeout(
+                        () =>
+                          setCopiedDesk((cur) =>
+                            cur === p.id ? null : cur,
+                          ),
+                        2000,
+                      );
+                    }}
+                    className="shrink-0 rounded-md border border-cedar/40 bg-cedar/10 px-2.5 py-1 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15"
+                  >
+                    {copiedDesk === p.id ? t("deskCopied") : t("deskCopy")}
+                  </button>
+                </div>
+                <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-stone bg-surface-subtle p-2 text-[10px] leading-relaxed text-stone-dark">
+                  {p.body}
+                </pre>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

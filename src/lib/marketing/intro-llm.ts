@@ -25,6 +25,9 @@ import {
   type StorePageCopyLlmResult,
 } from "@/lib/store/page-copy-llm";
 import type { StorePageCopyInput } from "@/lib/store/page-copy";
+import { fillCreativesKitWithGemini } from "@/lib/marketing/creatives-llm";
+import type { BuildCreativesInput, Creative } from "@/lib/marketing/creatives";
+import type { CreativesKitLlmResult } from "@/lib/marketing/creatives-llm";
 
 export type MarketingLlmError =
   | "missing_key"
@@ -47,6 +50,12 @@ export type MarketingLlmProvider = {
     input: StorePageCopyInput,
     opts?: { fetchFn?: typeof fetch; env?: Record<string, string | undefined> },
   ): Promise<StorePageCopyLlmResult>;
+  /** Wave 4 Phase 3 — fill creative kit copy onto a skeleton. */
+  improveCreativesKit(
+    input: BuildCreativesInput,
+    skeleton: Creative[],
+    opts?: { fetchFn?: typeof fetch; env?: Record<string, string | undefined> },
+  ): Promise<CreativesKitLlmResult>;
 };
 
 function stripJsonFence(raw: string): string {
@@ -212,6 +221,9 @@ export function createGeminiMarketingLlmProvider(): MarketingLlmProvider {
     },
     async improveStorePageCopy(input, opts) {
       return improveStorePageCopyWithGemini(input, opts);
+    },
+    async improveCreativesKit(input, skeleton, opts) {
+      return fillCreativesKitWithGemini(input, skeleton, opts);
     },
   };
 }
