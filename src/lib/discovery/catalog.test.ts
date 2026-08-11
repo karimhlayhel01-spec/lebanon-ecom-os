@@ -28,11 +28,11 @@ describe("curated catalog", () => {
     expect(keys.size).toBe(CATALOG.length);
   });
 
-  it("has enough acceptable products so the first page can be accept-ready", () => {
+  it("has enough acceptable products so a demo session can fill the 25 cap", () => {
     const evaluated = evaluate();
     const acceptable = evaluated.filter((e) => e.acceptable);
-    // Ranking lists accept-ready only; >= 5 supports a full first page.
-    expect(acceptable.length).toBeGreaterThanOrEqual(5);
+    // Ranking lists accept-ready only; ≥25 supports Show more up to session cap.
+    expect(acceptable.length).toBeGreaterThanOrEqual(25);
   });
 
   it("still includes blocked and oversized products in catalog for realism", () => {

@@ -35,7 +35,11 @@ Open [http://localhost:3005](http://localhost:3005) — you will be redirected t
 
 ### Demo reset
 
-Temporary control for testing and live demos (not Wave 2). Enable with `DEMO_RESET=1` (or `true`) in `.env`. In **production** (`NODE_ENV=production`) you must also set `DEMO_RESET_ALLOW_PRODUCTION=1` (or `true`) — `DEMO_RESET` alone is ignored. When enabled, ⚙ Settings shows **Demo: reset journey**. Confirm by typing `RESET` — atomically clears SKUs / discovery / supplier / marketing / Topic A back to empty hub discovery while keeping the same login, workspace id, and completed onboarding. Without the flags the control is invisible and the server action is a no-op.
+Temporary control for testing and live demos (not Wave 2). Enable with `DEMO_RESET=1` (or `true`) in `.env`. In **production** (`NODE_ENV=production`) you must also set `DEMO_RESET_ALLOW_PRODUCTION=1` (or `true`) — `DEMO_RESET` alone is ignored.
+
+When enabled, ⚙ Settings shows **Demo: restore Discovery**. Confirm by typing `RESTORE` — atomically clears SKUs / supplier / marketing / Topic A, then **seeds invent/catalog Discovery** with **5 cards** visible and **Show more** up to **25** (existing caps). No Serper/SerpAPI — catalog + scores only; `DISCOVERY_LIVE_SEARCH` can stay off. Login, workspace id, and completed onboarding stay.
+
+In non-production only, the same panel also offers **Wipe to empty** (type `WIPE`) for a blank board without seed. Without the flags the controls are invisible and the server actions are no-ops.
 
 ### Auth notes
 
@@ -219,6 +223,7 @@ After accept, work happens on the **shop hub** and **per-SKU pages** (`/sku/[id]
 - Stages: sample approved → **intro**, batch ordered → **pre-launch** (organic + max $5/day paid), batch arrived → **launch**, plus **weekly refresh** (stage id `monthly_refresh`)
 - Editable **creatives + shot lists**, EN/AR, scaled **6 / 10 / 14 by capacity**, WhatsApp required
 - Marketing kits are separate from Topic A money advice; `start_launch_marketing` gates launch/refresh
+- **Wave 4 (locked intent):** AI-native kits — Gemini-first Intro bodies + literacy (Phase 1 next); deterministic templates = fail-closed fallback. See `docs/WAVE-4.md`
 
 ### Topic A + Finance panel (`src/lib/finance/`)
 

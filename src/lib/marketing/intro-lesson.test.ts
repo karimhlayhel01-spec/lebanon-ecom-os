@@ -1,21 +1,50 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  ALL_INTRO_SECTION_IDS,
   INTRO_LESSON_SECTION_IDS,
+  INTRO_LITERACY_SECTION_IDS,
+  INTRO_SECTION_TITLES,
+  applyCanonicalTitles,
   buildIntroLesson,
+  ensureIntroLessonComplete,
+  getIntroSectionTitle,
   introLessonHasCodPitch,
 } from "@/lib/marketing/intro-lesson";
+import { validateAndAssembleIntroLesson } from "@/lib/marketing/intro-validate";
+import {
+  createGeminiMarketingLlmProvider,
+  resetMarketingLlmProvider,
+  setMarketingLlmProvider,
+  type MarketingLlmProvider,
+} from "@/lib/marketing/intro-llm";
 
 describe("buildIntroLesson", () => {
-  it("returns intro_lesson with the same 8 section ids every time", () => {
+  it("returns intro_lesson with core + literacy section ids", () => {
     const lesson = buildIntroLesson({
       name: "Silicone Kitchen Set",
       category: "home_kitchen",
     });
     expect(lesson.kind).toBe("intro_lesson");
+    expect(lesson.source).toBe("template");
     expect(lesson.sections.map((s) => s.id)).toEqual([
-      ...INTRO_LESSON_SECTION_IDS,
+      ...ALL_INTRO_SECTION_IDS,
     ]);
-    expect(lesson.sections).toHaveLength(8);
+    expect(lesson.sections).toHaveLength(
+      INTRO_LESSON_SECTION_IDS.length + INTRO_LITERACY_SECTION_IDS.length,
+    );
+  });
+
+  it("includes literacy ids with fixed titles", () => {
+    const lesson = buildIntroLesson({
+      name: "Gua Sha Set",
+      category: "beauty_personal_care",
+    });
+    for (const id of INTRO_LITERACY_SECTION_IDS) {
+      const section = lesson.sections.find((s) => s.id === id)!;
+      expect(section.titleEn).toBe(INTRO_SECTION_TITLES[id].titleEn);
+      expect(section.titleAr).toBe(INTRO_SECTION_TITLES[id].titleAr);
+      expect(section.bodyEn.length).toBeGreaterThan(20);
+    }
   });
 
   it("substitutes THIS product name into section bodies", () => {
@@ -57,7 +86,7 @@ describe("buildIntroLesson", () => {
       name: "Mystery Gadget",
       category: "",
     });
-    expect(lesson.sections).toHaveLength(8);
+    expect(lesson.sections).toHaveLength(ALL_INTRO_SECTION_IDS.length);
     expect(lesson.category).toBe("unknown");
     const series = lesson.sections.find((s) => s.id === "series")!;
     expect(series.bodyEn).toContain("Mystery Gadget");
@@ -90,5 +119,181 @@ describe("buildIntroLesson", () => {
     expect(metrics.bodyEn).toMatch(/Pattern E/i);
     expect(metrics.bodyEn).toMatch(/Don.t rush paid/i);
     expect(metrics.bodyEn).toMatch(/WhatsApp/i);
+  });
+
+  it("keeps titles stable via canonical map", () => {
+    for (const id of ALL_INTRO_SECTION_IDS) {
+      expect(getIntroSectionTitle(id, "en")).toBe(
+        INTRO_SECTION_TITLES[id].titleEn,
+      );
+      expect(getIntroSectionTitle(id, "ar")).toBe(
+        INTRO_SECTION_TITLES[id].titleAr,
+      );
+    }
+  });
+});
+
+describe("validateAndAssembleIntroLesson", () => {
+  function goodBodies(name: string) {
+    return ALL_INTRO_SECTION_IDS.map((id) => ({
+      id,
+      bodyEn: `Lesson about ${name} for section ${id}. `.repeat(3).trim(),
+      bodyAr: `درس عن ${name} لقسم ${id}. `.repeat(3).trim(),
+    }));
+  }
+
+  it("accepts complete bilingual bodies and forces canonical titles", () => {
+    const r = validateAndAssembleIntroLesson({
+      productName: "Silicone Spatula",
+      category: "home_kitchen",
+      bodies: goodBodies("Silicone Spatula"),
+      source: "gemini",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.lesson.source).toBe("gemini");
+    expect(r.lesson.sections.map((s) => s.id)).toEqual([
+      ...ALL_INTRO_SECTION_IDS,
+    ]);
+    for (const s of r.lesson.sections) {
+      expect(s.titleEn).toBe(INTRO_SECTION_TITLES[s.id].titleEn);
+      expect(s.titleAr).toBe(INTRO_SECTION_TITLES[s.id].titleAr);
+    }
+  });
+
+  it("rejects missing sections", () => {
+    const bodies = goodBodies("X").slice(0, 5);
+    const r = validateAndAssembleIntroLesson({
+      productName: "X",
+      category: "home_kitchen",
+      bodies,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe("missing_sections");
+  });
+
+  it("rejects COD pitch", () => {
+    const bodies = goodBodies("Widget");
+    bodies[0]!.bodyEn =
+      "Sell Widget with cash on delivery as your wow marketing angle. ".repeat(
+        2,
+      );
+    const r = validateAndAssembleIntroLesson({
+      productName: "Widget",
+      category: "home_kitchen",
+      bodies,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe("cod_pitch");
+  });
+
+  it("rejects missing product name on core sections", () => {
+    const bodies = goodBodies("Real Name").map((b) =>
+      b.id === "hook"
+        ? {
+            ...b,
+            bodyEn:
+              "A generic hook with no product mention at all here really. Keep watching because the open still needs a job and a clear problem in the first seconds.",
+            bodyAr:
+              "نص عربي بدون اسم المنتج هنا فعلاً بما يكفي من الطول للتحقق. أبقِ الافتتاح واضحاً حول المشكلة دون ذكر الاسم المطلوب.",
+          }
+        : b,
+    );
+    const r = validateAndAssembleIntroLesson({
+      productName: "Real Name",
+      category: "home_kitchen",
+      bodies,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe("missing_product_name");
+  });
+
+  it("rejects unknown ids", () => {
+    const bodies = [
+      ...goodBodies("Y").slice(0, -1),
+      {
+        id: "not_a_real_section",
+        bodyEn: "x".repeat(60),
+        bodyAr: "ي".repeat(60),
+      },
+    ];
+    const r = validateAndAssembleIntroLesson({
+      productName: "Y",
+      category: "home_kitchen",
+      bodies,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe("unknown_id");
+  });
+});
+
+describe("ensureIntroLessonComplete / applyCanonicalTitles", () => {
+  it("backfills literacy onto older 8-section kits", () => {
+    const full = buildIntroLesson({
+      name: "Old Kit Product",
+      category: "home_kitchen",
+    });
+    const legacy = {
+      ...full,
+      sections: full.sections.filter((s) =>
+        (INTRO_LESSON_SECTION_IDS as readonly string[]).includes(s.id),
+      ),
+    };
+    expect(legacy.sections).toHaveLength(8);
+    const fixed = ensureIntroLessonComplete(legacy);
+    expect(fixed.sections.map((s) => s.id)).toEqual([
+      ...ALL_INTRO_SECTION_IDS,
+    ]);
+    const titles = applyCanonicalTitles({
+      ...fixed,
+      sections: fixed.sections.map((s) => ({
+        ...s,
+        titleEn: "MODEL TITLE DRIFT",
+        titleAr: "عنوان نموذج",
+      })),
+    });
+    expect(titles.sections[0]!.titleEn).toBe(
+      INTRO_SECTION_TITLES.hook.titleEn,
+    );
+  });
+});
+
+describe("MarketingLlmProvider fallback without key", () => {
+  afterEach(() => {
+    resetMarketingLlmProvider();
+  });
+
+  it("returns missing_key when Gemini env is empty", async () => {
+    const provider = createGeminiMarketingLlmProvider();
+    const r = await provider.fillIntroLessonBodies(
+      { name: "Test", category: "home_kitchen" },
+      { env: {} },
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe("missing_key");
+  });
+
+  it("accepts injected provider success for seam swap", async () => {
+    const lesson = buildIntroLesson({
+      name: "Injected",
+      category: "home_kitchen",
+    });
+    lesson.source = "gemini";
+    const fake: MarketingLlmProvider = {
+      async fillIntroLessonBodies() {
+        return { ok: true, lesson };
+      },
+    };
+    setMarketingLlmProvider(fake);
+    const r = await fake.fillIntroLessonBodies({
+      name: "Injected",
+      category: "home_kitchen",
+    });
+    expect(r.ok).toBe(true);
   });
 });

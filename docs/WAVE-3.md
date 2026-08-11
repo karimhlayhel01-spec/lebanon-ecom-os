@@ -172,4 +172,5 @@ Thin scrapes prefer `caution`/`skip` — never invent a green light. Gemini must
 
 - Wave 1 Supplier: `README.md`, `src/lib/supplier/service.ts`, `SupplierPanel.tsx`
 - Wave 2 Discovery (do not reopen): `docs/WAVE-2.md`
+- Wave 4 Marketing AI (do not reopen here): `docs/WAVE-4.md`
 - Search vendors already in tree: `src/lib/discovery/providers/serper.ts`, `serpapi.ts`

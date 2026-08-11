@@ -10,6 +10,7 @@ export { DEMO_JOURNEY_RESET_DELETE_ORDER };
  * Wipe workspace journey data → empty shop discovery (atomic).
  * Keeps: user, session, workspace row (id / Shopify slot / name),
  * onboarding_profiles, and side_statuses.onboardingComplete.
+ * Prefer `restoreDemoDiscovery` for recruiter demos (wipe then seed).
  */
 export async function resetWorkspaceJourney(
   workspaceId: string,

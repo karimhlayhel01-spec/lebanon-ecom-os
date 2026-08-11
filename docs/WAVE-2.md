@@ -493,6 +493,7 @@ When `DISCOVERY_POOL_V2` is on, the UI exposes **Refresh suggestions**: close th
 | 2026-08-08 | §6.1 / §6.2 **AR example length + label rewrite** — AR GOOD prompt examples must meet locked min chars (Why ≥800, Compare ≥500); clear English Fit/Okay/Strong slips are rewritten to Arabic labels before finalize (residual mismatch → `okay_mismatch` retry, not false `incomplete`); Why cache `v11-ar-example-length`, Compare cache `v6-ar-example-length` |
 | 2026-08-08 | §6.1 **AR Strong vs Okay GOOD examples** **LOCKED** — AR system prompt branches on `strengthLabel`: مقبول cards keep Okay GOOD examples; قوي cards get Strong GOOD examples (`التوصية قوية`, no مقبول verdict) so Gemini does not copy Okay scare onto Strong → `okay_mismatch`; Why cache `v12-ar-strong-examples` |
 | 2026-08-09 | **Discovery photo / thumbnail gallery PARKED** — UX + ownership direction (per-card modal, max 5 URLs, Approach A, no MCP as production feed) stays product intent; **image API vendor not locked**; not in active build. Next shipping slice is **Wave 3 Supplier** (`docs/WAVE-3.md`) |
+| 2026-08-11 | **Demo restore Discovery** (ops / recruiter, not a Discovery lock change): `DEMO_RESET` Settings control now wipe-then-seeds invent/catalog shortlist (5 visible → Show more → 25). No Serper/SerpAPI. Wipe-to-empty remains dev-only. |
 
 ---
 
@@ -509,3 +510,4 @@ When `DISCOVERY_POOL_V2` is on, the UI exposes **Refresh suggestions**: close th
 - Product overview: `README.md`
 - Early v1 plan (historical; Wave 1 multi-SKU superseded single-active UX): `.cursor/plans/lebanon_ecom_os_v1_4977ab1a.plan.md`
 - Wave 3 Supplier (live leads + Gmail): `docs/WAVE-3.md`
+- Wave 4 Marketing AI: `docs/WAVE-4.md`

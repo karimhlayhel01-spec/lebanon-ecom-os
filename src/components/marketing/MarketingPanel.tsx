@@ -19,6 +19,11 @@ import type {
   MarketingKitView,
   MarketingPanelView,
 } from "@/lib/marketing/service";
+import {
+  getIntroSectionTitle,
+  isIntroLessonSectionId,
+  isIntroLiteracySectionId,
+} from "@/lib/marketing/intro-lesson";
 import { compareCreativesByCalendar } from "@/lib/marketing/creatives";
 import type { BatchArrivalEtaView } from "@/lib/supplier/batch-eta";
 import type { MarketingStage } from "@/lib/constants";
@@ -119,7 +124,6 @@ export function MarketingPanel({
                   ? "border-cedar bg-cedar/10 text-cedar-deep"
                   : "border-stone bg-surface text-ink hover:bg-sand"
               }`}
-              dir="auto"
             >
               {s.name}
             </button>
@@ -209,6 +213,7 @@ export function MarketingPanel({
                 kit={kit}
                 skuId={view.isShopKit ? null : view.selectedSkuId}
                 surface={surface}
+                geminiConfigured={view.geminiConfigured}
               />
             ))
         )}
@@ -300,7 +305,8 @@ function StageCard({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // Intro lesson is fixed once generated — no regenerate control.
+  // Successful Intro is fixed on the stage rail. Template fallback recovery
+  // lives only in IntroLessonBlock ("Try AI fill again").
   const showGenerate = !(stage === "intro_pdf" && hasKit);
 
   const generateLabel =
@@ -407,7 +413,11 @@ function StageCard({
             onPointerDown={(e) => e.stopPropagation()}
             className="w-full rounded-md bg-cedar px-3 py-1.5 text-xs font-semibold text-foam transition hover:bg-cedar-deep disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {generateLabel}
+            {pending
+              ? stage === "intro_pdf"
+                ? t("generatingLesson")
+                : t("generatingKit")
+              : generateLabel}
           </button>
         )}
       </div>
@@ -419,13 +429,23 @@ function KitBlock({
   kit,
   skuId,
   surface,
+  geminiConfigured,
 }: {
   kit: MarketingKitView;
   skuId: string | null;
   surface: "deep" | "sku";
+  geminiConfigured: boolean;
 }) {
   if (kit.kind === "intro_lesson" && kit.lesson) {
-    return <IntroLessonBlock kit={kit} lesson={kit.lesson} />;
+    return (
+      <IntroLessonBlock
+        kit={kit}
+        lesson={kit.lesson}
+        skuId={skuId}
+        surface={surface}
+        geminiConfigured={geminiConfigured}
+      />
+    );
   }
   // Remount when regenerate swaps creative ids so local edit state resets.
   const creativesKey = kit.creatives.map((c) => c.id).join(",") || kit.id;
@@ -443,69 +463,193 @@ function KitBlock({
 function IntroLessonBlock({
   kit,
   lesson,
+  skuId,
+  surface,
+  geminiConfigured,
 }: {
   kit: MarketingKitView;
   lesson: NonNullable<MarketingKitView["lesson"]>;
+  skuId: string | null;
+  surface: "deep" | "sku";
+  geminiConfigured: boolean;
 }) {
   const t = useTranslations("Marketing");
   const locale = useLocale();
+  const router = useRouter();
   const isAr = locale === "ar";
   const [openId, setOpenId] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const coreSections = lesson.sections.filter(
+    (s) => !isIntroLiteracySectionId(s.id),
+  );
+  const literacySections = lesson.sections.filter((s) =>
+    isIntroLiteracySectionId(s.id),
+  );
+
+  function regenerateIntro() {
+    if (!skuId) return;
+    setError(null);
+    startTransition(async () => {
+      stayOnMarketingForKitWrite(skuId);
+      const res = await generateKitAction("intro_pdf", true, skuId);
+      if (!res.ok) {
+        setError(
+          res.error === "stage_locked" ? "stageLocked" : "errorGeneric",
+        );
+        return;
+      }
+      router.refresh();
+      if (surface === "sku" && typeof document !== "undefined") {
+        const m = document.getElementById("marketing");
+        if (
+          m &&
+          !isElementStartInView(m.getBoundingClientRect().top, 160)
+        ) {
+          m.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+    });
+  }
 
   return (
     <div className="rounded-lg border border-stone bg-surface-subtle p-4">
       <h3 className="text-sm font-semibold text-ink">
         {t(`stage.${kit.stage}` as never)} · {t("lessonTitle")}
       </h3>
-      <p className="mt-2 text-sm text-stone-dark">
+      <p className="mt-2 text-sm text-stone-dark" dir="auto">
         {t("lessonWhatThisIs", { name: lesson.productName })}
       </p>
       <p className="mt-1.5 text-xs font-medium text-ink">
         {t("lessonClickHint")}
       </p>
+      {lesson.source === "template" && (
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-amber-900/90">
+            {geminiConfigured
+              ? t("lessonAiFallback")
+              : t("lessonAiUnavailable")}
+          </p>
+          {skuId && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={regenerateIntro}
+              className="rounded-md border border-cedar/40 bg-cedar/10 px-3 py-1.5 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {pending ? t("generatingLesson") : t("tryAiFillAgain")}
+            </button>
+          )}
+          {error && (
+            <p className="text-[11px] text-amber-800">{t(error as never)}</p>
+          )}
+        </div>
+      )}
 
       <ul className="mt-3 divide-y divide-stone border-t border-stone">
-        {lesson.sections.map((section) => {
-          const open = openId === section.id;
-          const title = isAr ? section.titleAr : section.titleEn;
-          const body = isAr ? section.bodyAr : section.bodyEn;
-          return (
-            <li key={section.id}>
-              <button
-                type="button"
-                aria-expanded={open}
-                onClick={() =>
-                  setOpenId((cur) => (cur === section.id ? null : section.id))
-                }
-                className="flex w-full items-center justify-between gap-3 py-3 text-start text-sm font-semibold text-ink transition hover:text-cedar-deep"
-              >
-                <span>{title}</span>
-                <span
-                  aria-hidden
-                  className={`shrink-0 text-stone-dark transition ${open ? "rotate-180" : ""}`}
-                >
-                  ▾
-                </span>
-              </button>
-              {open && (
-                <div
-                  className="pb-3 text-sm text-stone-dark"
-                  dir={isAr ? "rtl" : "ltr"}
-                >
-                  <LessonBody text={body} />
-                </div>
-              )}
-            </li>
-          );
-        })}
+        {coreSections.map((section) => (
+          <IntroAccordionRow
+            key={section.id}
+            section={section}
+            open={openId === section.id}
+            isAr={isAr}
+            onToggle={() =>
+              setOpenId((cur) => (cur === section.id ? null : section.id))
+            }
+          />
+        ))}
       </ul>
+
+      {literacySections.length > 0 && (
+        <div className="mt-5 border-t border-stone pt-4">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-cedar-deep">
+            {t("lessonAiLiteracyTitle")}
+          </h4>
+          <p className="mt-1 text-xs text-stone-dark">
+            {t("lessonAiLiteracyIntro")}
+          </p>
+          <ul className="mt-2 divide-y divide-stone border-t border-stone">
+            {literacySections.map((section) => (
+              <IntroAccordionRow
+                key={section.id}
+                section={section}
+                open={openId === section.id}
+                isAr={isAr}
+                onToggle={() =>
+                  setOpenId((cur) =>
+                    cur === section.id ? null : section.id,
+                  )
+                }
+              />
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
+  );
+}
+
+function IntroAccordionRow({
+  section,
+  open,
+  isAr,
+  onToggle,
+}: {
+  section: NonNullable<MarketingKitView["lesson"]>["sections"][number];
+  open: boolean;
+  isAr: boolean;
+  onToggle: () => void;
+}) {
+  const title = isIntroLessonSectionId(section.id)
+    ? getIntroSectionTitle(section.id, isAr ? "ar" : "en")
+    : isAr
+      ? section.titleAr
+      : section.titleEn;
+  const body = isAr ? section.bodyAr : section.bodyEn;
+  return (
+    <li>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-3 py-3 text-start text-sm font-semibold text-ink transition hover:text-cedar-deep"
+      >
+        <span>{title}</span>
+        <span
+          aria-hidden
+          className={`shrink-0 text-stone-dark transition ${open ? "rotate-180" : ""}`}
+        >
+          ▾
+        </span>
+      </button>
+      {open && (
+        <div
+          className="max-h-[min(28rem,55vh)] overflow-y-auto pb-3 text-sm text-stone-dark"
+          dir={isAr ? "rtl" : "ltr"}
+        >
+          <LessonBody text={body} />
+        </div>
+      )}
+    </li>
   );
 }
 
 /** Render markdown-ish plain paragraphs + bullet lines from the lesson payload. */
 function LessonBody({ text }: { text: string }) {
-  const blocks = text.split(/\n\n+/).filter(Boolean);
+  const t = useTranslations("Marketing");
+  const trimmed = (text ?? "").trim();
+  if (!trimmed) {
+    return (
+      <p className="text-sm italic text-stone-dark/80">{t("lessonBodyEmpty")}</p>
+    );
+  }
+
+  const normalized = trimmed
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\r\n/g, "\n");
+
+  const blocks = normalized.split(/\n\n+/).filter(Boolean);
   return (
     <div className="space-y-2.5">
       {blocks.map((block, i) => {
@@ -519,10 +663,40 @@ function LessonBody({ text }: { text: string }) {
                   <span aria-hidden className="text-cedar">
                     •
                   </span>
-                  <span>{line.replace(/^[•\-\*]\s*/, "")}</span>
+                  <span className="whitespace-pre-line">
+                    {line.replace(/^[•\-\*]\s*/, "")}
+                  </span>
                 </li>
               ))}
             </ul>
+          );
+        }
+        // Mixed: promote leading bullet lines; plain-render the rest.
+        const hasAnyBullet = lines.some((l) => /^[•\-\*]/.test(l.trim()));
+        if (hasAnyBullet) {
+          return (
+            <div key={i} className="space-y-1.5">
+              {lines.map((line, li) => {
+                const bullet = /^[•\-\*]/.test(line.trim());
+                if (bullet) {
+                  return (
+                    <div key={li} className="flex gap-1.5">
+                      <span aria-hidden className="text-cedar">
+                        •
+                      </span>
+                      <span className="whitespace-pre-line">
+                        {line.replace(/^[•\-\*]\s*/, "")}
+                      </span>
+                    </div>
+                  );
+                }
+                return (
+                  <p key={li} className="leading-relaxed whitespace-pre-line">
+                    {line.replace(/^#{1,6}\s+/, "")}
+                  </p>
+                );
+              })}
+            </div>
           );
         }
         return (

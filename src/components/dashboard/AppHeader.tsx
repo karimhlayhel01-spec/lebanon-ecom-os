@@ -11,7 +11,7 @@ import {
   type VocabPhase,
 } from "@/lib/vocabulary/glossary";
 import { getWorkspaceForUser } from "@/lib/workspace";
-import { isDemoResetEnabled } from "@/lib/demo/config";
+import { isDemoResetEnabled, isDemoWipeEmptyEnabled } from "@/lib/demo/config";
 
 /**
  * Shared top bar for the dashboard hub and deep pages.
@@ -33,6 +33,7 @@ export async function AppHeader({
   const workspace = user ? await getWorkspaceForUser(user.id) : null;
   const journey = workspace ? await getJourney(workspace.id) : null;
   const demoResetEnabled = isDemoResetEnabled();
+  const demoWipeEmptyEnabled = isDemoWipeEmptyEnabled();
   const highlightPhase =
     highlightPhaseProp !== undefined
       ? highlightPhaseProp
@@ -79,6 +80,7 @@ export async function AppHeader({
               workspaceName={workspace.name}
               isPaused={isPaused}
               demoResetEnabled={demoResetEnabled}
+              demoWipeEmptyEnabled={demoWipeEmptyEnabled}
             />
           ) : null}
         </div>

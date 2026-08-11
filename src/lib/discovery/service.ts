@@ -268,7 +268,7 @@ export async function getSeenCatalogKeys(
   return keys;
 }
 
-type ScoredProduct = {
+export type ScoredProduct = {
   p: CatalogProduct;
   landedCost: number;
   fit: ReturnType<typeof computeFit>;
@@ -520,6 +520,22 @@ async function maybeCountExhaustion(workspaceId: string): Promise<void> {
       updatedAt: nowIso(),
     })
     .where(eq(schema.sideStatuses.workspaceId, workspaceId));
+}
+
+/**
+ * Open an active discovery session from a pre-scored pool (demo restore, tests).
+ * Caller must ensure no active session remains (e.g. after journey wipe).
+ */
+export async function createActiveDiscoverySessionFromScored(
+  workspaceId: string,
+  scored: ScoredProduct[],
+): Promise<typeof schema.discoverySessions.$inferSelect | undefined> {
+  await ensureMigrated();
+  const existing = await getActiveSession(workspaceId);
+  if (existing) {
+    return existing;
+  }
+  return insertSessionPool(workspaceId, scored);
 }
 
 async function insertSessionPool(

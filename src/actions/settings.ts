@@ -15,8 +15,9 @@ import {
 } from "@/lib/workspace";
 import { founderEditWorkspace } from "@/lib/memory/repos";
 import { deleteUserAndWorkspace } from "@/lib/account/delete-user";
-import { isDemoResetEnabled } from "@/lib/demo/config";
+import { isDemoResetEnabled, isDemoWipeEmptyEnabled } from "@/lib/demo/config";
 import { resetWorkspaceJourney } from "@/lib/demo/reset-journey";
+import { restoreDemoDiscovery } from "@/lib/demo/seed-discovery";
 import { redirect } from "@/i18n/navigation";
 import { getLocale } from "next-intl/server";
 
@@ -55,8 +56,12 @@ const deleteAccountSchema = z.object({
   confirmToken: z.literal("DELETE"),
 });
 
-const demoResetSchema = z.object({
-  confirmToken: z.literal("RESET"),
+const demoRestoreSchema = z.object({
+  confirmToken: z.literal("RESTORE"),
+});
+
+const demoWipeSchema = z.object({
+  confirmToken: z.literal("WIPE"),
 });
 
 export async function changePasswordAction(
@@ -185,11 +190,11 @@ export async function deleteAccountAction(
 }
 
 /**
- * Temporary DEMO control: wipe journey data → empty discovery.
- * Hard no-op unless isDemoResetEnabled() (DEMO_RESET + prod allow gate).
- * Keeps login + onboarding; wipe runs in one DB transaction.
+ * Temporary DEMO control: wipe journey → invent/catalog Discovery shortlist
+ * (5 visible, Show more up to 25). No Serper/SerpAPI.
+ * Hard no-op unless isDemoResetEnabled().
  */
-export async function demoResetJourneyAction(
+export async function demoRestoreDiscoveryAction(
   _prev: SettingsActionState,
   formData: FormData,
 ): Promise<SettingsActionState> {
@@ -201,7 +206,41 @@ export async function demoResetJourneyAction(
   const ctx = await requireOnboardedWorkspace();
   if (!ctx.ok) return settingsGateFail(ctx.error);
 
-  const parsed = demoResetSchema.safeParse({
+  const parsed = demoRestoreSchema.safeParse({
+    confirmToken: formData.get("confirmToken"),
+  });
+  if (!parsed.success) {
+    return { error: "errorDemoResetConfirm" };
+  }
+
+  try {
+    await restoreDemoDiscovery(ctx.workspace.id);
+  } catch {
+    return { error: "errorGeneric" };
+  }
+  revalidatePath("/", "layout");
+  const locale = await getLocale();
+  redirect({ href: "/dashboard", locale });
+  return {};
+}
+
+/**
+ * Dev-only: wipe journey to empty Discovery (no seed).
+ * Hidden in production even when DEMO_RESET is allowed.
+ */
+export async function demoWipeEmptyAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  if (!isDemoWipeEmptyEnabled()) {
+    return { error: "errorGeneric" };
+  }
+
+  await ensureMigrated();
+  const ctx = await requireOnboardedWorkspace();
+  if (!ctx.ok) return settingsGateFail(ctx.error);
+
+  const parsed = demoWipeSchema.safeParse({
     confirmToken: formData.get("confirmToken"),
   });
   if (!parsed.success) {

@@ -8,7 +8,8 @@ import { pauseShopAction } from "@/actions/sku";
 import {
   changePasswordAction,
   deleteAccountAction,
-  demoResetJourneyAction,
+  demoRestoreDiscoveryAction,
+  demoWipeEmptyAction,
   logoutEverywhereAction,
   renameWorkspaceAction,
   type SettingsActionState,
@@ -29,6 +30,7 @@ export function SettingsMenu({
   workspaceName,
   isPaused = false,
   demoResetEnabled = false,
+  demoWipeEmptyEnabled = false,
 }: {
   email: string;
   workspaceName: string;
@@ -36,6 +38,8 @@ export function SettingsMenu({
   isPaused?: boolean;
   /** Server-gated: DEMO_RESET (+ prod allow). Never show without the flags. */
   demoResetEnabled?: boolean;
+  /** Dev-only wipe-to-empty (never in production). */
+  demoWipeEmptyEnabled?: boolean;
 }) {
   const t = useTranslations("Settings");
   const tDash = useTranslations("Dashboard");
@@ -207,7 +211,10 @@ export function SettingsMenu({
           )}
 
           {panel === "demo-reset" && demoResetEnabled && (
-            <DemoResetPanel onBack={() => setPanel("menu")} />
+            <DemoResetPanel
+              onBack={() => setPanel("menu")}
+              wipeEmptyEnabled={demoWipeEmptyEnabled}
+            />
           )}
 
           {panel === "delete" && (
@@ -438,50 +445,97 @@ function DeletePanel({ onBack }: { onBack: () => void }) {
   );
 }
 
-function DemoResetPanel({ onBack }: { onBack: () => void }) {
+function DemoResetPanel({
+  onBack,
+  wipeEmptyEnabled,
+}: {
+  onBack: () => void;
+  wipeEmptyEnabled: boolean;
+}) {
   const t = useTranslations("Settings");
-  const [state, formAction, pending] = useActionState(
-    demoResetJourneyAction,
+  const [restoreState, restoreAction, restorePending] = useActionState(
+    demoRestoreDiscoveryAction,
+    initial,
+  );
+  const [wipeState, wipeAction, wipePending] = useActionState(
+    demoWipeEmptyAction,
     initial,
   );
 
   return (
     <div>
       <PanelHeader
-        title={t("demoResetTitle")}
+        title={t("demoRestoreTitle")}
         onBack={onBack}
         backLabel={t("back")}
       />
-      <form action={formAction} className="flex flex-col gap-3 px-1 pb-1">
+      <form action={restoreAction} className="flex flex-col gap-3 px-1 pb-1">
         <p className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs leading-relaxed text-amber-950">
           {t("demoResetBadge")}
         </p>
         <p className="text-xs leading-relaxed text-stone-dark">
-          {t("demoResetWarning")}
+          {t("demoRestoreWarning")}
         </p>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-ink">{t("demoResetConfirmLabel")}</span>
+          <span className="font-medium text-ink">
+            {t("demoRestoreConfirmLabel")}
+          </span>
           <input
             name="confirmToken"
             required
             autoComplete="off"
-            placeholder="RESET"
+            placeholder="RESTORE"
             className={fieldClass}
           />
         </label>
-        {state.error && (
+        {restoreState.error && (
           <p className="text-xs text-red-700" role="alert">
-            {t(state.error as "errorGeneric")}
+            {t(restoreState.error as "errorGeneric")}
           </p>
         )}
         <button
           type="submit"
-          disabled={pending}
+          disabled={restorePending || wipePending}
           className="rounded-md border border-amber-800 bg-amber-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-amber-900 disabled:opacity-60"
         >
-          {t("demoResetConfirm")}
+          {t("demoRestoreConfirm")}
         </button>
       </form>
+
+      {wipeEmptyEnabled && (
+        <form
+          action={wipeAction}
+          className="mt-4 flex flex-col gap-3 border-t border-stone px-1 pb-1 pt-4"
+        >
+          <p className="text-xs leading-relaxed text-stone-dark">
+            {t("demoWipeWarning")}
+          </p>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-ink">
+              {t("demoWipeConfirmLabel")}
+            </span>
+            <input
+              name="confirmToken"
+              required
+              autoComplete="off"
+              placeholder="WIPE"
+              className={fieldClass}
+            />
+          </label>
+          {wipeState.error && (
+            <p className="text-xs text-red-700" role="alert">
+              {t(wipeState.error as "errorGeneric")}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={wipePending || restorePending}
+            className="rounded-md border border-stone bg-surface px-3 py-2 text-sm font-semibold text-ink transition hover:bg-sand disabled:opacity-60"
+          >
+            {t("demoWipeConfirm")}
+          </button>
+        </form>
+      )}
     </div>
   );
 }

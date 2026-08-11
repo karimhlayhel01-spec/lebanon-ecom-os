@@ -15,3 +15,8 @@ export function isDemoResetEnabled(): boolean {
   if (process.env.NODE_ENV !== "production") return true;
   return isTruthyEnvFlag(process.env.DEMO_RESET_ALLOW_PRODUCTION);
 }
+
+/** Wipe-to-empty is for local/dev only — never offer it in production. */
+export function isDemoWipeEmptyEnabled(): boolean {
+  return isDemoResetEnabled() && process.env.NODE_ENV !== "production";
+}

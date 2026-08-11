@@ -19,9 +19,12 @@ import { assertSkuOwned } from "@/lib/sku/ownership";
 import { parseGenerateKitSkuScope } from "@/lib/sku/require-sku-id";
 import {
   buildIntroLesson,
+  ensureIntroLessonComplete,
   type IntroLessonPayload,
   type IntroLessonSection,
 } from "@/lib/marketing/intro-lesson";
+import { getMarketingLlmProvider } from "@/lib/marketing/intro-llm";
+import { isGeminiConfigured } from "@/lib/discovery/explain/llm";
 import {
   buildCreatives,
   normalizeCreative,
@@ -110,6 +113,8 @@ export type MarketingPanelView = {
   shopKitAvailable: boolean;
   /** True when viewing the whole-shop kit (skuId null). */
   isShopKit: boolean;
+  /** True when GEMINI_API_KEY (or Discovery Gemini alias) is set on the server. */
+  geminiConfigured: boolean;
   /**
    * Known planning/actual margins miss 70%/35% bars — top note uses fail copy.
    * Informational only; never blocks generate.
@@ -156,7 +161,7 @@ function parseKitItems(raw: string): {
       return {
         kind: "intro_lesson",
         creatives: [],
-        lesson: parsed as IntroLessonPayload,
+        lesson: ensureIntroLessonComplete(parsed as IntroLessonPayload),
       };
     }
     if (Array.isArray(parsed)) {
@@ -344,6 +349,7 @@ export async function getMarketingPanel(
     liveSkus: live.map((s) => ({ id: s.id, name: s.name })),
     shopKitAvailable,
     isShopKit,
+    geminiConfigured: isGeminiConfigured(),
     needsMarginAck,
   };
 }
@@ -409,8 +415,13 @@ export async function generateKit(
     }
   }
 
+  // Intro AI is per-SKU only — never whole-shop Intro (Wave 4).
+  if (stage === "intro_pdf" && isShopKit) {
+    return { ok: false, error: "not_found" };
+  }
+
   // At most one kit per workspace + SKU + stage — replace, never stack.
-  // Intro lesson is canonical once created: do not regenerate/replace.
+  // Intro may regenerate (Wave 4) so founders can retry AI fill after template fallback.
   const existingQuery = isShopKit
     ? and(
         eq(schema.marketingKits.workspaceId, workspaceId),
@@ -429,33 +440,6 @@ export async function generateKit(
     .where(existingQuery)
     .orderBy(asc(schema.marketingKits.createdAt))
     ;
-
-  if (stage === "intro_pdf" && existing.length > 0) {
-    const keep = existing[existing.length - 1]!;
-    const extras = existing.slice(0, -1).map((r) => r.id);
-    if (extras.length > 0) {
-      await db
-        .delete(schema.marketingKits)
-        .where(inArray(schema.marketingKits.id, extras));
-    }
-    if (sku) {
-      await patchSkuJourneyFlags(sku.id, { marketingStage: stage });
-    }
-    // Workspace sideStatuses mirror only for shop kit / single-SKU legacy.
-    if (isShopKit || panel.liveSkus.length <= 1) {
-      await db
-        .update(schema.sideStatuses)
-        .set({ marketingStage: stage, updatedAt: nowIso() })
-        .where(eq(schema.sideStatuses.workspaceId, workspaceId));
-    }
-    if (extras.length > 0) {
-      await db
-        .update(schema.marketingKits)
-        .set({ updatedAt: nowIso() })
-        .where(eq(schema.marketingKits.id, keep.id));
-    }
-    return { ok: true };
-  }
 
   const now = nowIso();
   const varianceSeed =
@@ -479,26 +463,45 @@ export async function generateKit(
     ? "multi-SKU shop"
     : sku!.basics.differentiation;
 
-  const items =
-    stage === "intro_pdf"
-      ? buildIntroLesson({
-          name: productName,
-          category,
-          differentiation,
-          hooks,
-        })
-      : creativeStage
-        ? buildCreatives({
-            name: productName,
-            category,
-            hooks,
-            stage: creativeStage,
-            capacityTier: panel.capacityTier,
-            varianceSeed,
-            weekCount:
-              creativeStage === "pre_launch" ? eta.weekCount : undefined,
-          })
-        : [];
+  let introSource: "gemini" | "template" | undefined;
+  let introFillError: string | undefined;
+  let items:
+    | IntroLessonPayload
+    | ReturnType<typeof buildCreatives>
+    | [];
+
+  if (stage === "intro_pdf") {
+    const introInput = {
+      name: productName,
+      category,
+      differentiation,
+      hooks,
+    };
+    // Approach A: Gemini on Generate lesson only; fail closed → template.
+    const llm = getMarketingLlmProvider();
+    const filled = await llm.fillIntroLessonBodies(introInput);
+    if (filled.ok) {
+      items = filled.lesson;
+      introSource = "gemini";
+    } else {
+      // Honesty: template when key missing or validation/API failed.
+      items = buildIntroLesson(introInput);
+      introSource = "template";
+      introFillError = filled.error;
+    }
+  } else if (creativeStage) {
+    items = buildCreatives({
+      name: productName,
+      category,
+      hooks,
+      stage: creativeStage,
+      capacityTier: panel.capacityTier,
+      varianceSeed,
+      weekCount: creativeStage === "pre_launch" ? eta.weekCount : undefined,
+    });
+  } else {
+    items = [];
+  }
 
   const itemsJson = JSON.stringify(items);
   const capacityTier = String(panel.capacityTier);
@@ -565,6 +568,8 @@ export async function generateKit(
       replaced,
       skuId: panel.selectedSkuId,
       shopKit: isShopKit,
+      ...(introSource ? { introSource } : {}),
+      ...(introFillError ? { introFillError } : {}),
     }),
     createdAt: now,
   });

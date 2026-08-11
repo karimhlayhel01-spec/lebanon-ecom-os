@@ -155,6 +155,23 @@ const ROWS: Row[] = [
     {name:"Beard Grooming Kit",summary:"Trimmer, oil, and comb bundle.",differentiation:"Local barber co-branding angle."},
     {name:"طقم عناية باللحية",summary:"ماكينة وزيت ومشط في طقم واحد.",differentiation:"تعاون مع صالونات محلية."},
     34,3,2,1,2,0,1,4,1,"small",false,[]],
+  // Extra accept-ready rows so a demo session can fill DISCOVERY_SESSION_CAP (25).
+  ["cable_organizer","office_desk_gadgets",
+    {name:"Cable Organizer Clips",summary:"Adhesive desk cable clip pack.",differentiation:"Before/after tidy desk reels."},
+    {name:"منظّم كابلات",summary:"مشابك لاصقة لتنظيم كابلات المكتب.",differentiation:"فيديوهات قبل/بعد لمكتب مرتّب."},
+    18,2,1,1,1,0,0,2,0,"small",false,[]],
+  ["ice_roller","beauty_personal_care",
+    {name:"Facial Ice Roller",summary:"Stainless ice roller for puffiness.",differentiation:"Morning routine clips in Arabic."},
+    {name:"رولر ثلج للوجه",summary:"رولر ثلج من الستانلس لتقليل الانتفاخ.",differentiation:"مقاطع روتين صباحي بالعربية."},
+    22,2,1,1,1,0,0,3,0,"small",false,[]],
+  ["yoga_socks","fitness_lifestyle",
+    {name:"Grip Yoga Socks",summary:"Non-slip socks for home yoga.",differentiation:"Bundle with a 7-day Arabic flow."},
+    {name:"جوارب يوغا مانعة للانزلاق",summary:"جوارب مانعة للانزلاق لليوغا المنزلية.",differentiation:"تُباع مع خطة تمارين ٧ أيام بالعربية."},
+    20,2,1,1,1,0,0,3,0,"small",false,[]],
+  ["lunch_bag","home_kitchen",
+    {name:"Insulated Lunch Bag",summary:"Compact leak-resistant lunch tote.",differentiation:"Office-worker packing demos."},
+    {name:"حقيبة غداء معزولة",summary:"حقيبة غداء مدمجة مقاومة للتسرب.",differentiation:"عروض تجهيز غداء لموظفي المكاتب."},
+    28,3,2,1,2,0,0,4,1,"medium",false,[]],
 ];
 
 export const CATALOG: CatalogProduct[] = ROWS.map((r) => ({

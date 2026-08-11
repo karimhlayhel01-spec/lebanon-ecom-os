@@ -203,6 +203,75 @@ describePg("postgres integration — critical paths", () => {
   );
 
   it(
+    "demo restore keeps onboarding and seeds Discovery 5→25",
+    async () => {
+      const { restoreDemoDiscovery } = await import(
+        "@/lib/demo/seed-discovery"
+      );
+      const { getDiscoveryView, showMore } = await import(
+        "@/lib/discovery/service"
+      );
+      const {
+        DISCOVERY_INITIAL_COUNT,
+        DISCOVERY_SESSION_CAP,
+        DISCOVERY_SHOW_MORE_MAX,
+      } = await import("@/lib/constants");
+
+      const ws = await track(await createTestWorkspace("demo-restore"));
+      await insertLiveSku(ws.workspaceId, { primaryState: "selling" });
+
+      const seeded = await restoreDemoDiscovery(ws.workspaceId);
+      expect(seeded.productsShown).toBe(DISCOVERY_INITIAL_COUNT);
+      expect(seeded.showMoreUsed).toBe(0);
+      expect(seeded.poolSize).toBe(DISCOVERY_SESSION_CAP);
+
+      const onboarding = await db
+        .select({
+          storageDescription: schema.onboardingProfiles.storageDescription,
+        })
+        .from(schema.onboardingProfiles)
+        .where(eq(schema.onboardingProfiles.workspaceId, ws.workspaceId))
+        .then((rows) => rows[0]);
+      expect(onboarding?.storageDescription).toBe("test storage");
+
+      const side = await db
+        .select({
+          onboardingComplete: schema.sideStatuses.onboardingComplete,
+          productAccepted: schema.sideStatuses.productAccepted,
+        })
+        .from(schema.sideStatuses)
+        .where(eq(schema.sideStatuses.workspaceId, ws.workspaceId))
+        .then((rows) => rows[0]);
+      expect(side?.onboardingComplete).toBe(true);
+      expect(side?.productAccepted).toBe(false);
+
+      const skus = await db
+        .select({ id: schema.skuCards.id })
+        .from(schema.skuCards)
+        .where(eq(schema.skuCards.workspaceId, ws.workspaceId));
+      expect(skus).toHaveLength(0);
+
+      let view = await getDiscoveryView(ws.workspaceId, "en");
+      expect(view).not.toBeNull();
+      expect(view!.candidates.length).toBe(DISCOVERY_INITIAL_COUNT);
+      expect(view!.productsShown).toBe(DISCOVERY_INITIAL_COUNT);
+      expect(view!.canShowMore).toBe(true);
+      expect(view!.shortlistEmptyState).toBeNull();
+
+      for (let i = 0; i < DISCOVERY_SHOW_MORE_MAX; i += 1) {
+        await showMore(ws.workspaceId);
+      }
+      view = await getDiscoveryView(ws.workspaceId, "en");
+      expect(view).not.toBeNull();
+      expect(view!.candidates.length).toBeLessThanOrEqual(DISCOVERY_SESSION_CAP);
+      expect(view!.productsShown).toBe(DISCOVERY_SESSION_CAP);
+      expect(view!.canShowMore).toBe(false);
+      expect(view!.shortlistEmptyState).toBeNull();
+    },
+    PG_TIMEOUT_MS,
+  );
+
+  it(
     "demo reset keeps onboarding and clears SKUs",
     async () => {
       const ws = await track(await createTestWorkspace("reset"));
@@ -244,6 +313,12 @@ describePg("postgres integration — critical paths", () => {
         .where(eq(schema.workspaces.id, ws.workspaceId))
         .then((rows) => rows[0]);
       expect(workspace?.activeSkuId).toBeNull();
+
+      const sessions = await db
+        .select({ id: schema.discoverySessions.id })
+        .from(schema.discoverySessions)
+        .where(eq(schema.discoverySessions.workspaceId, ws.workspaceId));
+      expect(sessions).toHaveLength(0);
     },
     PG_TIMEOUT_MS,
   );

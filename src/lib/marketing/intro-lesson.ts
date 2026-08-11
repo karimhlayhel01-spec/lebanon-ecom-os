@@ -1,9 +1,9 @@
 /**
  * Marketing Intro — product-tailored beginner LESSON (not creatives).
  *
- * Deterministic templates: same 8 section ids for every SKU; product name,
- * category niche world, and hooks swap into examples. No LLM. No COD-as-
- * marketing-differentiator copy (Lebanon default — Finance/ops may track COD).
+ * Canonical section ids + titles are locked in code. Deterministic
+ * `buildIntroLesson` is the fail-closed fallback when Gemini is missing
+ * or validation fails. No COD-as-marketing-wow (Lebanon default).
  */
 
 import {
@@ -13,6 +13,7 @@ import {
   usefulHookLine,
 } from "@/lib/marketing/brief";
 
+/** Core mechanics sections — filled by Gemini when available. */
 export const INTRO_LESSON_SECTION_IDS = [
   "hook",
   "niche_signal",
@@ -24,7 +25,23 @@ export const INTRO_LESSON_SECTION_IDS = [
   "journey_map",
 ] as const;
 
-export type IntroLessonSectionId = (typeof INTRO_LESSON_SECTION_IDS)[number];
+/** AI literacy — fixed titles; calm tool hints (not model-authored titles). */
+export const INTRO_LITERACY_SECTION_IDS = [
+  "ai_captions",
+  "ai_image_nano",
+  "ai_video_seedance",
+  "ai_chat_claude",
+  "ai_cursor_optional",
+] as const;
+
+export const ALL_INTRO_SECTION_IDS = [
+  ...INTRO_LESSON_SECTION_IDS,
+  ...INTRO_LITERACY_SECTION_IDS,
+] as const;
+
+export type IntroCoreSectionId = (typeof INTRO_LESSON_SECTION_IDS)[number];
+export type IntroLiteracySectionId = (typeof INTRO_LITERACY_SECTION_IDS)[number];
+export type IntroLessonSectionId = (typeof ALL_INTRO_SECTION_IDS)[number];
 
 export type IntroLessonSection = {
   id: IntroLessonSectionId;
@@ -34,10 +51,14 @@ export type IntroLessonSection = {
   bodyAr: string;
 };
 
+export type IntroLessonSource = "gemini" | "template";
+
 export type IntroLessonPayload = {
   kind: "intro_lesson";
   productName: string;
   category: string;
+  /** How bodies were produced — UI honesty when template. */
+  source?: IntroLessonSource;
   sections: IntroLessonSection[];
 };
 
@@ -48,9 +69,161 @@ export type IntroLessonInput = {
   hooks?: string[];
 };
 
+/** Locked titles — UI must render from this map by id, never model titles. */
+export const INTRO_SECTION_TITLES: Record<
+  IntroLessonSectionId,
+  { titleEn: string; titleAr: string }
+> = {
+  hook: {
+    titleEn: "1. Hook (first 1–3 seconds)",
+    titleAr: "١. الخطّاف (الثواني ١–٣ الأولى)",
+  },
+  niche_signal: {
+    titleEn: "2. Niche signal — your product’s world",
+    titleAr: "٢. إشارة النيش — عالم منتجك",
+  },
+  why_follow: {
+    titleEn: "3. Why people follow a tiny shop early",
+    titleAr: "٣. لماذا يتابع الناس متجراً صغيراً مبكراً",
+  },
+  reply_loop: {
+    titleEn: "4. Reply loop — conversation > broadcasting",
+    titleAr: "٤. حلقة الرد — المحادثة أهم من البث",
+  },
+  series: {
+    titleEn: "5. Series — why series earn follows",
+    titleAr: "٥. السلاسل — لماذا تكسب السلاسل متابعات",
+  },
+  three_metrics: {
+    titleEn: "6. Three metrics — and how to fix them",
+    titleAr: "٦. ثلاثة مقاييس — وكيف تصلحها",
+  },
+  dm_order_clarity: {
+    titleEn: "7. DM order clarity",
+    titleAr: "٧. وضوح الطلب في الرسائل",
+  },
+  journey_map: {
+    titleEn: "8. Your marketing journey map",
+    titleAr: "٨. خريطة رحلة التسويق",
+  },
+  ai_captions: {
+    titleEn: "AI for captions (ChatGPT / Claude)",
+    titleAr: "الذكاء الاصطناعي للتعليقات (ChatGPT / Claude)",
+  },
+  ai_image_nano: {
+    titleEn: "Stills with Nano Banana",
+    titleAr: "صور ثابتة مع Nano Banana",
+  },
+  ai_video_seedance: {
+    titleEn: "Motion with Seedance",
+    titleAr: "حركة قصيرة مع Seedance",
+  },
+  ai_chat_claude: {
+    titleEn: "Strategy help with Claude / ChatGPT",
+    titleAr: "مساعدة استراتيجية مع Claude / ChatGPT",
+  },
+  ai_cursor_optional: {
+    titleEn: "Cursor (optional advanced tip)",
+    titleAr: "Cursor (نصيحة متقدّمة اختيارية)",
+  },
+};
+
+export function getIntroSectionTitle(
+  id: IntroLessonSectionId,
+  locale: "en" | "ar",
+): string {
+  const t = INTRO_SECTION_TITLES[id];
+  return locale === "ar" ? t.titleAr : t.titleEn;
+}
+
+export function isIntroLessonSectionId(id: string): id is IntroLessonSectionId {
+  return (ALL_INTRO_SECTION_IDS as readonly string[]).includes(id);
+}
+
+export function isIntroLiteracySectionId(
+  id: string,
+): id is IntroLiteracySectionId {
+  return (INTRO_LITERACY_SECTION_IDS as readonly string[]).includes(id);
+}
+
+function buildLiteracySections(name: string): IntroLessonSection[] {
+  return [
+    {
+      id: "ai_captions",
+      ...INTRO_SECTION_TITLES.ai_captions,
+      bodyEn: [
+        `Use ChatGPT or Claude to draft captions and comment replies for ${name} — then edit in your voice.`,
+        `Paste your hook + one product fact. Ask for 3 short EN options and 3 AR options. Never paste private customer data.`,
+        `Keep WhatsApp as the order path. AI writes drafts; you decide what posts.`,
+      ].join("\n\n"),
+      bodyAr: [
+        `استخدم ChatGPT أو Claude لصياغة التعليقات وردود التعليقات لـ ${name} — ثم عدّل بصوتك.`,
+        `الصق الخطّاف وحقيقة منتج واحدة. اطلب ٣ خيارات قصيرة بالإنجليزية و٣ بالعربية. لا تلصق بيانات زبائن خاصة.`,
+        `أبقِ واتساب مسار الطلب. الذكاء الاصطناعي يكتب مسودات؛ أنت تقرّر ما يُنشر.`,
+      ].join("\n\n"),
+    },
+    {
+      id: "ai_image_nano",
+      ...INTRO_SECTION_TITLES.ai_image_nano,
+      bodyEn: [
+        `Nano Banana (and similar stills tools) can sketch product-in-scene frames for ${name} when you lack a photoshoot.`,
+        `Describe the niche setting + the job ${name} does. Use stills as mood boards or placeholders — real photos win trust later.`,
+        `This OS does not generate images for you yet; open the tool externally and bring assets back.`,
+      ].join("\n\n"),
+      bodyAr: [
+        `Nano Banana (وأدوات صور ثابتة مشابهة) يمكنها رسم إطارات لمنتج في مشهد لـ ${name} عندما لا يتوفّر تصوير.`,
+        `صف مكان النيش + الوظيفة التي يؤدّيها ${name}. استخدم الصور كمزاج أو عناصر مؤقتة — الصور الحقيقية تكسب الثقة لاحقاً.`,
+        `هذا النظام لا يولّد صوراً لك بعد؛ افتح الأداة خارجياً وأعد الأصول هنا.`,
+      ].join("\n\n"),
+    },
+    {
+      id: "ai_video_seedance",
+      ...INTRO_SECTION_TITLES.ai_video_seedance,
+      bodyEn: [
+        `Seedance-style motion tools help mock short clips of ${name} when you need motion drafts before filming.`,
+        `Keep clips short (hook-first). Treat AI motion as a draft — ship real phone footage for launch trust when you can.`,
+        `Copy a prompt that names ${name} + the problem it solves; generate externally; post only what you approve.`,
+      ].join("\n\n"),
+      bodyAr: [
+        `أدوات حركة بأسلوب Seedance تساعد على مسودات مقاطع قصيرة لـ ${name} قبل التصوير.`,
+        `أبقِ المقاطع قصيرة (خطّاف أولاً). اعتبر حركة الذكاء الاصطناعي مسودة — انشر لقطات هاتف حقيقية عند الإطلاق عندما تستطيع.`,
+        `انسخ موجّهاً يسمّي ${name} + المشكلة التي يحلّها؛ ولّد خارجياً؛ انشر فقط ما توافق عليه.`,
+      ].join("\n\n"),
+    },
+    {
+      id: "ai_chat_claude",
+      ...INTRO_SECTION_TITLES.ai_chat_claude,
+      bodyEn: [
+        `Claude or ChatGPT can help plan a week of angles for ${name} — series ideas, reply scripts, niche wording.`,
+        `Ask: “Given this product and niche, what are 3 series titles and one DM order reply?” Paste facts from this lesson.`,
+        `They do not unlock Marketing stages or invent ROAS. Skills and gates in this OS stay the source of truth.`,
+      ].join("\n\n"),
+      bodyAr: [
+        `Claude أو ChatGPT يمكنهما المساعدة في تخطيط زوايا أسبوع لـ ${name} — أفكار سلاسل، نصوص رد، صياغة النيش.`,
+        `اسأل: «لهذا المنتج والنيش، ما ٣ عناوين سلاسل ورد طلب واحد في الرسائل؟» الصق حقائق من هذا الدرس.`,
+        `هما لا يفتحان مراحل التسويق ولا يخترعان عائد إعلانات. المهارات والبوابات في هذا النظام تبقى مصدر الحقيقة.`,
+      ].join("\n\n"),
+    },
+    {
+      id: "ai_cursor_optional",
+      ...INTRO_SECTION_TITLES.ai_cursor_optional,
+      bodyEn: [
+        `Cursor is optional for advanced founders who already work in code or docs — not your default marketing manager.`,
+        `Use it only if you want help drafting long briefs or organizing assets for ${name}. Day-to-day posts stay in ChatGPT/Claude + this lesson.`,
+        `Skip Cursor if you just want to ship captions and creatives — that is the intended path.`,
+      ].join("\n\n"),
+      bodyAr: [
+        `Cursor اختياري لمؤسسين متقدّمين يعملون أصلاً في الكود أو المستندات — ليس مدير التسويق الافتراضي.`,
+        `استخدمه فقط إن أردت مساعدة في موجزات طويلة أو تنظيم أصول لـ ${name}. المنشورات اليومية تبقى في ChatGPT/Claude + هذا الدرس.`,
+        `تخطَّ Cursor إن أردت فقط نشر التعليقات والإبداعات — هذا هو المسار المقصود.`,
+      ].join("\n\n"),
+    },
+  ];
+}
+
 /**
  * Build a deterministic intro lesson for THIS SKU.
- * Same 8 section ids every time; examples swap with product + category.
+ * Same section ids every time; examples swap with product + category.
  */
 export function buildIntroLesson(input: IntroLessonInput): IntroLessonPayload {
   const name = input.name.trim() || "your product";
@@ -75,8 +248,7 @@ export function buildIntroLesson(input: IntroLessonInput): IntroLessonPayload {
   const sections: IntroLessonSection[] = [
     {
       id: "hook",
-      titleEn: "1. Hook (first 1–3 seconds)",
-      titleAr: "١. الخطّاف (الثواني ١–٣ الأولى)",
+      ...INTRO_SECTION_TITLES.hook,
       bodyEn: [
         `When you sell ${name}, the first 1–3 seconds decide if anyone stays.`,
         `Why it matters: platforms reward watch time. A weak open wastes the rest of the clip.`,
@@ -102,8 +274,7 @@ export function buildIntroLesson(input: IntroLessonInput): IntroLessonPayload {
     },
     {
       id: "niche_signal",
-      titleEn: "2. Niche signal — your product’s world",
-      titleAr: "٢. إشارة النيش — عالم منتجك",
+      ...INTRO_SECTION_TITLES.niche_signal,
       bodyEn: [
         `Platforms send ${name} to ${niche.similarViewersEn}.`,
         `Your “world” is ${niche.worldEn}. Every post should feel like it belongs there.`,
@@ -119,8 +290,7 @@ export function buildIntroLesson(input: IntroLessonInput): IntroLessonPayload {
     },
     {
       id: "why_follow",
-      titleEn: "3. Why people follow a tiny shop early",
-      titleAr: "٣. لماذا يتابع الناس متجراً صغيراً مبكراً",
+      ...INTRO_SECTION_TITLES.why_follow,
       bodyEn: [
         `Early follows for ${name} come from ${niche.followPullEn} — not from “we’re a new store.”`,
         `What pulls follows: a promise like “${promiseEn},” repeatable formats, and proof ${name} works in real life.`,
@@ -136,8 +306,7 @@ export function buildIntroLesson(input: IntroLessonInput): IntroLessonPayload {
     },
     {
       id: "reply_loop",
-      titleEn: "4. Reply loop — conversation > broadcasting",
-      titleAr: "٤. حلقة الرد — المحادثة أهم من البث",
+      ...INTRO_SECTION_TITLES.reply_loop,
       bodyEn: [
         `Marketing ${name} is not only posting — it’s closing the loop on comments and DMs.`,
         `Broadcasting: post and leave. Conversation: reply to questions about fit, use, delivery window, and price.`,
@@ -153,8 +322,7 @@ export function buildIntroLesson(input: IntroLessonInput): IntroLessonPayload {
     },
     {
       id: "series",
-      titleEn: "5. Series — why series earn follows",
-      titleAr: "٥. السلاسل — لماذا تكسب السلاسل متابعات",
+      ...INTRO_SECTION_TITLES.series,
       bodyEn: [
         `One-off clips of ${name} can get views. Series earn follows because people wait for the next part.`,
         `Example series angles for ${name}:`,
@@ -174,8 +342,7 @@ export function buildIntroLesson(input: IntroLessonInput): IntroLessonPayload {
     },
     {
       id: "three_metrics",
-      titleEn: "6. Three metrics — and how to fix them",
-      titleAr: "٦. ثلاثة مقاييس — وكيف تصلحها",
+      ...INTRO_SECTION_TITLES.three_metrics,
       bodyEn: [
         `For ${name}, watch three organic signals before you rush paid ads:`,
         `• Saves / replays — people want to reuse or rewatch the tip.`,
@@ -203,8 +370,7 @@ export function buildIntroLesson(input: IntroLessonInput): IntroLessonPayload {
     },
     {
       id: "dm_order_clarity",
-      titleEn: "7. DM order clarity",
-      titleAr: "٧. وضوح الطلب في الرسائل",
+      ...INTRO_SECTION_TITLES.dm_order_clarity,
       bodyEn: [
         `When someone DMs about ${name}, keep the reply short and complete:`,
         `• Benefit — one line on what ${name} does for them.`,
@@ -224,8 +390,7 @@ export function buildIntroLesson(input: IntroLessonInput): IntroLessonPayload {
     },
     {
       id: "journey_map",
-      titleEn: "8. Your marketing journey map",
-      titleAr: "٨. خريطة رحلة التسويق",
+      ...INTRO_SECTION_TITLES.journey_map,
       bodyEn: [
         `This Intro lesson is how marketing will look when you sell ${name} — the mechanics, not creatives yet.`,
         `Next on your journey:`,
@@ -243,14 +408,72 @@ export function buildIntroLesson(input: IntroLessonInput): IntroLessonPayload {
         `ولّد تلك الحزم عند فتح كل مرحلة. عد إلى هذا الدرس متى بدا الخطّاف أو النيش أو الرسائل غير واضح.`,
       ].join("\n\n"),
     },
+    ...buildLiteracySections(name),
   ];
 
   return {
     kind: "intro_lesson",
     productName: name,
     category: category || "unknown",
+    source: "template",
     sections,
   };
+}
+
+/** Force canonical titles onto every section (ignore model-supplied titles). */
+export function applyCanonicalTitles(
+  lesson: IntroLessonPayload,
+): IntroLessonPayload {
+  return {
+    ...lesson,
+    sections: lesson.sections.map((s) => {
+      const titles = INTRO_SECTION_TITLES[s.id];
+      if (!titles) return s;
+      return { ...s, titleEn: titles.titleEn, titleAr: titles.titleAr };
+    }),
+  };
+}
+
+/**
+ * Ensure literacy sections exist (older kits may only have the 8 core ids).
+ * Preserves existing bodies; fills missing literacy from templates.
+ */
+export function ensureIntroLessonComplete(
+  lesson: IntroLessonPayload,
+  input?: IntroLessonInput,
+): IntroLessonPayload {
+  const name = lesson.productName || input?.name || "your product";
+  const byId = new Map(lesson.sections.map((s) => [s.id, s]));
+  const template = buildIntroLesson({
+    name,
+    category: lesson.category || input?.category || "",
+    differentiation: input?.differentiation,
+    hooks: input?.hooks,
+  });
+  const sections: IntroLessonSection[] = ALL_INTRO_SECTION_IDS.map((id) => {
+    const existing = byId.get(id);
+    const fallback = template.sections.find((s) => s.id === id)!;
+    const titles = INTRO_SECTION_TITLES[id];
+    if (existing) {
+      return {
+        ...existing,
+        id,
+        titleEn: titles.titleEn,
+        titleAr: titles.titleAr,
+        bodyEn: existing.bodyEn?.trim() ? existing.bodyEn : fallback.bodyEn,
+        bodyAr: existing.bodyAr?.trim() ? existing.bodyAr : fallback.bodyAr,
+      };
+    }
+    return fallback;
+  });
+  return applyCanonicalTitles({
+    ...lesson,
+    kind: "intro_lesson",
+    productName: name,
+    category: lesson.category || template.category,
+    source: lesson.source ?? "template",
+    sections,
+  });
 }
 
 /** True if any intro body pitches COD / cash-on-delivery as a marketing wow. */
