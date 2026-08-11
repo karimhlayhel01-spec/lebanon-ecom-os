@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 4**.
 **Wave 1** (multi-SKU hub, stage-aware Marketing FSM, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery) and **Wave 3** (Supplier) remain locked — see `docs/WAVE-2.md`, `docs/WAVE-3.md`. Do not reopen those locks here.
 
-**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). Phases 2–7 remain roadmap (amend in § changelog when promoted).
+**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). Phases 3–7 remain roadmap (amend in § changelog when promoted).
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -45,7 +45,7 @@ Amend dates / promotion in §7 changelog. Only **Phase 1** is firm to build next
 | --- | --- |
 | **0** | Lock this doc |
 | **1** | Intro Gemini bodies + AI literacy + Intro UI harden — **shipped** |
-| **2** | Store attractive + discoverability pack (Store surface) |
+| **2** | Store attractive + discoverability pack (Store surface) — **shipped** |
 | **3** | AI-native creative kits + external AI desk roles |
 | **4** | This week’s one post + Posted / Skipped |
 | **5** | Tool suggest Nano Banana / Seedance + copyable prompts |
@@ -54,7 +54,18 @@ Amend dates / promotion in §7 changelog. Only **Phase 1** is firm to build next
 
 ---
 
-## 4) Phase 1 — Intro Gemini + literacy (**LOCKED** to build next)
+## 4b) Phase 2 — Store attractive + discoverability (**SHIPPED**)
+
+- Store side surface only — **no** new Marketing stage.
+- Approach A: **Improve with AI** click → Gemini EN/AR product drafts + optional policies + discoverability pack (title, short description, search phrases, FAQs, attractiveness tips).
+- Fail-closed without `GEMINI_API_KEY` → deterministic template drafts; calm honesty in UI.
+- Persist on `store_readiness` (`content_draft_*`, `policies_draft`, `discoverability_pack`, `page_copy_versions`). Founder **Copy**s drafts/pack for Shopify paste (read-only in OS — no Save drafts).
+- **Versions:** baseline captured once before first Improve; up to **3** successful Gemini snapshots; template/LLM miss does not consume a slot; founder picks active version (≤4).
+- Non-promises: no ranking guarantees, Merchant API, chatbot citations, or auto-Shopify write.
+
+---
+
+## 4) Phase 1 — Intro Gemini + literacy (**SHIPPED**)
 
 ### 4.1 Fixed section ids + titles
 
@@ -117,6 +128,9 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-11 | Store page stronger: drop **Save drafts** — drafts read-only with **Copy** (+ Copy pack); paste-into-Shopify is guidance only (no Merchant write). |
+| 2026-08-11 | Phase 2 addendum — Store page copy **version picker**: always keep non-AI baseline; ≤3 successful Gemini snapshots; template/fail does not burn a slot; select active version; Regenerate disabled at cap. |
+| 2026-08-11 | **Phase 2 shipped** — Store “Make the page stronger”: Gemini improve EN/AR drafts + policies + discoverability pack (title/short/phrases/FAQs/tips); Approach A click; template fallback; persist `discoverability_pack`; honesty (no ranking / Merchant / citation promises). |
 | 2026-08-11 | Intro trust: successful Gemini Intro stays fixed on stage rail; **Try AI fill again** only when `source === "template"` (banner CTA). |
 | 2026-08-10 | Intro AI retry path — template fallback may overwrite via in-lesson recovery (`generateKit` replaces intro items). |
 | 2026-08-10 | **Phase 1 shipped** — Intro Gemini bodies via `MarketingLlmProvider` (`intro-llm.ts`); canonical titles + literacy ids; validate → template fallback; Intro UI harden (canonical titles, LessonBody, AI literacy block, EN/AR keys). Approach A on Generate lesson; per-SKU only (shop Intro refused). |

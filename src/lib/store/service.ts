@@ -13,12 +13,37 @@ import {
 } from "@/lib/memory/repos";
 import { getSkuView } from "@/lib/sku/service";
 import { canCheckStoreChecklistKey } from "@/lib/store/gating";
+import { isGeminiConfigured } from "@/lib/discovery/explain/llm";
+import { getMarketingLlmProvider } from "@/lib/marketing/intro-llm";
+import {
+  buildTemplateStorePageCopy,
+  parseDiscoverabilityPack,
+  parseStoredPackSource,
+  serializeDiscoverabilityPack,
+  type DiscoverabilityPack,
+  type StorePageCopySource,
+} from "@/lib/store/page-copy";
+import {
+  MAX_AI_STORE_PAGE_COPY_VERSIONS,
+  activeVersion,
+  aiImprovesLeft,
+  appendAiVersion,
+  countAiVersions,
+  ensureBaseline,
+  parsePageCopyVersions,
+  selectVersion,
+  serializePageCopyVersions,
+  snapshotFromPayload,
+  versionSummaries,
+  type StorePageCopyVersionSummary,
+} from "@/lib/store/page-copy-versions";
 
 /**
  * Store setup — a SIDE status. The Shopify readiness checklist lives here and
  * store readiness NEVER blocks batch ordering or selling. The `store_ready`
  * gate is side-only (no journey transition). Content/policy drafts are
- * system-written starter text; the founder edits checklist marks + URLs.
+ * system-written starter text (Wave 4: AI-improved on click); the founder
+ * edits checklist marks, URLs, and draft text.
  */
 
 type Checklist = Record<StoreChecklistKey, boolean>;
@@ -43,36 +68,18 @@ function parseChecklist(raw: string): Checklist {
 }
 
 function contentEn(name: string): string {
-  return [
-    `Title: ${name}`,
-    ``,
-    `• What it is: one clear sentence on the main benefit for the buyer.`,
-    `• Why it helps: the local problem it solves / why it fits daily life in Lebanon.`,
-    `• What's included: contents + any bundle.`,
-    `• How you receive it: delivery in about 3–7 days nationwide. Pay cash to the delivery person when it arrives (COD).`,
-    `• Support: message us on WhatsApp with any question before you order.`,
-  ].join("\n");
+  return buildTemplateStorePageCopy({ name, category: "" }).contentDraftEn;
 }
 
 function contentAr(name: string): string {
-  return [
-    `العنوان: ${name}`,
-    ``,
-    `• ما هو: جملة واحدة واضحة عن الفائدة الأساسية للمشتري.`,
-    `• لماذا يفيد: المشكلة المحلية التي يحلّها / لماذا يناسب الحياة اليومية في لبنان.`,
-    `• ما يتضمّنه: المحتويات وأي عرض مجمّع.`,
-    `• كيف يصلك: توصيل خلال نحو ٣–٧ أيام لكل لبنان. ادفع نقداً لمندوب التوصيل عند الوصول (الدفع عند الاستلام).`,
-    `• الدعم: راسلنا على واتساب لأي سؤال قبل الطلب.`,
-  ].join("\n");
+  return buildTemplateStorePageCopy({ name, category: "" }).contentDraftAr;
 }
 
 function policiesDraft(): string {
-  return [
-    "Shipping: 3–7 business days nationwide via a local delivery company.",
-    "Cash on delivery: pay the delivery person when your order arrives.",
-    "Returns: 3-day return for unused items in original packaging.",
-    "Damaged/wrong item: we replace or refund — contact us on WhatsApp.",
-  ].join("\n");
+  return buildTemplateStorePageCopy({
+    name: "your product",
+    category: "",
+  }).policiesDraft;
 }
 
 async function ensureStoreRow(workspaceId: string) {
@@ -97,6 +104,8 @@ async function ensureStoreRow(workspaceId: string) {
     policiesDraft: policiesDraft(),
     contentDraftEn: contentEn(name),
     contentDraftAr: contentAr(name),
+    discoverabilityPack: "",
+    pageCopyVersions: "",
     updatedAt: now,
   });
   return db
@@ -117,7 +126,18 @@ export type StorePanelView = {
   policiesDraft: string;
   contentDraftEn: string;
   contentDraftAr: string;
+  discoverability: DiscoverabilityPack | null;
+  pageCopySource: StorePageCopySource | null;
+  geminiConfigured: boolean;
   storeReady: boolean;
+  /** Active / orientation SKU name for copy context. */
+  skuName: string | null;
+  /** Version picker: baseline + ≤3 AI. */
+  pageCopyVersions: StorePageCopyVersionSummary[];
+  pageCopyActiveIndex: number;
+  pageCopyAiCount: number;
+  pageCopyAiLeft: number;
+  pageCopyMaxAi: number;
 };
 
 function percentOf(checklist: Checklist): number {
@@ -132,13 +152,18 @@ export async function getStorePanel(
   const row = await ensureStoreRow(workspaceId);
   if (!row) return null;
 
-  const side = await db
-    .select()
-    .from(schema.sideStatuses)
-    .where(eq(schema.sideStatuses.workspaceId, workspaceId))
-    .then((rows) => rows[0]);
+  const [side, sku] = await Promise.all([
+    db
+      .select()
+      .from(schema.sideStatuses)
+      .where(eq(schema.sideStatuses.workspaceId, workspaceId))
+      .then((rows) => rows[0]),
+    getSkuView(workspaceId),
+  ]);
 
   const checklist = parseChecklist(row.checklist);
+  const packRaw = row.discoverabilityPack ?? "";
+  const versionsState = parsePageCopyVersions(row.pageCopyVersions ?? "");
   return {
     checklist,
     checklistKeys: STORE_CHECKLIST_KEYS,
@@ -150,7 +175,16 @@ export async function getStorePanel(
     policiesDraft: row.policiesDraft,
     contentDraftEn: row.contentDraftEn,
     contentDraftAr: row.contentDraftAr,
+    discoverability: parseDiscoverabilityPack(packRaw),
+    pageCopySource: parseStoredPackSource(packRaw),
+    geminiConfigured: isGeminiConfigured(),
     storeReady: side?.storeReady ?? false,
+    skuName: sku?.name ?? null,
+    pageCopyVersions: versionSummaries(versionsState),
+    pageCopyActiveIndex: versionsState.activeIndex,
+    pageCopyAiCount: countAiVersions(versionsState),
+    pageCopyAiLeft: aiImprovesLeft(versionsState),
+    pageCopyMaxAi: MAX_AI_STORE_PAGE_COPY_VERSIONS,
   };
 }
 
@@ -198,6 +232,197 @@ export async function saveStoreFields(
   await ensureMigrated();
   await ensureStoreRow(workspaceId);
   await founderEditStoreReadiness(workspaceId, fields);
+  return { ok: true };
+}
+
+export type ImproveStorePageCopyResult =
+  | { ok: true; source: StorePageCopySource; aiLeft: number }
+  | {
+      ok: false;
+      error: "not_found" | "no_sku" | "ai_cap";
+    };
+
+function applyLiveFields(
+  payload: {
+    contentDraftEn: string;
+    contentDraftAr: string;
+    policiesDraft: string;
+    discoverability: DiscoverabilityPack | null;
+    source: StorePageCopySource | "baseline";
+  },
+) {
+  return {
+    contentDraftEn: payload.contentDraftEn,
+    contentDraftAr: payload.contentDraftAr,
+    policiesDraft: payload.policiesDraft,
+    discoverabilityPack: payload.discoverability
+      ? serializeDiscoverabilityPack(
+          payload.discoverability,
+          payload.source === "baseline" ? "template" : payload.source,
+        )
+      : "",
+  };
+}
+
+/**
+ * Approach A: explicit click — Gemini improve (consumes 1 of 3 AI slots) or
+ * template fallback (does not consume). Cap refuses before LLM when full.
+ */
+export async function improveStorePageCopy(
+  workspaceId: string,
+): Promise<ImproveStorePageCopyResult> {
+  await ensureMigrated();
+  const row = await ensureStoreRow(workspaceId);
+  if (!row) return { ok: false, error: "not_found" };
+  const sku = await getSkuView(workspaceId);
+  if (!sku) return { ok: false, error: "no_sku" };
+
+  const now = nowIso();
+  let versions = parsePageCopyVersions(row.pageCopyVersions ?? "");
+  versions = ensureBaseline(versions, {
+    contentDraftEn: row.contentDraftEn,
+    contentDraftAr: row.contentDraftAr,
+    policiesDraft: row.policiesDraft,
+    discoverabilityPackRaw: row.discoverabilityPack ?? "",
+    createdAt: now,
+  });
+
+  if (countAiVersions(versions) >= MAX_AI_STORE_PAGE_COPY_VERSIONS) {
+    // Persist baseline capture if we just created it, then refuse.
+    await db
+      .update(schema.storeReadiness)
+      .set({
+        pageCopyVersions: serializePageCopyVersions(versions),
+        updatedAt: now,
+      })
+      .where(eq(schema.storeReadiness.workspaceId, workspaceId));
+    return { ok: false, error: "ai_cap" };
+  }
+
+  const input = {
+    name: sku.name,
+    category: sku.basics.category,
+    differentiation: sku.basics.differentiation,
+    hooks: sku.marketingHooks.hooks,
+    sellPrice: sku.basics.sellPrice,
+  };
+
+  const llm = getMarketingLlmProvider();
+  const filled = await llm.improveStorePageCopy(input);
+
+  if (filled.ok && filled.payload.source === "gemini") {
+    const snap = snapshotFromPayload(filled.payload, now);
+    const appended = appendAiVersion(versions, snap);
+    if (!appended.ok) {
+      return { ok: false, error: "ai_cap" };
+    }
+    versions = appended.state;
+    const live = applyLiveFields({
+      ...filled.payload,
+      source: "gemini",
+    });
+    await db
+      .update(schema.storeReadiness)
+      .set({
+        ...live,
+        pageCopyVersions: serializePageCopyVersions(versions),
+        updatedAt: now,
+      })
+      .where(eq(schema.storeReadiness.workspaceId, workspaceId));
+
+    await db.insert(schema.orchestratorEvents).values({
+      id: newId(),
+      workspaceId,
+      kind: "store_page_copy",
+      message: `Store page copy AI improve for ${sku.name} (${countAiVersions(versions)}/${MAX_AI_STORE_PAGE_COPY_VERSIONS})`,
+      meta: JSON.stringify({
+        source: "gemini",
+        skuId: sku.id,
+        aiCount: countAiVersions(versions),
+        activeIndex: versions.activeIndex,
+      }),
+      createdAt: now,
+    });
+
+    return {
+      ok: true,
+      source: "gemini",
+      aiLeft: aiImprovesLeft(versions),
+    };
+  }
+
+  // Template fallback / LLM miss — refresh live fields, do NOT burn an AI slot.
+  const template = buildTemplateStorePageCopy(input);
+  const live = applyLiveFields(template);
+  await db
+    .update(schema.storeReadiness)
+    .set({
+      ...live,
+      pageCopyVersions: serializePageCopyVersions(versions),
+      updatedAt: now,
+    })
+    .where(eq(schema.storeReadiness.workspaceId, workspaceId));
+
+  await db.insert(schema.orchestratorEvents).values({
+    id: newId(),
+    workspaceId,
+    kind: "store_page_copy",
+    message: `Store page copy template refresh for ${sku.name} (no AI slot used)`,
+    meta: JSON.stringify({
+      source: "template",
+      skuId: sku.id,
+      aiCount: countAiVersions(versions),
+    }),
+    createdAt: now,
+  });
+
+  return {
+    ok: true,
+    source: "template",
+    aiLeft: aiImprovesLeft(versions),
+  };
+}
+
+export type SelectStorePageCopyVersionResult =
+  | { ok: true }
+  | { ok: false; error: "not_found" | "bad_index" };
+
+export async function selectStorePageCopyVersion(
+  workspaceId: string,
+  index: number,
+): Promise<SelectStorePageCopyVersionResult> {
+  await ensureMigrated();
+  const row = await ensureStoreRow(workspaceId);
+  if (!row) return { ok: false, error: "not_found" };
+
+  const state = parsePageCopyVersions(row.pageCopyVersions ?? "");
+  const next = selectVersion(state, index);
+  if (!next) return { ok: false, error: "bad_index" };
+  const active = activeVersion(next);
+  if (!active) return { ok: false, error: "bad_index" };
+
+  const live = applyLiveFields({
+    contentDraftEn: active.contentDraftEn,
+    contentDraftAr: active.contentDraftAr,
+    policiesDraft: active.policiesDraft,
+    discoverability: active.discoverability,
+    source:
+      active.source === "baseline"
+        ? "template"
+        : active.source === "gemini"
+          ? "gemini"
+          : "template",
+  });
+  const now = nowIso();
+  await db
+    .update(schema.storeReadiness)
+    .set({
+      ...live,
+      pageCopyVersions: serializePageCopyVersions(next),
+      updatedAt: now,
+    })
+    .where(eq(schema.storeReadiness.workspaceId, workspaceId));
+
   return { ok: true };
 }
 

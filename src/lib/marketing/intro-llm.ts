@@ -20,6 +20,11 @@ import {
   type IntroBodyFill,
   type IntroValidateError,
 } from "@/lib/marketing/intro-validate";
+import {
+  improveStorePageCopyWithGemini,
+  type StorePageCopyLlmResult,
+} from "@/lib/store/page-copy-llm";
+import type { StorePageCopyInput } from "@/lib/store/page-copy";
 
 export type MarketingLlmError =
   | "missing_key"
@@ -37,6 +42,11 @@ export type MarketingLlmProvider = {
     input: IntroLessonInput,
     opts?: { fetchFn?: typeof fetch; env?: Record<string, string | undefined> },
   ): Promise<MarketingIntroFillResult>;
+  /** Wave 4 Phase 2 — Store page drafts + discoverability pack. */
+  improveStorePageCopy(
+    input: StorePageCopyInput,
+    opts?: { fetchFn?: typeof fetch; env?: Record<string, string | undefined> },
+  ): Promise<StorePageCopyLlmResult>;
 };
 
 function stripJsonFence(raw: string): string {
@@ -199,6 +209,9 @@ export function createGeminiMarketingLlmProvider(): MarketingLlmProvider {
           "Return valid JSON only.",
         ].join("\n"),
       });
+    },
+    async improveStorePageCopy(input, opts) {
+      return improveStorePageCopyWithGemini(input, opts);
     },
   };
 }

@@ -326,6 +326,10 @@ export const storeReadiness = pgTable("store_readiness", {
   policiesDraft: text("policies_draft").notNull().default(""),
   contentDraftEn: text("content_draft_en").notNull().default(""),
   contentDraftAr: text("content_draft_ar").notNull().default(""),
+  /** JSON DiscoverabilityPack — title, short desc, search phrases, FAQs (Wave 4 Phase 2). */
+  discoverabilityPack: text("discoverability_pack").notNull().default(""),
+  /** JSON StorePageCopyVersionsState — baseline + ≤3 AI snapshots. */
+  pageCopyVersions: text("page_copy_versions").notNull().default(""),
   updatedAt: text("updated_at").notNull(),
 });
 

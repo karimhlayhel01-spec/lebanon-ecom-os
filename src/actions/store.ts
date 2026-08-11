@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 import { ensureMigrated } from "@/db";
 import { requireOnboardedWorkspace } from "@/lib/workspace";
 import {
+  improveStorePageCopy,
   markStoreReady,
   saveStoreFields,
+  selectStorePageCopyVersion,
   toggleChecklistItem,
 } from "@/lib/store/service";
 import type { StoreChecklistKey } from "@/lib/constants";
@@ -47,6 +49,46 @@ export async function saveStoreFieldsAction(
     whatsappNumber: whatsappNumber || null,
     courierChoice: courierChoice || null,
   });
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function improveStorePageCopyAction(): Promise<{
+  ok: boolean;
+  source?: "gemini" | "template";
+  aiLeft?: number;
+  error?: string;
+}> {
+  await ensureMigrated();
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  const res = await improveStorePageCopy(ctx.workspace.id);
+  if (!res.ok) {
+    const error =
+      res.error === "no_sku"
+        ? "noSku"
+        : res.error === "ai_cap"
+          ? "aiCap"
+          : "errorGeneric";
+    return { ok: false, error };
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, source: res.source, aiLeft: res.aiLeft };
+}
+
+export async function selectStorePageCopyVersionAction(
+  index: number,
+): Promise<{ ok: boolean; error?: string }> {
+  await ensureMigrated();
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  const res = await selectStorePageCopyVersion(ctx.workspace.id, index);
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: res.error === "bad_index" ? "badVersion" : "errorGeneric",
+    };
+  }
   revalidatePath("/", "layout");
   return { ok: true };
 }

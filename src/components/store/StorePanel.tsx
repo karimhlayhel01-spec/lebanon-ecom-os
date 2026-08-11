@@ -1,14 +1,22 @@
 "use client";
 
 import { useActionState, useId, useState, useTransition } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
+  improveStorePageCopyAction,
   markStoreReadyAction,
   saveStoreFieldsAction,
+  selectStorePageCopyVersionAction,
   toggleStoreChecklistAction,
   type StoreFieldsState,
 } from "@/actions/store";
 import type { StorePanelView } from "@/lib/store/service";
+import {
+  formatDiscoverabilityForCopy,
+  type DiscoverabilityPack,
+} from "@/lib/store/page-copy";
+import { copyTextToClipboard } from "@/lib/store/clipboard";
+import { useRouter } from "@/i18n/navigation";
 import {
   STORE_CHECKLIST_BUILD_KEYS,
   STORE_CHECKLIST_SECTIONS,
@@ -73,7 +81,6 @@ export function StorePanel({ view }: { view: StorePanelView }) {
     saveStoreFieldsAction,
     fieldsInitial,
   );
-  const [showDrafts, setShowDrafts] = useState(false);
   const [openKey, setOpenKey] = useState<StoreChecklistKey | null>(null);
   const checklist = view.checklist as StoreChecklistState;
 
@@ -219,21 +226,8 @@ export function StorePanel({ view }: { view: StorePanelView }) {
         ))}
       </div>
 
-      {/* Drafts */}
-      <button
-        type="button"
-        onClick={() => setShowDrafts((v) => !v)}
-        className="mt-4 text-xs font-medium text-sea underline-offset-2 hover:underline"
-      >
-        {showDrafts ? t("hideDrafts") : t("showDrafts")}
-      </button>
-      {showDrafts && (
-        <div className="mt-2 grid gap-3 md:grid-cols-3">
-          <Draft title={t("draftEn")} value={view.contentDraftEn} />
-          <Draft title={t("draftAr")} value={view.contentDraftAr} rtl />
-          <Draft title={t("draftPolicies")} value={view.policiesDraft} />
-        </div>
-      )}
+      {/* Make the page stronger — Wave 4 Phase 2 */}
+      <PageStrongerSection view={view} />
 
       {/* Mark store ready (side-only) */}
       <div className="mt-4 border-t border-stone pt-4">
@@ -245,6 +239,294 @@ export function StorePanel({ view }: { view: StorePanelView }) {
           <MarkReady disabled={view.percent < 100} />
         )}
       </div>
+    </div>
+  );
+}
+
+function PageStrongerSection({ view }: { view: StorePanelView }) {
+  const t = useTranslations("Store");
+  const locale = useLocale();
+  const isAr = locale === "ar";
+  const router = useRouter();
+  const [improvePending, startImprove] = useTransition();
+  const [selectPending, startSelect] = useTransition();
+  const [improveError, setImproveError] = useState<string | null>(null);
+  const [improveNote, setImproveNote] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const tips = view.discoverability
+    ? isAr
+      ? view.discoverability.attractivenessTipsAr
+      : view.discoverability.attractivenessTipsEn
+    : [];
+
+  const aiLeft = view.pageCopyAiLeft;
+  const atCap = aiLeft <= 0;
+  const hasVersions = view.pageCopyVersions.length > 0;
+  const hasAiVersion = view.pageCopyAiCount > 0;
+  const canRunAi = Boolean(view.skuName) && !atCap;
+
+  async function copyField(key: string, text: string) {
+    const ok = await copyTextToClipboard(text);
+    if (!ok) return;
+    setCopiedKey(key);
+    window.setTimeout(() => setCopiedKey((cur) => (cur === key ? null : cur)), 2000);
+  }
+
+  function runImprove() {
+    setImproveError(null);
+    setImproveNote(null);
+    startImprove(async () => {
+      const res = await improveStorePageCopyAction();
+      if (!res.ok) {
+        setImproveError(
+          res.error === "noSku"
+            ? "noSku"
+            : res.error === "aiCap"
+              ? "aiCap"
+              : "errorGeneric",
+        );
+        return;
+      }
+      setImproveNote(
+        res.source === "gemini" ? "improveAiOk" : "improveTemplateOk",
+      );
+      router.refresh();
+    });
+  }
+
+  return (
+    <section className="mt-6 border-t border-stone pt-5">
+      <h3 className="font-display text-base text-ink">{t("pageStrongerTitle")}</h3>
+      <p className="mt-1 max-w-2xl text-sm text-stone-dark">
+        {t("pageStrongerIntro", {
+          name: view.skuName ?? t("pageStrongerNoSku"),
+        })}
+      </p>
+      <p className="mt-2 text-xs text-stone-dark">{t("pageStrongerHonesty")}</p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          disabled={improvePending || !canRunAi}
+          onClick={runImprove}
+          className="rounded-md bg-cedar px-4 py-2 text-sm font-semibold text-foam transition hover:bg-cedar-deep disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {improvePending
+            ? t("improving")
+            : hasAiVersion
+              ? t("regenerateAi")
+              : t("improveWithAi")}
+        </button>
+        <span className="text-xs text-stone-dark">
+          {t("aiImprovesLeft", {
+            n: aiLeft,
+            max: view.pageCopyMaxAi,
+          })}
+        </span>
+        {!view.geminiConfigured && (
+          <span className="text-xs text-amber-900/90">{t("aiUnavailable")}</span>
+        )}
+        {atCap && (
+          <span className="text-xs text-stone-dark">{t("aiCapHint")}</span>
+        )}
+        {improveError && (
+          <span className="text-xs text-amber-800">
+            {t(improveError as never)}
+          </span>
+        )}
+        {improveNote && (
+          <span className="text-xs text-cedar-deep">
+            {t(improveNote as never)}
+          </span>
+        )}
+      </div>
+
+      {hasVersions && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
+            {t("versionPicker")}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {view.pageCopyVersions.map((v) => {
+              const active = v.index === view.pageCopyActiveIndex;
+              const label =
+                v.kind === "baseline"
+                  ? t("versionBaseline")
+                  : t("versionAi", { n: v.aiOrdinal ?? v.index });
+              return (
+                <button
+                  key={v.index}
+                  type="button"
+                  disabled={selectPending || active}
+                  aria-pressed={active}
+                  onClick={() => {
+                    startSelect(async () => {
+                      await selectStorePageCopyVersionAction(v.index);
+                      router.refresh();
+                    });
+                  }}
+                  className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                    active
+                      ? "border-cedar bg-cedar/10 text-cedar-deep"
+                      : "border-stone bg-surface text-ink hover:bg-sand disabled:opacity-50"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {tips.length > 0 && (
+        <div className="mt-4">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-cedar-deep">
+            {t("attractivenessTips")}
+          </h4>
+          <ul className="mt-2 space-y-1.5 text-sm text-stone-dark">
+            {tips.map((tip, i) => (
+              <li key={i} className="flex gap-1.5">
+                <span aria-hidden className="text-cedar">
+                  •
+                </span>
+                <span>{tip}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div
+        key={`${view.pageCopyActiveIndex}-${view.contentDraftEn.length}-${view.discoverability?.titleEn ?? ""}`}
+        className="mt-4 grid gap-3 md:grid-cols-3"
+      >
+        <ReadonlyDraft
+          title={t("draftEn")}
+          value={view.contentDraftEn}
+          copied={copiedKey === "en"}
+          onCopy={() => copyField("en", view.contentDraftEn)}
+        />
+        <ReadonlyDraft
+          title={t("draftAr")}
+          value={view.contentDraftAr}
+          rtl
+          copied={copiedKey === "ar"}
+          onCopy={() => copyField("ar", view.contentDraftAr)}
+        />
+        <ReadonlyDraft
+          title={t("draftPolicies")}
+          value={view.policiesDraft}
+          copied={copiedKey === "policies"}
+          onCopy={() => copyField("policies", view.policiesDraft)}
+        />
+      </div>
+
+      {view.discoverability ? (
+        <DiscoverabilityBlock
+          pack={view.discoverability}
+          isAr={isAr}
+          copied={copiedKey === "pack"}
+          onCopy={() =>
+            copyField(
+              "pack",
+              formatDiscoverabilityForCopy(view.discoverability!),
+            )
+          }
+        />
+      ) : (
+        <p className="mt-4 text-xs text-stone-dark">{t("discoverabilityEmpty")}</p>
+      )}
+    </section>
+  );
+}
+
+function DiscoverabilityBlock({
+  pack,
+  isAr,
+  copied,
+  onCopy,
+}: {
+  pack: DiscoverabilityPack;
+  isAr: boolean;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  const t = useTranslations("Store");
+  return (
+    <div className="mt-5 rounded-lg border border-stone bg-surface-subtle p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h4 className="text-sm font-semibold text-ink">
+            {t("discoverabilityTitle")}
+          </h4>
+          <p className="mt-1 text-xs text-stone-dark">
+            {t("discoverabilityIntro")}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="rounded-md border border-cedar/40 bg-cedar/10 px-3 py-1.5 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15"
+        >
+          {copied ? t("copied") : t("copyPack")}
+        </button>
+      </div>
+
+      <dl className="mt-3 space-y-3 text-sm">
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
+            {t("seoTitle")}
+          </dt>
+          <dd className="mt-0.5 text-ink" dir={isAr ? "rtl" : "ltr"}>
+            {isAr ? pack.titleAr : pack.titleEn}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
+            {t("seoShort")}
+          </dt>
+          <dd
+            className="mt-0.5 whitespace-pre-line text-stone-dark"
+            dir={isAr ? "rtl" : "ltr"}
+          >
+            {isAr ? pack.shortDescriptionAr : pack.shortDescriptionEn}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
+            {t("seoPhrases")}
+          </dt>
+          <dd className="mt-1 flex flex-wrap gap-1.5">
+            {(isAr ? pack.searchPhrasesAr : pack.searchPhrasesEn).map((p) => (
+              <span
+                key={p}
+                className="rounded border border-stone bg-surface px-2 py-0.5 text-xs text-ink"
+              >
+                {p}
+              </span>
+            ))}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
+            {t("seoFaqs")}
+          </dt>
+          <dd className="mt-1 space-y-2">
+            {pack.faqs.map((f, i) => (
+              <div key={i} className="text-stone-dark" dir={isAr ? "rtl" : "ltr"}>
+                <p className="font-medium text-ink">
+                  {isAr ? f.qAr : f.qEn}
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed">
+                  {isAr ? f.aAr : f.aEn}
+                </p>
+              </div>
+            ))}
+          </dd>
+        </div>
+      </dl>
     </div>
   );
 }
@@ -394,25 +676,39 @@ function MarkReady({ disabled }: { disabled: boolean }) {
   );
 }
 
-function Draft({
+function ReadonlyDraft({
   title,
   value,
   rtl = false,
+  copied,
+  onCopy,
 }: {
   title: string;
   value: string;
   rtl?: boolean;
+  copied: boolean;
+  onCopy: () => void;
 }) {
+  const t = useTranslations("Store");
   return (
     <div className="rounded-lg border border-stone bg-surface-subtle p-3">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
-        {title}
-      </h4>
+      <div className="flex items-start justify-between gap-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
+          {title}
+        </h4>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="shrink-0 rounded-md border border-cedar/40 bg-cedar/10 px-2.5 py-1 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15"
+        >
+          {copied ? t("copied") : t("copyDraft")}
+        </button>
+      </div>
       <textarea
         readOnly
         dir={rtl ? "rtl" : undefined}
         value={value}
-        rows={7}
+        rows={8}
         className="mt-2 w-full rounded border border-stone bg-surface p-2 text-[11px] text-stone-dark"
       />
     </div>

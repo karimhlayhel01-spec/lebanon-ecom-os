@@ -288,6 +288,9 @@ describe("MarketingLlmProvider fallback without key", () => {
       async fillIntroLessonBodies() {
         return { ok: true, lesson };
       },
+      async improveStorePageCopy() {
+        return { ok: false, error: "missing_key" };
+      },
     };
     setMarketingLlmProvider(fake);
     const r = await fake.fillIntroLessonBodies({
