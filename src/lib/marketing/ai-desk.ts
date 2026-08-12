@@ -28,7 +28,7 @@ export type AiDeskInput = {
   category: string;
   stage: Extract<
     MarketingStage,
-    "pre_launch" | "launch" | "monthly_refresh"
+    "pre_launch" | "launch" | "weekly_refresh"
   >;
   differentiation?: string;
   hooks?: string[];

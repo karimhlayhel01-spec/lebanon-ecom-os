@@ -154,7 +154,7 @@ describe("buildExternalAiDeskPrompts", () => {
     const strategy = buildExternalAiDeskPrompts({
       productName: "GlowLamp Pro",
       category: "home_kitchen",
-      stage: "monthly_refresh",
+      stage: "weekly_refresh",
     }).find((p) => p.id === "strategy")!;
     expect(strategy.body.toLowerCase()).toMatch(/full caption/);
     expect(strategy.body.toLowerCase()).toMatch(
@@ -164,7 +164,7 @@ describe("buildExternalAiDeskPrompts", () => {
   });
 
   it("keeps paste-out prompts free of OS product meta", () => {
-    const stages = ["pre_launch", "launch", "monthly_refresh"] as const;
+    const stages = ["pre_launch", "launch", "weekly_refresh"] as const;
     for (const stage of stages) {
       const prompts = buildExternalAiDeskPrompts({
         productName: "GlowLamp Pro",

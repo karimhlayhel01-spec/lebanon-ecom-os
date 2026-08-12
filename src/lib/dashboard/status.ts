@@ -1,6 +1,10 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import type { MarketingStage } from "@/lib/constants";
+import {
+  LEGACY_MONTHLY_REFRESH_STAGE,
+  normalizeMarketingStage,
+} from "@/lib/constants";
 import { loadHubSupplierStatusFacts } from "@/lib/dashboard/hub-status-facts";
 import {
   resolveDefaultFocusStage,
@@ -239,7 +243,12 @@ async function workspaceHasLaunchKit(
       and(
         eq(schema.marketingKits.workspaceId, workspaceId),
         eq(schema.marketingKits.skuId, skuId),
-        inArray(schema.marketingKits.stage, ["launch", "monthly_refresh"]),
+        inArray(schema.marketingKits.stage, [
+          "launch",
+          "weekly_refresh",
+          // Dual-read until migration 0010 has run on all envs.
+          LEGACY_MONTHLY_REFRESH_STAGE,
+        ]),
       ),
     )
     .then((rows) => rows[0]);
@@ -336,13 +345,7 @@ export async function getDashboardStatus(args: {
     args.skuId,
   );
 
-  const sideStage = (
-    ["none", "intro_pdf", "pre_launch", "launch", "monthly_refresh"].includes(
-      args.sideMarketingStage,
-    )
-      ? args.sideMarketingStage
-      : "none"
-  ) as MarketingStage;
+  const sideStage = normalizeMarketingStage(args.sideMarketingStage);
 
   const marketing = mapMarketingStatusRow({
     primaryState: args.primaryState,

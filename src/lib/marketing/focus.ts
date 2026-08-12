@@ -1,4 +1,7 @@
-import type { MarketingStage } from "@/lib/constants";
+import {
+  normalizeMarketingStage,
+  type MarketingStage,
+} from "@/lib/constants";
 
 export type MarketingStageInfo = {
   stage: MarketingStage;
@@ -89,17 +92,7 @@ export function resolveMarketingJourneyFlags(args: {
     src.batchArrivedReady || BATCH_ARRIVED_STATES.has(primaryState);
 
   const rawStage = src.marketingStage ?? "none";
-  const marketingStage = (
-    [
-      "none",
-      "intro_pdf",
-      "pre_launch",
-      "launch",
-      "monthly_refresh",
-    ] as const
-  ).includes(rawStage as MarketingStage)
-    ? (rawStage as MarketingStage)
-    : "none";
+  const marketingStage = normalizeMarketingStage(rawStage);
 
   return {
     primaryState,
@@ -134,7 +127,7 @@ export function resolveUnlockedStages(flags: {
       paidRule: "full",
     },
     {
-      stage: "monthly_refresh",
+      stage: "weekly_refresh",
       unlocked: flags.hasLaunchKit,
       paidRule: "full",
     },
@@ -144,9 +137,9 @@ export function resolveUnlockedStages(flags: {
 /**
  * Default "Current" focus for the marketing rail.
  *
- * Unlock rules are separate (monthly_refresh may unlock as soon as a launch kit
+ * Unlock rules are separate (weekly_refresh may unlock as soon as a launch kit
  * exists). Focus follows the journey so Launch is not skipped at
- * batch_arrived_ready just because monthly_refresh is already unlocked.
+ * batch_arrived_ready just because weekly_refresh is already unlocked.
  *
  * Last-generated kit stage is only used when it matches the journey focus —
  * never to jump ahead (old furthest-unlocked behavior).
@@ -164,7 +157,7 @@ export function resolveDefaultFocusStage(args: {
 
   let preferred: MarketingStage = "none";
   if (args.primaryState === "selling") {
-    if (unlocked("monthly_refresh")) preferred = "monthly_refresh";
+    if (unlocked("weekly_refresh")) preferred = "weekly_refresh";
     else if (unlocked("launch")) preferred = "launch";
     else if (unlocked("pre_launch")) preferred = "pre_launch";
     else if (unlocked("intro_pdf")) preferred = "intro_pdf";
@@ -172,7 +165,7 @@ export function resolveDefaultFocusStage(args: {
     args.primaryState === "batch_arrived_ready" ||
     args.batchArrivedReady
   ) {
-    // Prefer Launch even when monthly_refresh is unlocked.
+    // Prefer Launch even when weekly_refresh is unlocked.
     if (unlocked("launch")) preferred = "launch";
     else if (unlocked("pre_launch")) preferred = "pre_launch";
     else if (unlocked("intro_pdf")) preferred = "intro_pdf";
@@ -184,7 +177,7 @@ export function resolveDefaultFocusStage(args: {
   }
 
   // Honor last-generated stage only when it is the journey-appropriate focus
-  // (and unlocked). Blocks monthly_refresh from stealing Current at Launch.
+  // (and unlocked). Blocks weekly_refresh from stealing Current at Launch.
   if (
     args.sideStage !== "none" &&
     args.sideStage === preferred &&

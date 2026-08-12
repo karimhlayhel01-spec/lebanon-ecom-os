@@ -176,7 +176,7 @@ describe("mapMarketingStatusRow", () => {
         batchOrdered: true,
         batchArrivedReady: true,
         hasLaunchKit: true,
-        sideStage: "monthly_refresh",
+        sideStage: "weekly_refresh",
       }).stage,
     ).toBe("launch");
 
@@ -189,7 +189,7 @@ describe("mapMarketingStatusRow", () => {
         hasLaunchKit: true,
         sideStage: "none",
       }).stage,
-    ).toBe("monthly_refresh");
+    ).toBe("weekly_refresh");
   });
 
   it("stays none before sample approval", () => {

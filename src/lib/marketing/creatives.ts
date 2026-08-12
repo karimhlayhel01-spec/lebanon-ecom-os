@@ -1,12 +1,11 @@
 /**
- * Niche-aware creative kits for pre_launch / launch / monthly_refresh.
+ * Niche-aware creative kits for pre_launch / launch / weekly_refresh.
  *
  * Same niche spine as Intro (via brief.ts). Pre-launch = ETA week-phased soft
  * teasers (warm early / “batch in transit” later) — no gift, buyer-UGC proof,
  * or hard order CTAs. Launch v1 = fixed 2-week plan (open → convert) with
- * WhatsApp order OK; not tied to batch ETA. monthly_refresh (founder-facing
- * name: weekly refresh) v1 = 1-week selling plan (open/convert + weekly
- * extras) with schedules.
+ * WhatsApp order OK; not tied to batch ETA. `weekly_refresh` v1 = 1-week
+ * selling plan (open/convert + weekly extras) with schedules.
  * Full regenerate resets scheduleIgnored (new creative ids).
  * No COD-as-marketing-wow. Deterministic builder = skeleton + fail-closed
  * fallback; Wave 4 Gemini may fill text fields via creatives-llm.
@@ -15,8 +14,8 @@
 /** v1 Launch plan length — not a permanent schema law (v2 may choose N). */
 export const LAUNCH_PLAN_WEEKS = 2;
 
-/** v1 weekly refresh (stage id monthly_refresh) — single selling week with schedule slots. */
-export const MONTHLY_PLAN_WEEKS = 1;
+/** v1 weekly refresh (stage id weekly_refresh) — single selling week with schedule slots. */
+export const WEEKLY_PLAN_WEEKS = 1;
 
 import { newId } from "@/lib/ids";
 import type { MarketingCapacityTier, MarketingStage } from "@/lib/constants";
@@ -143,7 +142,7 @@ export type BuildCreativesInput = {
   hooks?: string[];
   stage: Extract<
     MarketingStage,
-    "pre_launch" | "launch" | "monthly_refresh"
+    "pre_launch" | "launch" | "weekly_refresh"
   >;
   capacityTier: MarketingCapacityTier;
   /** Rotates angle order, series numbers, caption variants. */
@@ -739,13 +738,13 @@ function buildLaunchConvertPool(niche: NicheWorld, name: string): AngleDef[] {
 function buildLaunchPool(
   niche: NicheWorld,
   name: string,
-  stage: "launch" | "monthly_refresh",
+  stage: "launch" | "weekly_refresh",
   hookFromSku: string | null,
 ): AngleDef[] {
   const open = buildLaunchOpenPool(niche, name, hookFromSku);
   const convert = buildLaunchConvertPool(niche, name);
   const pool = [...open, ...convert];
-  if (stage === "monthly_refresh") {
+  if (stage === "weekly_refresh") {
     const b = launchNicheBits(niche, name);
     pool.push({
       angleEn: `New weekly angle — ${b.resultEn}`,
@@ -1004,8 +1003,8 @@ export function buildCreatives(input: BuildCreativesInput): Creative[] {
         )
       : input.stage === "launch"
         ? LAUNCH_PLAN_WEEKS
-        : input.stage === "monthly_refresh"
-          ? MONTHLY_PLAN_WEEKS
+        : input.stage === "weekly_refresh"
+          ? WEEKLY_PLAN_WEEKS
           : 0;
   // Week plans: at least one creative per week so Week 1…N all appear.
   const count =
@@ -1191,12 +1190,12 @@ export function buildCreatives(input: BuildCreativesInput): Creative[] {
     return creatives;
   }
 
-  // monthly_refresh (weekly refresh) — 1-week selling plan with schedules.
+  // weekly_refresh (weekly refresh) — 1-week selling plan with schedules.
   {
     const pool = buildLaunchPool(
       niche,
       name,
-      "monthly_refresh",
+      "weekly_refresh",
       hookFromSku,
     );
     const pinned = hookFromSku ? pool[0]! : null;

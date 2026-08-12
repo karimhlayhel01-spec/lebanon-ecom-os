@@ -20,7 +20,7 @@ export function isPaidMarketingStage(stage: MarketingStage): boolean {
   return (
     stage === "pre_launch" ||
     stage === "launch" ||
-    stage === "monthly_refresh"
+    stage === "weekly_refresh"
   );
 }
 

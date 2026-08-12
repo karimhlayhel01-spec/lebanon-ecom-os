@@ -176,7 +176,7 @@ export default async function SkuDetailPage({ params }: Props) {
             },
             {
               href: `#marketing`,
-              label: td("ctaMonthlyRefresh"),
+              label: td("ctaWeeklyRefresh"),
               tone: "parallel",
             },
           ];

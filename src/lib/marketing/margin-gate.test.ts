@@ -23,11 +23,11 @@ const failSnap: MoneySnapshotSection = {
 };
 
 describe("isPaidMarketingStage", () => {
-  it("marks pre_launch / launch / monthly_refresh only", () => {
+  it("marks pre_launch / launch / weekly_refresh only", () => {
     expect(isPaidMarketingStage("intro_pdf")).toBe(false);
     expect(isPaidMarketingStage("pre_launch")).toBe(true);
     expect(isPaidMarketingStage("launch")).toBe(true);
-    expect(isPaidMarketingStage("monthly_refresh")).toBe(true);
+    expect(isPaidMarketingStage("weekly_refresh")).toBe(true);
   });
 });
 

@@ -220,7 +220,7 @@ After accept, work happens on the **shop hub** and **per-SKU pages** (`/sku/[id]
 
 ### Marketing — stage-aware (`src/lib/marketing/`)
 
-- Stages: sample approved → **intro**, batch ordered → **pre-launch** (organic + max $5/day paid), batch arrived → **launch**, plus **weekly refresh** (stage id `monthly_refresh`)
+- Stages: sample approved → **intro**, batch ordered → **pre-launch** (organic + max $5/day paid), batch arrived → **launch**, plus **weekly refresh** (stage id `weekly_refresh`)
 - Editable **creatives + shot lists**, EN/AR, scaled **6 / 10 / 14 by capacity**, WhatsApp required
 - Marketing kits are separate from Topic A money advice; `start_launch_marketing` gates launch/refresh
 - **Wave 4 (locked intent):** AI-native kits — Gemini-first Intro bodies + literacy (Phase 1 next); deterministic templates = fail-closed fallback. See `docs/WAVE-4.md`

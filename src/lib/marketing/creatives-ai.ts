@@ -72,7 +72,7 @@ export function buildCreativesFactsPack(input: BuildCreativesInput) {
       noRoasOrFinanceAdvice: true,
       preLaunchSoftOnly: input.stage === "pre_launch",
       whatsappOrderOk:
-        input.stage === "launch" || input.stage === "monthly_refresh",
+        input.stage === "launch" || input.stage === "weekly_refresh",
     },
   };
 }

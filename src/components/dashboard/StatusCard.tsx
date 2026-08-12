@@ -232,7 +232,7 @@ function titleForMarketing(row: MarketingStatusRow, t: TFn): string {
       return t("marketing.preLaunchTitle");
     case "launch":
       return t("marketing.launchTitle");
-    case "monthly_refresh":
+    case "weekly_refresh":
       return t("marketing.refreshTitle");
     case "none":
     default:
@@ -248,7 +248,7 @@ function hintForMarketing(row: MarketingStatusRow, t: TFn): string {
       return t("marketing.preLaunchHint");
     case "launch":
       return t("marketing.launchHint");
-    case "monthly_refresh":
+    case "weekly_refresh":
       return t("marketing.refreshHint");
     case "none":
     default:

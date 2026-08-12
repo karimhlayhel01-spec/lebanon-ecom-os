@@ -2,8 +2,10 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import {
+  LEGACY_MONTHLY_REFRESH_STAGE,
   MARKETING_CAPACITY_TIERS,
   PRE_LAUNCH_MAX_DAILY_AD_SPEND,
+  normalizeMarketingStage,
   type MarketingCapacityTier,
   type MarketingStage,
 } from "@/lib/constants";
@@ -58,13 +60,13 @@ export type { MarketingStageInfo };
  *   sample approved      → intro          (organic lesson — not creatives)
  *   batch ordered        → pre-launch     (organic + max $5/day paid)
  *   batch arrived/ready  → launch         (real paid budget, gated ack)
- *   after launch         → weekly refresh (ongoing; stage id monthly_refresh)
+ *   after launch         → weekly refresh (ongoing; stage id weekly_refresh)
  *
  * Intro stores a product-tailored beginner LESSON. Other stages store EN + AR
  * niche creatives (hook-first, WhatsApp CTA — never COD-as-wow). Counts:
- * pre_launch lighter (4/6/8); launch + monthly_refresh full tier (6/10/14).
+ * pre_launch lighter (4/6/8); launch + weekly_refresh full tier (6/10/14).
  * Kits are creative/lesson plans only — NOT Topic A money advice (Finance).
- * Founder-facing copy says “weekly refresh”; keep stage id monthly_refresh.
+ * Founder-facing and stage id both use weekly refresh (`weekly_refresh`).
  */
 
 export type { IntroLessonPayload, IntroLessonSection, Creative };
@@ -299,9 +301,10 @@ export async function getMarketingPanel(
   const latestByStage = new Map<MarketingStage, MarketingKitView>();
   for (const k of kitRows) {
     const items = parseKitItems(k.items);
-    latestByStage.set(k.stage as MarketingStage, {
+    const stage = normalizeMarketingStage(k.stage);
+    latestByStage.set(stage, {
       id: k.id,
-      stage: k.stage as MarketingStage,
+      stage,
       capacityTier: Number(k.capacityTier),
       kind: items.kind,
       creatives: items.creatives,
@@ -312,7 +315,7 @@ export async function getMarketingPanel(
   }
   for (const kit of latestByStage.values()) kits.push(kit);
   const hasLaunchKit = kits.some(
-    (k) => k.stage === "launch" || k.stage === "monthly_refresh",
+    (k) => k.stage === "launch" || k.stage === "weekly_refresh",
   );
 
   const stages = resolveUnlockedStages({
@@ -376,11 +379,12 @@ export type GenerateKitResult =
 
 export async function generateKit(
   workspaceId: string,
-  stage: MarketingStage,
+  stageInput: MarketingStage | string,
   launchBudgetAck: boolean,
   skuId?: string | null,
 ): Promise<GenerateKitResult> {
   await ensureMigrated();
+  const stage = normalizeMarketingStage(stageInput);
   const scope = parseGenerateKitSkuScope(skuId);
   if (!scope.ok) return { ok: false, error: "not_found" };
 
@@ -407,10 +411,10 @@ export async function generateKit(
   const info = panel.stages.find((s) => s.stage === stage);
   if (!info || !info.unlocked) return { ok: false, error: "stage_locked" };
 
-  // Launch (and weekly refresh / monthly_refresh) require a budget-rules
-  // acknowledgement the first time, via side-only start_launch_marketing.
+  // Launch and weekly refresh require a budget-rules acknowledgement
+  // the first time, via side-only start_launch_marketing.
   const needsAck =
-    (stage === "launch" || stage === "monthly_refresh") &&
+    (stage === "launch" || stage === "weekly_refresh") &&
     panel.launchAckNeeded;
   if (needsAck) {
     if (!launchBudgetAck) return { ok: false, error: "needs_launch_ack" };
@@ -434,16 +438,25 @@ export async function generateKit(
 
   // At most one kit per workspace + SKU + stage — replace, never stack.
   // Intro may regenerate (Wave 4) so founders can retry AI fill after template fallback.
+  // Dual-read legacy monthly_refresh rows when writing weekly_refresh.
+  const stageClause =
+    stage === "weekly_refresh"
+      ? inArray(schema.marketingKits.stage, [
+          "weekly_refresh",
+          LEGACY_MONTHLY_REFRESH_STAGE,
+        ])
+      : eq(schema.marketingKits.stage, stage);
+
   const existingQuery = isShopKit
     ? and(
         eq(schema.marketingKits.workspaceId, workspaceId),
         isNull(schema.marketingKits.skuId),
-        eq(schema.marketingKits.stage, stage),
+        stageClause,
       )
     : and(
         eq(schema.marketingKits.workspaceId, workspaceId),
         eq(schema.marketingKits.skuId, sku!.id),
-        eq(schema.marketingKits.stage, stage),
+        stageClause,
       );
 
   const existing = await db
@@ -459,7 +472,7 @@ export async function generateKit(
   const creativeStage =
     stage === "pre_launch" ||
     stage === "launch" ||
-    stage === "monthly_refresh"
+    stage === "weekly_refresh"
       ? stage
       : null;
   const eta = panel.batchArrivalEta;
@@ -537,6 +550,7 @@ export async function generateKit(
     await db
       .update(schema.marketingKits)
       .set({
+        stage,
         capacityTier,
         items: itemsJson,
         language: "both",

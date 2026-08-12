@@ -32,7 +32,7 @@ const MARKETING_CTA_STAGE: Record<string, string> = {
   marketingIntro: "intro_pdf",
   preLaunch: "pre_launch",
   launchKit: "launch",
-  refreshKit: "monthly_refresh",
+  refreshKit: "weekly_refresh",
 };
 
 export function OrchestratorPanel({

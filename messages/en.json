@@ -203,7 +203,7 @@
     "ctaStartSelling": "Start selling",
     "ctaLaunchMarketing": "Launch marketing",
     "ctaLogWeek": "Log this week",
-    "ctaMonthlyRefresh": "Weekly refresh",
+    "ctaWeeklyRefresh": "Weekly refresh",
     "toolsLabel": "Tools",
     "toolSku": "SKU",
     "toolSupplier": "Supplier",
@@ -1039,7 +1039,7 @@
       "intro_pdf": "Intro",
       "pre_launch": "Pre-launch",
       "launch": "Launch",
-      "monthly_refresh": "Weekly refresh"
+      "weekly_refresh": "Weekly refresh"
     },
     "paidNone": "Organic only — no paid ads yet.",
     "paidCapped": "Organic + max ${max}/day paid.",

@@ -35,7 +35,7 @@ describe("creativeCountFor", () => {
     expect(creativeCountFor("launch", 6)).toBe(6);
     expect(creativeCountFor("launch", 10)).toBe(10);
     expect(creativeCountFor("launch", 14)).toBe(14);
-    expect(creativeCountFor("monthly_refresh", 10)).toBe(10);
+    expect(creativeCountFor("weekly_refresh", 10)).toBe(10);
   });
 
   it("pre_launch length is less than launch for the same tier", () => {
@@ -103,7 +103,7 @@ describe("buildCreatives", () => {
   });
 
   it("never pitches COD as a marketing wow", () => {
-    const stages = ["pre_launch", "launch", "monthly_refresh"] as const;
+    const stages = ["pre_launch", "launch", "weekly_refresh"] as const;
     const categories = [
       "office_desk_gadgets",
       "home_kitchen",
@@ -330,7 +330,7 @@ describe("buildCreatives", () => {
       "خطوة روتينية",
     );
   });
-  it("attaches schedule on pre_launch + launch + monthly_refresh", () => {
+  it("attaches schedule on pre_launch + launch + weekly_refresh", () => {
     const pre = buildCreatives({
       ...base,
       category: "office_desk_gadgets",
@@ -391,7 +391,7 @@ describe("buildCreatives", () => {
     const monthly = buildCreatives({
       ...base,
       category: "office_desk_gadgets",
-      stage: "monthly_refresh",
+      stage: "weekly_refresh",
       varianceSeed: 12,
     });
     expect(monthly).toHaveLength(10);
@@ -412,12 +412,12 @@ describe("buildCreatives", () => {
     expect(monthly.some((c) => /This week/i.test(c.whyEn))).toBe(true);
   });
 
-  it("orders monthly_refresh schedules within a single Week 1", () => {
+  it("orders weekly_refresh schedules within a single Week 1", () => {
     for (const seed of [12, 42, 99]) {
       const kit = buildCreatives({
         ...base,
         category: "office_desk_gadgets",
-        stage: "monthly_refresh",
+        stage: "weekly_refresh",
         varianceSeed: seed,
       });
       expect([...new Set(kit.map((c) => c.weekIndex))]).toEqual([1]);

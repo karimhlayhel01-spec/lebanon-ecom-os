@@ -203,7 +203,7 @@
     "ctaStartSelling": "ابدأ البيع",
     "ctaLaunchMarketing": "أطلق التسويق",
     "ctaLogWeek": "سجّل هذا الأسبوع",
-    "ctaMonthlyRefresh": "تحديث أسبوعي",
+    "ctaWeeklyRefresh": "تحديث أسبوعي",
     "toolsLabel": "الأدوات",
     "toolSku": "المنتج",
     "toolSupplier": "المورّدون",
@@ -1039,7 +1039,7 @@
       "intro_pdf": "تمهيدي",
       "pre_launch": "ما قبل الإطلاق",
       "launch": "الإطلاق",
-      "monthly_refresh": "تحديث أسبوعي"
+      "weekly_refresh": "تحديث أسبوعي"
     },
     "paidNone": "عضوي فقط — لا إعلانات مدفوعة بعد.",
     "paidCapped": "عضوي + حد أقصى ${max}/يوم مدفوع.",

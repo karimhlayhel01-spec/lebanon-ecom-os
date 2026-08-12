@@ -319,7 +319,7 @@ function StageCard({
   const showGenerate = !(stage === "intro_pdf" && hasKit);
 
   const generateLabel =
-    stage === "monthly_refresh"
+    stage === "weekly_refresh"
       ? hasKit
         ? t("regenerateRefresh")
         : t("refresh")
@@ -753,12 +753,12 @@ function CreativeKitBlock({
 
   const isPreLaunchPlan = kit.stage === "pre_launch";
   const isLaunchPlan = kit.stage === "launch";
-  const isMonthlyPlan = kit.stage === "monthly_refresh";
+  const isWeeklyPlan = kit.stage === "weekly_refresh";
   // Week-phased kits (ETA weeks / launch 2-week / monthly 1-week).
   const isWeekPlan =
     isPreLaunchPlan ||
     isLaunchPlan ||
-    isMonthlyPlan ||
+    isWeeklyPlan ||
     creatives.some((c) => c.weekIndex > 0);
   const weekGroups = isWeekPlan
     ? groupCreativesByWeek(creatives, isAr)
@@ -774,7 +774,7 @@ function CreativeKitBlock({
   const deskPrompts =
     kit.stage === "pre_launch" ||
     kit.stage === "launch" ||
-    kit.stage === "monthly_refresh"
+    kit.stage === "weekly_refresh"
       ? buildExternalAiDeskPrompts({
           productName,
           category,
@@ -866,7 +866,7 @@ function CreativeKitBlock({
           {t("launchPlanNote")}
         </p>
       )}
-      {isMonthlyPlan && (
+      {isWeeklyPlan && (
         <p className="mt-2 text-[11px] text-stone-dark">
           {t("weeklyPlanNote")}
         </p>

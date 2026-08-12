@@ -126,10 +126,28 @@ export const MARKETING_STAGES = [
   "intro_pdf",
   "pre_launch",
   "launch",
-  "monthly_refresh",
+  "weekly_refresh",
 ] as const;
 
 export type MarketingStage = (typeof MARKETING_STAGES)[number];
+
+/** Legacy DB / JSON stage id — accept on read only; never write. */
+export const LEGACY_MONTHLY_REFRESH_STAGE = "monthly_refresh";
+
+/**
+ * Normalize a stored marketing stage string.
+ * Maps legacy `monthly_refresh` → `weekly_refresh`.
+ */
+export function normalizeMarketingStage(raw: unknown): MarketingStage {
+  if (raw === LEGACY_MONTHLY_REFRESH_STAGE) return "weekly_refresh";
+  if (
+    typeof raw === "string" &&
+    (MARKETING_STAGES as readonly string[]).includes(raw)
+  ) {
+    return raw as MarketingStage;
+  }
+  return "none";
+}
 
 export const TIER1_MARKETPLACES = ["Ishtari", "EGLOW", "Platza"] as const;
 

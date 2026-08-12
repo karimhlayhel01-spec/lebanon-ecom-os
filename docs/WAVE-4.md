@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 4**.
 **Wave 1** (multi-SKU hub, stage-aware Marketing FSM, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery) and **Wave 3** (Supplier) remain locked — see `docs/WAVE-2.md`, `docs/WAVE-3.md`. Do not reopen those locks here.
 
-**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). Phases 4–7 remain roadmap (amend in § changelog when promoted).
+**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). Phases **5–7** remain next on the roadmap (amend in § changelog when promoted).
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -24,7 +24,7 @@ Lebanon Ecom OS Marketing is **AI-native kits**: content tailored per SKU (and w
 
 | Rule | Detail |
 | --- | --- |
-| **Stages stay** | `intro_pdf` → `pre_launch` → `launch` → `monthly_refresh` (UI copy: **weekly refresh**). Do not invent a new Marketing stage for Store SEO. |
+| **Stages stay** | `intro_pdf` → `pre_launch` → `launch` → `weekly_refresh` (formerly `monthly_refresh`; UI: **Weekly refresh**). Do not invent a new Marketing stage for Store SEO. |
 | **Additive only** | Extend generate/improve paths and Intro UI. **No Marketing FSM rewrite.** |
 | **Calendar** | OS remains SoT for kits / “this week’s one post.” Optional Calendar **export** later — not Calendar API as SoT. |
 | **Skills / gates own truth** | Unlocks, capacity tiers, COD-as-wow ban, margin honesty stay in skills/gates. **LLM does not** unlock stages or invent ROAS / money advice. |
@@ -47,16 +47,22 @@ Amend dates / promotion in §7 changelog.
 | **1** | Intro Gemini bodies + AI literacy + Intro UI harden — **shipped** |
 | **2** | Store attractive + discoverability pack (Store surface) — **shipped** |
 | **3** | AI-native creative kits + external AI desk roles — **shipped** |
-| **4** | This week’s one post + Posted / Skipped |
+| **4** | This week’s one post + Posted / Skipped — **parked / deferred** (UI race — revisit later) |
 | **5** | Tool suggest Nano Banana / Seedance + copyable prompts |
 | **6** | Optional in-app visual gen (capped spend) |
 | **7** | Harden / EN–AR / tests / spend ledger |
 
 ---
 
+## 4d) Phase 4 — This week’s one post (**PARKED**)
+
+Intent remains: one next creative, Posted / Skipped honor-system, OS SoT (no Calendar API). **Not shipped** — uncommitted attempt dropped; **UI race** between optimistic local state and refresh. Revisit later. Next build focus: Phases **5–7**.
+
+---
+
 ## 4c) Phase 3 — AI creative kits + external AI desk (**SHIPPED**)
 
-- Stages stay: `pre_launch` / `launch` / `monthly_refresh` (UI: weekly refresh). **No** Marketing FSM rewrite.
+- Stages stay: `pre_launch` / `launch` / `weekly_refresh` (UI: weekly refresh). **No** Marketing FSM rewrite.
 - Approach A: **Generate kit** → Gemini fills niche creative **copy** (hooks, captions, angles, shots, series labels, why) EN/AR onto deterministic `buildCreatives` skeleton (ids/format/week/schedule locked).
 - Fail-closed without key / validate miss → template kit + calm honesty; optional **Try AI fill again** only when `source === "template"`.
 - Validate rejects COD-as-wow, pre_launch soft bans, required fields / length / product name.
@@ -140,6 +146,8 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-11 | Stage id rename: `monthly_refresh` → `weekly_refresh` (canonical). Migration + dual-read legacy rows. Unlock/capacity/FSM unchanged. Phase 4 remains parked. |
+| 2026-08-11 | **Phase 4 parked** — This week’s one post + Posted/Skipped deferred (UI race); uncommitted Phase 4 code dropped. Phase 3 remains HEAD. Phases 5–7 next. |
 | 2026-08-11 | **Phase 3 shipped** — creative kits: Gemini fills copy onto `buildCreatives` skeleton (`improveCreativesKit`); validate (COD / pre_launch soft / fields); template fallback + Try AI fill again; external AI desk copyable Claude/ChatGPT role prompts (helper not SoT, no auto-fill, no visual gen). |
 | 2026-08-11 | Store page stronger: drop **Save drafts** — drafts read-only with **Copy** (+ Copy pack); paste-into-Shopify is guidance only (no Merchant write). |
 | 2026-08-11 | Phase 2 addendum — Store page copy **version picker**: always keep non-AI baseline; ≤3 successful Gemini snapshots; template/fail does not burn a slot; select active version; Regenerate disabled at cap. |

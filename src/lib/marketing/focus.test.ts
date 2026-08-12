@@ -11,7 +11,7 @@ describe("resolveMarketingJourneyFlags (per-SKU)", () => {
     sampleStatus: "approved",
     batchOrdered: true,
     batchArrivedReady: true,
-    marketingStage: "monthly_refresh",
+    marketingStage: "weekly_refresh",
     batchArrivalEta: null,
   };
 
@@ -29,7 +29,7 @@ describe("resolveMarketingJourneyFlags (per-SKU)", () => {
     sampleStatus: "approved",
     batchOrdered: true,
     batchArrivedReady: true,
-    marketingStage: "monthly_refresh",
+    marketingStage: "weekly_refresh",
     batchArrivalEta: null,
   };
 
@@ -53,7 +53,7 @@ describe("resolveMarketingJourneyFlags (per-SKU)", () => {
     expect(stages.find((s) => s.stage === "intro_pdf")?.unlocked).toBe(true);
     expect(stages.find((s) => s.stage === "pre_launch")?.unlocked).toBe(false);
     expect(stages.find((s) => s.stage === "launch")?.unlocked).toBe(false);
-    expect(stages.find((s) => s.stage === "monthly_refresh")?.unlocked).toBe(
+    expect(stages.find((s) => s.stage === "weekly_refresh")?.unlocked).toBe(
       false,
     );
 
@@ -81,9 +81,9 @@ describe("resolveMarketingJourneyFlags (per-SKU)", () => {
       resolveDefaultFocusStage({
         ...flags,
         stages,
-        sideStage: "monthly_refresh",
+        sideStage: "weekly_refresh",
       }),
-    ).toBe("monthly_refresh");
+    ).toBe("weekly_refresh");
   });
 
   it("falls back to legacy workspace flags when no skuJourney", () => {
@@ -93,7 +93,7 @@ describe("resolveMarketingJourneyFlags (per-SKU)", () => {
     });
     expect(flags.batchArrivedReady).toBe(true);
     expect(flags.primaryState).toBe("selling");
-    expect(flags.marketingStage).toBe("monthly_refresh");
+    expect(flags.marketingStage).toBe("weekly_refresh");
   });
 
   it("resolves pausedFromState for skuJourney", () => {
@@ -107,5 +107,20 @@ describe("resolveMarketingJourneyFlags (per-SKU)", () => {
     });
     expect(flags.primaryState).toBe("sample_approved");
     expect(flags.batchOrdered).toBe(false);
+  });
+
+  it("maps legacy monthly_refresh marketingStage to weekly_refresh", () => {
+    const flags = resolveMarketingJourneyFlags({
+      skuJourney: {
+        primaryState: "selling",
+        sampleStatus: "approved",
+        batchOrdered: true,
+        batchArrivedReady: true,
+        marketingStage: "monthly_refresh",
+        batchArrivalEta: null,
+      },
+      legacy: null,
+    });
+    expect(flags.marketingStage).toBe("weekly_refresh");
   });
 });
