@@ -26,6 +26,10 @@ import {
 } from "@/lib/marketing/intro-lesson";
 import { compareCreativesByCalendar } from "@/lib/marketing/creatives";
 import { buildExternalAiDeskPrompts } from "@/lib/marketing/ai-desk";
+import {
+  suggestCreativeVisualTool,
+  type CreativeVisualSuggestion,
+} from "@/lib/marketing/visual-tool";
 import { copyTextToClipboard } from "@/lib/store/clipboard";
 import type { BatchArrivalEtaView } from "@/lib/supplier/batch-eta";
 import type { MarketingStage } from "@/lib/constants";
@@ -750,6 +754,7 @@ function CreativeKitBlock({
   const [saved, setSaved] = useState(false);
   const [editing, setEditing] = useState(false);
   const [copiedDesk, setCopiedDesk] = useState<string | null>(null);
+  const [deskOpen, setDeskOpen] = useState(false);
 
   const isPreLaunchPlan = kit.stage === "pre_launch";
   const isLaunchPlan = kit.stage === "launch";
@@ -902,6 +907,8 @@ function CreativeKitBlock({
                   showSchedule={isWeekPlan}
                   pending={pending}
                   fieldClass={fieldClass}
+                  productName={productName}
+                  stage={kit.stage}
                   t={t}
                   onUpdate={update}
                   onIgnore={() => setScheduleIgnored(c.id, true)}
@@ -931,46 +938,62 @@ function CreativeKitBlock({
       )}
 
       {deskPrompts.length > 0 && (
-        <div className="mt-5 border-t border-stone pt-4">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-cedar-deep">
-            {t("deskTitle")}
-          </h4>
-          <p className="mt-1 text-xs text-stone-dark">{t("deskIntro")}</p>
-          <div className="mt-3 space-y-3">
-            {deskPrompts.map((p) => (
-              <div
-                key={p.id}
-                className="rounded-lg border border-stone bg-surface p-3"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-xs font-semibold text-ink">
-                    {t(p.titleKey)}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const ok = await copyTextToClipboard(p.body);
-                      if (!ok) return;
-                      setCopiedDesk(p.id);
-                      window.setTimeout(
-                        () =>
-                          setCopiedDesk((cur) =>
-                            cur === p.id ? null : cur,
-                          ),
-                        2000,
-                      );
-                    }}
-                    className="shrink-0 rounded-md border border-cedar/40 bg-cedar/10 px-2.5 py-1 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15"
+        <div className="mt-5 border-t border-stone/70 pt-3">
+          <button
+            type="button"
+            onClick={() => setDeskOpen((o) => !o)}
+            aria-expanded={deskOpen}
+            className="text-left text-[11px] font-medium text-stone-dark underline-offset-2 transition hover:text-ink hover:underline"
+          >
+            {deskOpen ? t("deskHide") : t("deskMoreHelp")}
+          </button>
+          {deskOpen ? (
+            <div className="mt-3">
+              <h4 className="text-[11px] font-medium tracking-wide text-stone-dark">
+                {t("deskTitle")}
+              </h4>
+              <p className="mt-1 text-[11px] leading-relaxed text-stone-dark">
+                {t("deskIntro")}
+              </p>
+              <div className="mt-3 space-y-3">
+                {deskPrompts.map((p) => (
+                  <div
+                    key={p.id}
+                    className="rounded-lg border border-stone/80 bg-surface p-3"
                   >
-                    {copiedDesk === p.id ? t("deskCopied") : t("deskCopy")}
-                  </button>
-                </div>
-                <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-stone bg-surface-subtle p-2 text-[10px] leading-relaxed text-stone-dark">
-                  {p.body}
-                </pre>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-semibold text-ink">
+                        {t(p.titleKey)}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await copyTextToClipboard(p.body);
+                          if (!ok) return;
+                          setCopiedDesk(p.id);
+                          window.setTimeout(
+                            () =>
+                              setCopiedDesk((cur) =>
+                                cur === p.id ? null : cur,
+                              ),
+                            2000,
+                          );
+                        }}
+                        className="shrink-0 rounded-md border border-cedar/40 bg-cedar/10 px-2.5 py-1 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15"
+                      >
+                        {copiedDesk === p.id
+                          ? t("deskCopied")
+                          : t("deskCopy")}
+                      </button>
+                    </div>
+                    <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-stone bg-surface-subtle p-2 text-[10px] leading-relaxed text-stone-dark">
+                      {p.body}
+                    </pre>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -1013,6 +1036,8 @@ function CreativeCard({
   showSchedule,
   pending,
   fieldClass,
+  productName,
+  stage,
   t,
   onUpdate,
   onIgnore,
@@ -1025,17 +1050,26 @@ function CreativeCard({
   showSchedule: boolean;
   pending: boolean;
   fieldClass: string;
+  productName: string;
+  stage: MarketingStage;
   t: ReturnType<typeof useTranslations<"Marketing">>;
   onUpdate: (id: string, patch: Partial<Creative>) => void;
   onIgnore: () => void;
   onRestore: () => void;
 }) {
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
   const hookEn = c.hookEn?.trim() ?? "";
   const hookAr = c.hookAr?.trim() ?? "";
   const hookLine = (isAr ? hookAr : hookEn) || (isAr ? hookEn : hookAr);
   const hookDir = hookLine && hookLine === hookAr ? ("rtl" as const) : undefined;
   const captionEn = c.captionEn?.trim() ?? "";
   const captionAr = c.captionAr?.trim() ?? "";
+  const howToEn = c.howToShootEn?.trim() ?? "";
+  const howToAr = c.howToShootAr?.trim() ?? "";
+  const howToLine =
+    (isAr ? howToAr : howToEn) || (isAr ? howToEn : howToAr);
+  const howToDir =
+    howToLine && howToLine === howToAr ? ("rtl" as const) : undefined;
   const captionsIdentical =
     Boolean(captionEn) && Boolean(captionAr) && captionEn === captionAr;
   const hasSuggestion = !!(
@@ -1047,6 +1081,33 @@ function CreativeCard({
     : "";
   const bandLabel = c.suggestedTimeBand
     ? t(`timeBand.${c.suggestedTimeBand}` as never)
+    : "";
+
+  const visualStage =
+    stage === "pre_launch" ||
+    stage === "launch" ||
+    stage === "weekly_refresh"
+      ? stage
+      : null;
+  const visual: CreativeVisualSuggestion | null = visualStage
+    ? suggestCreativeVisualTool({
+        creative: c,
+        productName,
+        stage: visualStage,
+      })
+    : null;
+  const visualWhy = visual
+    ? isAr
+      ? visual.whyAr
+      : visual.whyEn
+    : "";
+  const visualPrompt = visual
+    ? isAr
+      ? visual.promptAr
+      : visual.promptEn
+    : "";
+  const toolLabel = visual
+    ? t(`visualTool.${visual.tool}` as never)
     : "";
 
   return (
@@ -1083,7 +1144,7 @@ function CreativeCard({
               {why?.trim() ? (
                 <div>
                   <p className="font-medium text-ink">{t("scheduleWhy")}</p>
-                  <p className={isAr ? "text-stone-dark" : "text-stone-dark"} dir={isAr ? "rtl" : undefined}>
+                  <p className="text-stone-dark" dir={isAr ? "rtl" : undefined}>
                     {why}
                   </p>
                 </div>
@@ -1139,8 +1200,28 @@ function CreativeCard({
               onChange={(e) =>
                 onUpdate(c.id, { shots: e.target.value.split("\n") })
               }
-              rows={4}
+              rows={5}
               className={`${fieldClass} font-mono`}
+            />
+          </div>
+          <div className="space-y-1">
+            <p className="font-medium text-ink">{t("howToShoot")}</p>
+            <textarea
+              value={c.howToShootEn ?? ""}
+              onChange={(e) =>
+                onUpdate(c.id, { howToShootEn: e.target.value })
+              }
+              rows={2}
+              className={fieldClass}
+            />
+            <textarea
+              dir="rtl"
+              value={c.howToShootAr ?? ""}
+              onChange={(e) =>
+                onUpdate(c.id, { howToShootAr: e.target.value })
+              }
+              rows={2}
+              className={fieldClass}
             />
           </div>
         </div>
@@ -1176,10 +1257,10 @@ function CreativeCard({
           )}
           <div>
             <p className="font-medium text-ink">{t("shotList")}</p>
-            <ul className="mt-0.5 space-y-0.5 text-stone-dark">
+            <ul className="mt-0.5 space-y-1 text-stone-dark">
               {c.shots.map((s, si) => (
                 <li key={si} className="flex gap-1.5">
-                  <span aria-hidden className="text-cedar">
+                  <span aria-hidden className="shrink-0 text-cedar">
                     •
                   </span>
                   <span>{s}</span>
@@ -1187,8 +1268,54 @@ function CreativeCard({
               ))}
             </ul>
           </div>
+          {howToLine ? (
+            <div className="rounded-md border border-stone/60 bg-sand/20 px-2.5 py-2">
+              <p className="font-medium text-ink">{t("howToShoot")}</p>
+              <p dir={howToDir} className="mt-1 text-stone-dark">
+                {howToLine}
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
+
+      {visual && !editing ? (
+        <div className="mt-3 rounded-md border border-stone/80 bg-sand/30 px-2.5 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-medium text-ink">
+              {t("visualToolTitle")}: {toolLabel}
+            </p>
+            <button
+              type="button"
+              onClick={async () => {
+                const ok = await copyTextToClipboard(visualPrompt);
+                if (!ok) return;
+                setCopiedPrompt(true);
+                window.setTimeout(() => setCopiedPrompt(false), 2000);
+              }}
+              className="rounded border border-cedar/40 bg-cedar/10 px-2 py-0.5 text-[11px] font-semibold text-cedar-deep transition hover:bg-cedar/15"
+            >
+              {copiedPrompt ? t("deskCopied") : t("visualToolCopyPrompt")}
+            </button>
+          </div>
+          <p
+            className="mt-1 text-stone-dark"
+            dir={isAr ? "rtl" : undefined}
+          >
+            {visualWhy}
+          </p>
+          <p className="mt-2 font-medium text-ink">{t("visualToolPromptLabel")}</p>
+          <pre
+            dir={isAr ? "rtl" : undefined}
+            className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-stone bg-surface-subtle p-2 text-[10px] leading-relaxed text-stone-dark"
+          >
+            {visualPrompt}
+          </pre>
+          <p className="mt-1 text-[10px] text-stone-dark">
+            {t("visualToolHint")}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

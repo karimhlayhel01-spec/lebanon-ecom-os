@@ -53,9 +53,11 @@ HARD RULES
 - Return ONLY valid JSON: {"creatives":[{...}, ...]}
 - Include EVERY creative id from the skeleton exactly once — same count, same ids.
 - Do NOT change: id, format, weekIndex, weekLabelEn/Ar, suggestedDay, suggestedTimeBand, scheduleIgnored.
-- Fill only: hookEn/Ar, angleEn/Ar, captionEn/Ar, shots (2–5 short strings), seriesLabelEn/Ar, whyEn/Ar.
+- Fill only: hookEn/Ar, angleEn/Ar, captionEn/Ar, shots (3–5 elaborated strings), howToShootEn/Ar, seriesLabelEn/Ar, whyEn/Ar.
 - Name productName in EN hooks/angles/captions for this SKU. Keep productName spelling as given (do not translate the name).
 - Tailor to niche/world from facts. Hook-first (first 1–3 seconds).
+- SHOTS (required): each line is actionable filming guidance — what we see, camera/framing/duration hint, action, optional on-screen text/audio. Example style: "0–3s | Phone vertical close-up: … — hold steady, window light." Not thin one-liners.
+- howToShootEn/Ar: short calm summary — phone setup, light, length, shoot shots in order. Plain founder language. No OS / Topic A / unlocks / ROAS / COD-as-wow.
 - ${pre}
 - BAN COD / cash-on-delivery / الدفع عند الاستلام as a wow differentiator.
 - BAN ROAS, ad spend advice, unlock language, stage gates.
@@ -183,6 +185,7 @@ export async function fillCreativesKitWithGemini(
       input.stage === "pre_launch"
         ? "Pre-launch: soft CTAs only — no gift, UGC proof, or WhatsApp order."
         : "No COD-as-wow. No ROAS/finance advice.",
+      "Elaborate each shot (see / camera / action). Include howToShootEn and howToShootAr.",
       "Return valid JSON only.",
     ].join("\n"),
   );

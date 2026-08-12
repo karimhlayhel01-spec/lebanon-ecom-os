@@ -29,7 +29,15 @@ function fillFromSkeleton(c: Creative, productName: string): CreativeTextFill {
     angleAr: `نصيحة مكتب من ${productName} للصباحات المزدحمة`,
     captionEn: `Why ${productName} belongs on your desk — soft waitlist CTA.`,
     captionAr: `لماذا ${productName} يستحق مكتبك — دعوة هادئة للقائمة.`,
-    shots: ["Close-up product", "Hands placing item", "Wide desk scene"],
+    shots: [
+      `0–3s | Phone vertical close-up of ${productName} — hold steady, window light.`,
+      `3–8s | Mid shot: hands place ${productName} on the desk — slow pan, natural light.`,
+      `8–12s | Wide desk scene with ${productName} in frame — hold end card 2s, soft soft CTA.`,
+    ],
+    howToShootEn:
+      "Phone vertical. Window light. Film shots in order. Hold steady ~15s total.",
+    howToShootAr:
+      "الهاتف عمودي. ضوء نافذة. صوّر اللقطات بالترتيب. ثبّت نحو ١٥ ثانية إجمالاً.",
     seriesLabelEn: "Desk fix #1",
     seriesLabelAr: "إصلاح المكتب #١",
     whyEn: "Niche-consistent soft teaser without hard order pitch.",
@@ -90,6 +98,39 @@ describe("validateFilledCreatives", () => {
       "GlowLamp",
     );
     expect(r.ok).toBe(true);
+  });
+
+  it("rejects thin one-liner shots", () => {
+    const skeleton = buildCreatives({
+      ...base,
+      stage: "launch",
+      varianceSeed: 16,
+    });
+    const fills = skeleton.map((c) => ({
+      ...fillFromSkeleton(c, "GlowLamp"),
+      shots: ["Close-up", "Mid shot", "End card"],
+    }));
+    const merged = applyCreativeTextFills(skeleton, fills);
+    expect(merged.ok).toBe(false);
+    if (merged.ok) return;
+    expect(merged.error).toBe("shots_too_thin");
+  });
+
+  it("rejects missing how-to as too_short", () => {
+    const skeleton = buildCreatives({
+      ...base,
+      stage: "launch",
+      varianceSeed: 17,
+    });
+    const fills = skeleton.map((c) => ({
+      ...fillFromSkeleton(c, "GlowLamp"),
+      howToShootEn: "Short",
+      howToShootAr: "قصير",
+    }));
+    const merged = applyCreativeTextFills(skeleton, fills);
+    expect(merged.ok).toBe(false);
+    if (merged.ok) return;
+    expect(merged.error).toBe("too_short");
   });
 });
 

@@ -294,6 +294,9 @@ describe("MarketingLlmProvider fallback without key", () => {
       async improveCreativesKit() {
         return { ok: false, error: "missing_key" };
       },
+      async polishCreativeVisualSuggestion() {
+        return { ok: false, error: "missing_key" };
+      },
     };
     setMarketingLlmProvider(fake);
     const r = await fake.fillIntroLessonBodies({

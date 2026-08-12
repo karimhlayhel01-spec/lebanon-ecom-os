@@ -12,6 +12,7 @@ import {
   preLaunchHasForbiddenPitch,
   scheduleSlotsForWeek,
   seriesNumberFromLabel,
+  shotLooksActionable,
   timeBandRank,
   weekPhase,
 } from "@/lib/marketing/creatives";
@@ -165,7 +166,7 @@ describe("buildCreatives", () => {
     expect(preLaunchHasForbiddenPitch(launch)).toBe(true);
   });
 
-  it("is hook-first: shot 1 leads with problem/result hook", () => {
+  it("is hook-first: shot 1 leads with timing + problem/result beat", () => {
     const kit = buildCreatives({
       ...base,
       category: "office_desk_gadgets",
@@ -173,7 +174,8 @@ describe("buildCreatives", () => {
       varianceSeed: 3,
     });
     for (const c of kit) {
-      expect(c.shots[0]).toMatch(/0–3s hook/i);
+      expect(c.shots[0]).toMatch(/0–\d+s|Slide 1|Still 1/i);
+      expect(shotLooksActionable(c.shots[0]!)).toBe(true);
       expect(c.hookEn.length).toBeGreaterThan(0);
       // SKU-pinned angles may leave hookAr empty — never duplicate EN into AR.
       expect(c.hookAr).not.toBe(c.hookEn);
@@ -584,5 +586,31 @@ describe("normalizeCreative", () => {
       suggestedDay: "",
       scheduleIgnored: false,
     });
+    expect(c?.howToShootEn.length).toBeGreaterThan(20);
+    expect(c?.howToShootAr.length).toBeGreaterThan(10);
+  });
+});
+
+describe("elaborated template shots", () => {
+  it("builds actionable shots and how-to on generate", () => {
+    const kit = buildCreatives({
+      name: "GlowLamp",
+      category: "home_kitchen",
+      hooks: ["warm light"],
+      stage: "launch",
+      capacityTier: 6,
+      varianceSeed: 42,
+    });
+    for (const c of kit) {
+      expect(c.shots.length).toBeGreaterThanOrEqual(3);
+      expect(c.shots.length).toBeLessThanOrEqual(5);
+      for (const s of c.shots) {
+        expect(s.length).toBeGreaterThanOrEqual(28);
+        expect(shotLooksActionable(s)).toBe(true);
+      }
+      expect(c.howToShootEn.length).toBeGreaterThanOrEqual(24);
+      expect(c.howToShootAr.length).toBeGreaterThanOrEqual(24);
+      expect(c.howToShootEn.toLowerCase()).toMatch(/phone|light|film|shot/);
+    }
   });
 });

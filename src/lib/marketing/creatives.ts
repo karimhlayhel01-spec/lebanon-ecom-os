@@ -42,6 +42,12 @@ export type Creative = {
   captionEn: string;
   captionAr: string;
   shots: string[];
+  /**
+   * Calm filming summary (phone setup, light, length, shot order).
+   * Legacy kits normalize/derive from shots when missing.
+   */
+  howToShootEn: string;
+  howToShootAr: string;
   /** Optional series stem + number, e.g. "Desk fix #2". */
   seriesLabelEn: string;
   seriesLabelAr: string;
@@ -767,35 +773,36 @@ function shotListPreLaunch(
   problemEn: string,
   phase: "warm" | "teaser",
 ): string[] {
-  const hookShot = `0–3s hook (problem/result): ${hookEn}`;
-  const endWarm = "End: follow / save — not selling yet";
-  const endTeaser = "End: waitlist interest / when stock lands — soft only";
+  const endWarm =
+    "Hold phone vertical · end card 2s: on-screen “Follow / save” — no order ask; soft smile, still frame.";
+  const endTeaser =
+    "Hold phone vertical · end card 2s: on-screen “When stock lands / waitlist” — soft only, no WhatsApp-to-buy.";
   const end = phase === "teaser" ? endTeaser : endWarm;
 
   const base: Record<string, string[]> = {
     reel: [
-      hookShot,
-      `Show ${problemEn} (2s)`,
-      `Soft peek at ${name} (no hard sell)`,
-      "On-screen text with the niche tip",
+      `0–3s | Phone vertical, eye-level close-up: flash the problem (${problemEn}) — quick push-in, natural window light.`,
+      `3–7s | Same angle, mid shot: hands/desk show the messy beat — keep phone steady on a book if shaky.`,
+      `7–12s | Soft peek at ${name} in niche context (no hard sell) — slow pan across product; hook text: “${hookEn.slice(0, 48)}”.`,
+      `12–16s | On-screen tip line (large, plain) while product sits still — hold 2s.`,
       end,
     ],
     story: [
-      hookShot,
-      `Vertical clip of ${name} in niche context`,
-      "Poll or question sticker (niche-safe)",
+      `0–3s | Vertical full-frame: ${problemEn} in one glance — tap-to-advance friendly; bright window light.`,
+      `3–8s | Mid shot of ${name} in niche context — hold steady, slight tilt is OK.`,
+      `8–12s | Point phone at sticker zone: poll/question (niche-safe) — leave bottom third clear.`,
       end,
     ],
     carousel: [
-      hookShot,
-      "Slide 2–3: niche tip / series beat",
-      "Slide 4: why follow this world",
-      `Slide 5: ${phase === "teaser" ? "when stock lands — soft CTA" : "follow for next part"}`,
+      `Slide 1 | Clean still, phone horizontal or square: problem hook (${hookEn.slice(0, 40)}) — fill frame with context, soft light.`,
+      `Slide 2–3 | Still photos: niche tip / series beat — product partially in frame; same lighting between slides.`,
+      `Slide 4 | Still: “why follow this world” text on calm background — large readable type.`,
+      `Slide 5 | Still CTA: ${phase === "teaser" ? "when stock lands — soft" : "follow for next part"} — no order ask.`,
     ],
     post: [
-      hookShot,
-      `Clean product photo of ${name} in niche context`,
-      "Short tip-led caption (no order ask)",
+      `Still 1 | Eye-level product photo of ${name} in niche context — fill frame, window light from the side.`,
+      `Still 2 (optional) | Closer detail shot — hold phone steady; show texture/use, not packaging pile.`,
+      `Caption beat | Tip-led text only (no order ask) — keep hook: “${hookEn.slice(0, 48)}”.`,
       end,
     ],
   };
@@ -809,47 +816,108 @@ function shotListLaunch(
   problemEn: string,
   resultEn: string,
 ): string[] {
-  const hookShot = `0–3s hook (problem/result): ${hookEn}`;
   const base: Record<string, string[]> = {
     reel: [
-      hookShot,
-      `Show ${problemEn} (2s)`,
-      `Demo ${name} → ${resultEn} (3s)`,
-      "On-screen text with the main benefit",
-      "End card: WhatsApp — how to order",
+      `0–3s | Phone vertical, close-up: hook the problem (${problemEn}) — quick push-in; say or text: “${hookEn.slice(0, 48)}”.`,
+      `3–6s | Mid shot: show the messy/pain beat clearly — steady hold, natural light.`,
+      `6–12s | Demo ${name} → ${resultEn}: hands in frame, follow the action with a slow pan (3s).`,
+      `12–16s | On-screen benefit line (large) while result is visible — hold 2s.`,
+      `16–20s | End card: WhatsApp how-to-order text — still frame, readable type; WhatsApp path only.`,
     ],
     story: [
-      hookShot,
-      `Vertical clip of ${name} solving it`,
-      "Poll or question sticker (niche-safe)",
-      "WhatsApp contact sticker — how to order",
+      `0–3s | Vertical: problem flash (${problemEn}) — bright, thumb-stop frame.`,
+      `3–8s | Mid shot: ${name} solving it → ${resultEn} — hold steady.`,
+      `8–12s | Sticker zone clear at bottom: poll/question (niche-safe).`,
+      `12–15s | WhatsApp contact sticker + short “how to order” line — still frame.`,
     ],
     carousel: [
-      hookShot,
-      "Slide 2–3: niche features with photos",
-      "Slide 4: benefit + what's included",
-      "Slide 5: how to order on WhatsApp",
+      `Slide 1 | Still: problem/result hook — fill frame; soft side light.`,
+      `Slide 2–3 | Still photos: niche features of ${name} — consistent lighting.`,
+      `Slide 4 | Still: benefit + what’s included — large type, calm background.`,
+      `Slide 5 | Still: how to order on WhatsApp — clear CTA frame; WhatsApp path only.`,
     ],
     ugc: [
-      hookShot,
-      `Honest reaction using ${name}`,
-      `Point to ${resultEn}`,
-      "Casual CTA: message us on WhatsApp",
+      `0–3s | Handheld vertical selfie angle: honest reaction — natural voice, window light on face.`,
+      `3–10s | Cut to hands using ${name} → point at ${resultEn} — follow action, keep face/product readable.`,
+      `10–15s | Back to face: casual “message us on WhatsApp” — smile, hold end frame 2s.`,
     ],
     post: [
-      hookShot,
-      `Clean product photo of ${name} in niche context`,
-      "Short benefit-led caption",
-      "CTA: WhatsApp to order",
+      `Still 1 | Clean product photo of ${name} in niche context — eye level, side window light.`,
+      `Still 2 | Benefit detail (close-up) — steady phone; show ${resultEn} if possible.`,
+      `Caption | Still frame on screen while you write: benefit-led + WhatsApp order path — hold readable type.`,
     ],
     testimonial: [
-      hookShot,
-      "Customer quote on screen (benefit-led)",
-      `B-roll of ${name} → ${resultEn}`,
-      "WhatsApp CTA — how to order",
+      `0–5s | Phone on a stable stand, eye-level talking head: say the benefit first — clear audio, window light.`,
+      `5–12s | B-roll insert: ${name} → ${resultEn} — slow pan, then cut back to face.`,
+      `12–20s | Close with WhatsApp how-to-order — hold still frame; WhatsApp path only.`,
     ],
   };
   return base[format] ?? base.post!;
+}
+
+/** Attach elaborated shots + how-to summary. */
+function withHowTo(
+  format: string,
+  shots: string[],
+): Pick<Creative, "shots" | "howToShootEn" | "howToShootAr"> {
+  const how = buildHowToShoot(format, shots.length);
+  return {
+    shots,
+    howToShootEn: how.en,
+    howToShootAr: how.ar,
+  };
+}
+
+/** Calm how-to summary for founders (EN + AR). */
+export function buildHowToShoot(
+  format: string,
+  shotCount: number,
+): { en: string; ar: string } {
+  const n = Math.max(1, shotCount);
+  const motion =
+    format === "reel" ||
+    format === "story" ||
+    format === "ugc" ||
+    format === "testimonial";
+  if (format === "carousel" || format === "post") {
+    return {
+      en: `Phone stills. Soft window light from the side. Shoot ${n} frames in order (same lighting). Keep the product large in frame. Total prep ~5 minutes — no film school needed.`,
+      ar: `صور ثابتة بالهاتف. ضوء نافذة جانبي ناعم. صوّر ${n} إطارات بالترتيب (نفس الإضاءة). اجعل المنتج كبيراً في الإطار. التحضير ~٥ دقائق — بلا مدرسة سينما.`,
+    };
+  }
+  if (format === "testimonial") {
+    return {
+      en: `Phone on a book/stand at eye level. Window light on your face. Film shots in order (1→${n}). Speak clearly 15–30s total. Stabilize — no walking while talking.`,
+      ar: `الهاتف على كتاب/حامل بمستوى العين. ضوء نافذة على وجهك. صوّر اللقطات بالترتيب (١→${n}). تكلّم بوضوح ١٥–٣٠ ثانية إجمالاً. ثبّت الهاتف — بلا مشي أثناء الحديث.`,
+    };
+  }
+  if (motion) {
+    return {
+      en: `Phone vertical. Window light. Film shots in order (1→${n}). Hold steady (brace on a book). Aim ~15–25s total. Lock exposure if your phone allows.`,
+      ar: `الهاتف عمودي. ضوء نافذة. صوّر اللقطات بالترتيب (١→${n}). ثبّت (استند على كتاب). الهدف ~١٥–٢٥ ثانية إجمالاً. اقفل التعريض إن أمكن.`,
+    };
+  }
+  return {
+    en: `Phone vertical. Soft light. Film ${n} beats in order. Keep it short and steady.`,
+    ar: `الهاتف عمودي. ضوء ناعم. صوّر ${n} إيقاعات بالترتيب. اختصر وثبّت.`,
+  };
+}
+
+/** Legacy kits: derive a short how-to from shot count/format. */
+export function deriveHowToShootFromShots(
+  format: string,
+  shots: string[],
+): { en: string; ar: string } {
+  return buildHowToShoot(format, shots.filter((s) => s.trim()).length || 3);
+}
+
+/** Shot line looks actionable (camera / framing / duration / action cue). */
+export function shotLooksActionable(shot: string): boolean {
+  const s = shot.trim();
+  if (s.length < 28) return false;
+  return /(phone|camera|close-?up|wide|vertical|hold|pan|tilt|zoom|frame|steady|light|second|\d+\s*–\s*\d+s|\d+s\b|slide|still|mid shot|eye-level|push-in|hands?|desk|slow|follow|selfie|b-roll|talking|sticker|caption)/i.test(
+    s,
+  );
 }
 
 /** Stable PRNG for rotate/shuffle from varianceSeed. */
@@ -911,6 +979,20 @@ export function normalizeCreative(raw: unknown): Creative | null {
     whyEn: typeof c.whyEn === "string" ? c.whyEn : "",
     whyAr: typeof c.whyAr === "string" ? c.whyAr : "",
     scheduleIgnored: c.scheduleIgnored === true,
+    howToShootEn:
+      typeof c.howToShootEn === "string" && c.howToShootEn.trim()
+        ? c.howToShootEn.trim()
+        : deriveHowToShootFromShots(
+            typeof c.format === "string" && c.format ? c.format : "post",
+            shots,
+          ).en,
+    howToShootAr:
+      typeof c.howToShootAr === "string" && c.howToShootAr.trim()
+        ? c.howToShootAr.trim()
+        : deriveHowToShootFromShots(
+            typeof c.format === "string" && c.format ? c.format : "post",
+            shots,
+          ).ar,
   };
 }
 
@@ -919,7 +1001,7 @@ export function creativesHaveCodPitch(creatives: Creative[]): boolean {
   const blob = creatives
     .map(
       (c) =>
-        `${c.angleEn}\n${c.angleAr}\n${c.captionEn}\n${c.captionAr}\n${c.hookEn}\n${c.hookAr}\n${c.seriesLabelEn}\n${c.seriesLabelAr}\n${c.shots.join("\n")}`,
+        `${c.angleEn}\n${c.angleAr}\n${c.captionEn}\n${c.captionAr}\n${c.hookEn}\n${c.hookAr}\n${c.seriesLabelEn}\n${c.seriesLabelAr}\n${c.howToShootEn}\n${c.howToShootAr}\n${c.shots.join("\n")}`,
     )
     .join("\n");
   return textHasCodPitch(blob);
@@ -1074,12 +1156,15 @@ export function buildCreatives(input: BuildCreativesInput): Creative[] {
           angleAr: angle.angleAr,
           captionEn: `${angle.captionLeadEn} ${ctaEn}`,
           captionAr: `${angle.captionLeadAr} ${ctaAr}`,
-          shots: shotListPreLaunch(
+          ...withHowTo(
             format,
-            name,
-            angle.hookEn,
-            problemEn,
-            phase,
+            shotListPreLaunch(
+              format,
+              name,
+              angle.hookEn,
+              problemEn,
+              phase,
+            ),
           ),
           seriesLabelEn: `${angle.seriesStemEn} #${seriesNum}`,
           seriesLabelAr: `${angle.seriesStemAr} #${seriesNum}`,
@@ -1162,12 +1247,15 @@ export function buildCreatives(input: BuildCreativesInput): Creative[] {
           angleAr: angle.angleAr,
           captionEn: `${angle.captionLeadEn} ${ctaEn}`,
           captionAr: `${angle.captionLeadAr} ${ctaAr}`,
-          shots: shotListLaunch(
+          ...withHowTo(
             format,
-            name,
-            angle.hookEn,
-            problemEn,
-            resultEn,
+            shotListLaunch(
+              format,
+              name,
+              angle.hookEn,
+              problemEn,
+              resultEn,
+            ),
           ),
           seriesLabelEn: `${angle.seriesStemEn} #${seriesNum}`,
           seriesLabelAr: `${angle.seriesStemAr} #${seriesNum}`,
@@ -1237,12 +1325,15 @@ export function buildCreatives(input: BuildCreativesInput): Creative[] {
         angleAr: angle.angleAr,
         captionEn: `${angle.captionLeadEn} ${ctaEn}`,
         captionAr: `${angle.captionLeadAr} ${ctaAr}`,
-        shots: shotListLaunch(
+        ...withHowTo(
           format,
-          name,
-          angle.hookEn,
-          problemEn,
-          resultEn,
+          shotListLaunch(
+            format,
+            name,
+            angle.hookEn,
+            problemEn,
+            resultEn,
+          ),
         ),
         seriesLabelEn: `${angle.seriesStemEn} #${seriesNum}`,
         seriesLabelAr: `${angle.seriesStemAr} #${seriesNum}`,

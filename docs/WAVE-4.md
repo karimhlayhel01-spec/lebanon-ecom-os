@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 4**.
 **Wave 1** (multi-SKU hub, stage-aware Marketing FSM, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery) and **Wave 3** (Supplier) remain locked — see `docs/WAVE-2.md`, `docs/WAVE-3.md`. Do not reopen those locks here.
 
-**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). Phases **5–7** remain next on the roadmap (amend in § changelog when promoted).
+**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + copyable prompts). Phases **6–7** remain next on the roadmap (amend in § changelog when promoted).
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -48,26 +48,36 @@ Amend dates / promotion in §7 changelog.
 | **2** | Store attractive + discoverability pack (Store surface) — **shipped** |
 | **3** | AI-native creative kits + external AI desk roles — **shipped** |
 | **4** | This week’s one post + Posted / Skipped — **parked / deferred** (UI race — revisit later) |
-| **5** | Tool suggest Nano Banana / Seedance + copyable prompts |
+| **5** | Tool suggest Nano Banana / Seedance + copyable prompts — **shipped** |
 | **6** | Optional in-app visual gen (capped spend) |
 | **7** | Harden / EN–AR / tests / spend ledger |
 
 ---
 
+## 4e) Phase 5 — Nano Banana / Seedance tool suggest (**SHIPPED**)
+
+- Creative stages only (`pre_launch` / `launch` / `weekly_refresh`). **No** FSM rewrite; Phase 4 parked; no in-app visual gen.
+- Skills-first routing by format: `post`/`carousel` → Nano Banana; `reel`/`story`/`ugc` → Seedance; `testimonial` → phone film (no AI).
+- Each kit card: tool label, one-line why, **Copy prompt** (product + hook + **elaborated shots** + **how-to shoot** + stage-soft rules). Plain founder language — no OS / Topic A / unlocks meta.
+- Optional Gemini polish of why/prompt via `MarketingLlmProvider.polishCreativeVisualSuggestion` — fail-closed to skills text; UI uses skills on render (no spend / no file write / OS does not open tools).
+
+---
+
 ## 4d) Phase 4 — This week’s one post (**PARKED**)
 
-Intent remains: one next creative, Posted / Skipped honor-system, OS SoT (no Calendar API). **Not shipped** — uncommitted attempt dropped; **UI race** between optimistic local state and refresh. Revisit later. Next build focus: Phases **5–7**.
+Intent remains: one next creative, Posted / Skipped honor-system, OS SoT (no Calendar API). **Not shipped** — uncommitted attempt dropped; **UI race** between optimistic local state and refresh. Revisit later.
 
 ---
 
 ## 4c) Phase 3 — AI creative kits + external AI desk (**SHIPPED**)
 
 - Stages stay: `pre_launch` / `launch` / `weekly_refresh` (UI: weekly refresh). **No** Marketing FSM rewrite.
-- Approach A: **Generate kit** → Gemini fills niche creative **copy** (hooks, captions, angles, shots, series labels, why) EN/AR onto deterministic `buildCreatives` skeleton (ids/format/week/schedule locked).
+- Approach A: **Generate kit** → Gemini fills niche creative **copy** (hooks, captions, angles, **elaborated shots**, **howToShootEn/Ar**, series labels, why) EN/AR onto deterministic `buildCreatives` skeleton (ids/format/week/schedule locked).
 - Fail-closed without key / validate miss → template kit + calm honesty; optional **Try AI fill again** only when `source === "template"`.
-- Validate rejects COD-as-wow, pre_launch soft bans, required fields / length / product name.
+- Validate rejects COD-as-wow, pre_launch soft bans, required fields / length / product name, **thin shot lines**.
+- Cards show **How to shoot** (phone / light / length / order); Phase 5 prompts reuse the same shot + how-to detail.
 - Whole-kit generate only (no Store-style per-creative version picker; no visual gen).
-- **External AI desk:** 1–2 copyable Claude/ChatGPT role prompts (SKU + stage + rules; helper not SoT). Teaching copy only — founder opens Claude/ChatGPT themselves. No Claude/ChatGPT API; desk does **not** auto-fill kit cards.
+- **External AI desk:** 1–2 copyable Claude/ChatGPT role prompts (SKU + stage + rules; helper not SoT). Teaching copy only — founder opens Claude/ChatGPT themselves. No Claude/ChatGPT API; desk does **not** auto-fill kit cards. UI: collapsed behind **More help** (default closed) so kit + visual tool stay primary.
 - Provider: `MarketingLlmProvider.improveCreativesKit` → `creatives-llm.ts`.
 
 ---
@@ -146,6 +156,10 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-12 | UI: external AI desk collapsed behind **More help · Claude / ChatGPT** (default closed); kit + visual prompts stay primary. |
+| 2026-08-12 | Phase 3/5 addendum — elaborated shot lists (see / camera / action) + **How to shoot** on cards (`howToShootEn/Ar`); Gemini validate rejects thin shots; visual prompts reuse full shots + how-to; template fallback richer. |
+| 2026-08-12 | Phase 5 UI: show full visual-tool prompt on each creative card (scrollable preview + Copy). |
+| 2026-08-12 | **Phase 5 shipped** — creative cards: Nano Banana / Seedance / phone-film suggest + Copy prompt (`suggestCreativeVisualTool`); skills-first; optional Gemini polish seam; no in-app visual gen. |
 | 2026-08-11 | Stage id rename: `monthly_refresh` → `weekly_refresh` (canonical). Migration + dual-read legacy rows. Unlock/capacity/FSM unchanged. Phase 4 remains parked. |
 | 2026-08-11 | **Phase 4 parked** — This week’s one post + Posted/Skipped deferred (UI race); uncommitted Phase 4 code dropped. Phase 3 remains HEAD. Phases 5–7 next. |
 | 2026-08-11 | **Phase 3 shipped** — creative kits: Gemini fills copy onto `buildCreatives` skeleton (`improveCreativesKit`); validate (COD / pre_launch soft / fields); template fallback + Try AI fill again; external AI desk copyable Claude/ChatGPT role prompts (helper not SoT, no auto-fill, no visual gen). |

@@ -7,6 +7,7 @@ import {
   creativesHaveCodPitch,
   normalizeCreative,
   preLaunchHasForbiddenPitch,
+  shotLooksActionable,
   type BuildCreativesInput,
   type Creative,
 } from "@/lib/marketing/creatives";
@@ -29,6 +30,8 @@ export type CreativeTextFill = {
   captionEn: string;
   captionAr: string;
   shots: string[];
+  howToShootEn: string;
+  howToShootAr: string;
   seriesLabelEn: string;
   seriesLabelAr: string;
   whyEn: string;
@@ -39,14 +42,25 @@ export type CreativesValidateError =
   | "invalid_shape"
   | "id_mismatch"
   | "too_short"
+  | "shots_too_thin"
   | "cod_pitch"
   | "pre_launch_forbidden"
   | "missing_product_name";
 
 const TEXT_MIN = 8;
+const SHOT_MIN = 28;
+const HOW_TO_MIN = 24;
 
 function isNonEmpty(s: unknown, min = TEXT_MIN): s is string {
   return typeof s === "string" && s.trim().length >= min;
+}
+
+function shotsAreActionable(shots: string[]): boolean {
+  const cleaned = shots.map((s) => s.trim()).filter(Boolean);
+  if (cleaned.length < 3 || cleaned.length > 5) return false;
+  return cleaned.every(
+    (s) => s.length >= SHOT_MIN && shotLooksActionable(s),
+  );
 }
 
 export function buildCreativesFactsPack(input: BuildCreativesInput) {
@@ -104,12 +118,14 @@ export function applyCreativeTextFills(
       !isNonEmpty(f.seriesLabelEn, 3) ||
       !isNonEmpty(f.seriesLabelAr, 3) ||
       !isNonEmpty(f.whyEn) ||
-      !isNonEmpty(f.whyAr)
+      !isNonEmpty(f.whyAr) ||
+      !isNonEmpty(f.howToShootEn, HOW_TO_MIN) ||
+      !isNonEmpty(f.howToShootAr, HOW_TO_MIN)
     ) {
       return { ok: false, error: "too_short" };
     }
-    if (!Array.isArray(f.shots) || f.shots.filter((s) => typeof s === "string" && s.trim()).length < 2) {
-      return { ok: false, error: "too_short" };
+    if (!Array.isArray(f.shots) || !shotsAreActionable(f.shots)) {
+      return { ok: false, error: "shots_too_thin" };
     }
     out.push({
       ...sk,
@@ -123,6 +139,8 @@ export function applyCreativeTextFills(
       seriesLabelAr: f.seriesLabelAr.trim(),
       whyEn: f.whyEn.trim(),
       whyAr: f.whyAr.trim(),
+      howToShootEn: f.howToShootEn.trim(),
+      howToShootAr: f.howToShootAr.trim(),
       shots: f.shots
         .filter((s): s is string => typeof s === "string")
         .map((s) => s.trim())
@@ -148,6 +166,19 @@ export function validateFilledCreatives(
       c.captionEn.includes(name),
   );
   if (!named) return { ok: false, error: "missing_product_name" };
+  for (const c of creatives) {
+    if (!shotsAreActionable(c.shots)) {
+      return { ok: false, error: "shots_too_thin" };
+    }
+    if (
+      !c.howToShootEn.trim() ||
+      c.howToShootEn.trim().length < HOW_TO_MIN ||
+      !c.howToShootAr.trim() ||
+      c.howToShootAr.trim().length < HOW_TO_MIN
+    ) {
+      return { ok: false, error: "too_short" };
+    }
+  }
   if (creativesHaveCodPitch(creatives)) {
     return { ok: false, error: "cod_pitch" };
   }
@@ -177,6 +208,8 @@ export function parseCreativeTextFills(raw: unknown): CreativeTextFill[] | null 
       typeof r.seriesLabelAr !== "string" ||
       typeof r.whyEn !== "string" ||
       typeof r.whyAr !== "string" ||
+      typeof r.howToShootEn !== "string" ||
+      typeof r.howToShootAr !== "string" ||
       !Array.isArray(r.shots)
     ) {
       return null;
@@ -193,6 +226,8 @@ export function parseCreativeTextFills(raw: unknown): CreativeTextFill[] | null 
       seriesLabelAr: r.seriesLabelAr,
       whyEn: r.whyEn,
       whyAr: r.whyAr,
+      howToShootEn: r.howToShootEn,
+      howToShootAr: r.howToShootAr,
       shots: r.shots.filter((s): s is string => typeof s === "string"),
     });
   }

@@ -28,6 +28,9 @@ import type { StorePageCopyInput } from "@/lib/store/page-copy";
 import { fillCreativesKitWithGemini } from "@/lib/marketing/creatives-llm";
 import type { BuildCreativesInput, Creative } from "@/lib/marketing/creatives";
 import type { CreativesKitLlmResult } from "@/lib/marketing/creatives-llm";
+import { polishCreativeVisualSuggestionWithGemini } from "@/lib/marketing/visual-tool-llm";
+import type { VisualToolLlmResult } from "@/lib/marketing/visual-tool-llm";
+import type { SuggestCreativeVisualToolInput } from "@/lib/marketing/visual-tool";
 
 export type MarketingLlmError =
   | "missing_key"
@@ -56,6 +59,11 @@ export type MarketingLlmProvider = {
     skeleton: Creative[],
     opts?: { fetchFn?: typeof fetch; env?: Record<string, string | undefined> },
   ): Promise<CreativesKitLlmResult>;
+  /** Wave 4 Phase 5 — optional polish of visual-tool why/prompt (skills own tool). */
+  polishCreativeVisualSuggestion(
+    input: SuggestCreativeVisualToolInput,
+    opts?: { fetchFn?: typeof fetch; env?: Record<string, string | undefined> },
+  ): Promise<VisualToolLlmResult>;
 };
 
 function stripJsonFence(raw: string): string {
@@ -224,6 +232,9 @@ export function createGeminiMarketingLlmProvider(): MarketingLlmProvider {
     },
     async improveCreativesKit(input, skeleton, opts) {
       return fillCreativesKitWithGemini(input, skeleton, opts);
+    },
+    async polishCreativeVisualSuggestion(input, opts) {
+      return polishCreativeVisualSuggestionWithGemini(input, opts);
     },
   };
 }

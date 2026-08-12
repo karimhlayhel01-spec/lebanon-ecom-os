@@ -1066,6 +1066,8 @@
     "kitAiUnavailable": "AI creative fill is unavailable — showing the built-in template kit. Add GEMINI_API_KEY to your .env and restart the app, then use Try AI fill again.",
     "kitAiFallback": "This kit was saved from the built-in template (AI fill did not succeed last time). Your Gemini key is configured — use Try AI fill again below for SKU-aware copy.",
     "deskTitle": "External AI desk",
+    "deskMoreHelp": "More help · Claude / ChatGPT",
+    "deskHide": "Hide",
     "deskIntro": "Your kit above is the plan in this OS. This desk helps you tighten one post or sketch weekly angles — copy a prompt, paste it into Claude or ChatGPT yourself. It does not replace the kit and does not auto-fill cards.",
     "deskRewriteTitle": "Tighten one post",
     "deskStrategyTitle": "Week angles & reply tips",
@@ -1082,6 +1084,7 @@
     "hook": "Hook",
     "week": "Week",
     "shotList": "Shot list",
+    "howToShoot": "How to shoot",
     "etaTitle": "Batch arrival ETA",
     "etaSummary": "Expected arrival: {summary} (~{weeks} weeks)",
     "etaDefaultNote": "Using the default (1 month). Set your ETA on Supplier for a better week-by-week pre-launch plan.",
@@ -1096,6 +1099,15 @@
     "scheduleIgnored": "No schedule — post whenever",
     "scheduleRestore": "Restore suggestion",
     "scheduleSaving": "Saving…",
+    "visualToolTitle": "Visual tool",
+    "visualToolCopyPrompt": "Copy prompt",
+    "visualToolPromptLabel": "Prompt",
+    "visualToolHint": "Paste into the tool yourself — this OS does not generate images or video.",
+    "visualTool": {
+      "nano_banana": "Nano Banana (stills)",
+      "seedance": "Seedance (motion)",
+      "phone_film": "Phone film — no AI"
+    },
     "day": {
       "mon": "Monday",
       "tue": "Tuesday",
