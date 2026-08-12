@@ -220,6 +220,7 @@ export function MarketingPanel({
                 skuId={view.isShopKit ? null : view.selectedSkuId}
                 surface={surface}
                 geminiConfigured={view.geminiConfigured}
+                geminiCapReached={view.geminiCapReached}
                 productName={
                   view.isShopKit
                     ? "Whole shop"
@@ -443,6 +444,7 @@ function KitBlock({
   skuId,
   surface,
   geminiConfigured,
+  geminiCapReached,
   productName,
   category,
 }: {
@@ -450,6 +452,7 @@ function KitBlock({
   skuId: string | null;
   surface: "deep" | "sku";
   geminiConfigured: boolean;
+  geminiCapReached: boolean;
   productName: string;
   category: string;
 }) {
@@ -461,6 +464,7 @@ function KitBlock({
         skuId={skuId}
         surface={surface}
         geminiConfigured={geminiConfigured}
+        geminiCapReached={geminiCapReached}
       />
     );
   }
@@ -473,6 +477,7 @@ function KitBlock({
       skuId={skuId}
       surface={surface}
       geminiConfigured={geminiConfigured}
+      geminiCapReached={geminiCapReached}
       productName={productName}
       category={category}
     />
@@ -486,12 +491,14 @@ function IntroLessonBlock({
   skuId,
   surface,
   geminiConfigured,
+  geminiCapReached,
 }: {
   kit: MarketingKitView;
   lesson: NonNullable<MarketingKitView["lesson"]>;
   skuId: string | null;
   surface: "deep" | "sku";
   geminiConfigured: boolean;
+  geminiCapReached: boolean;
 }) {
   const t = useTranslations("Marketing");
   const locale = useLocale();
@@ -546,12 +553,14 @@ function IntroLessonBlock({
       </p>
       {lesson.source === "template" && (
         <div className="mt-2 space-y-2">
-          <p className="text-xs text-amber-900/90">
-            {geminiConfigured
-              ? t("lessonAiFallback")
-              : t("lessonAiUnavailable")}
+          <p className="text-xs text-amber-900/90" dir={isAr ? "rtl" : undefined}>
+            {geminiCapReached
+              ? t("lessonAiCap")
+              : geminiConfigured
+                ? t("lessonAiFallback")
+                : t("lessonAiUnavailable")}
           </p>
-          {skuId && (
+          {skuId && !geminiCapReached && (
             <button
               type="button"
               disabled={pending}
@@ -734,6 +743,7 @@ function CreativeKitBlock({
   skuId,
   surface,
   geminiConfigured,
+  geminiCapReached,
   productName,
   category,
 }: {
@@ -741,6 +751,7 @@ function CreativeKitBlock({
   skuId: string | null;
   surface: "deep" | "sku";
   geminiConfigured: boolean;
+  geminiCapReached: boolean;
   productName: string;
   category: string;
 }) {
@@ -852,17 +863,23 @@ function CreativeKitBlock({
 
       {kit.source === "template" && (
         <div className="mt-2 space-y-2">
-          <p className="text-xs text-amber-900/90">
-            {geminiConfigured ? t("kitAiFallback") : t("kitAiUnavailable")}
+          <p className="text-xs text-amber-900/90" dir={isAr ? "rtl" : undefined}>
+            {geminiCapReached
+              ? t("kitAiCap")
+              : geminiConfigured
+                ? t("kitAiFallback")
+                : t("kitAiUnavailable")}
           </p>
-          <button
-            type="button"
-            disabled={regenPending}
-            onClick={tryAiAgain}
-            className="rounded-md border border-cedar/40 bg-cedar/10 px-3 py-1.5 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {regenPending ? t("generatingKit") : t("tryAiFillAgain")}
-          </button>
+          {!geminiCapReached && (
+            <button
+              type="button"
+              disabled={regenPending}
+              onClick={tryAiAgain}
+              className="rounded-md border border-cedar/40 bg-cedar/10 px-3 py-1.5 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {regenPending ? t("generatingKit") : t("tryAiFillAgain")}
+            </button>
+          )}
         </div>
       )}
 
@@ -944,15 +961,22 @@ function CreativeKitBlock({
             onClick={() => setDeskOpen((o) => !o)}
             aria-expanded={deskOpen}
             className="text-left text-[11px] font-medium text-stone-dark underline-offset-2 transition hover:text-ink hover:underline"
+            dir={isAr ? "rtl" : undefined}
           >
             {deskOpen ? t("deskHide") : t("deskMoreHelp")}
           </button>
           {deskOpen ? (
             <div className="mt-3">
-              <h4 className="text-[11px] font-medium tracking-wide text-stone-dark">
+              <h4
+                className="text-[11px] font-medium tracking-wide text-stone-dark"
+                dir={isAr ? "rtl" : undefined}
+              >
                 {t("deskTitle")}
               </h4>
-              <p className="mt-1 text-[11px] leading-relaxed text-stone-dark">
+              <p
+                className="mt-1 text-[11px] leading-relaxed text-stone-dark"
+                dir={isAr ? "rtl" : undefined}
+              >
                 {t("deskIntro")}
               </p>
               <div className="mt-3 space-y-3">

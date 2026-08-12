@@ -507,6 +507,33 @@ export const discoverySearchUsage = pgTable("discovery_search_usage", {
 });
 
 /**
+ * Wave 4 Phase 7 — monthly Marketing Gemini spend ledger (per workspace + UTC month).
+ * Counts successful Intro fill + creatives improve (+ visual polish when Gemini runs).
+ * Store pack Gemini is out of scope.
+ */
+export const marketingGeminiUsage = pgTable(
+  "marketing_gemini_usage",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    /** UTC month bucket, `YYYY-MM`. */
+    monthKey: text("month_key").notNull(),
+    callsUsed: integer("calls_used").notNull().default(0),
+    lastRunAt: text("last_run_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    unique("marketing_gemini_usage_workspace_month_unique").on(
+      t.workspaceId,
+      t.monthKey,
+    ),
+  ],
+);
+
+/**
  * Wave 2 §7 "Measure" — append-only Discovery funnel counters.
  * Rows are never updated: `dedupe_key` is unique so a re-render, revalidate, or
  * retried request records one event. Read only by the metrics CLI — nothing

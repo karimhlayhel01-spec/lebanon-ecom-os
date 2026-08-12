@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildCreatives } from "@/lib/marketing/creatives";
 import {
   createGeminiMarketingLlmProvider,
@@ -9,7 +9,8 @@ import {
   validateVisualSuggestion,
   visualPromptHasOsMeta,
 } from "@/lib/marketing/visual-tool";
-
+import { polishCreativeVisualSuggestionWithGemini } from "@/lib/marketing/visual-tool-llm";
+import * as marketingGeminiUsage from "@/lib/marketing/marketing-gemini-usage";
 const baseCreative = () =>
   buildCreatives({
     name: "GlowLamp Pro",
@@ -114,5 +115,24 @@ describe("polishCreativeVisualSuggestion (provider)", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toBe("missing_key");
+  });
+
+  it("returns monthly_cap when workspace allowance is exhausted", async () => {
+    const spy = vi
+      .spyOn(marketingGeminiUsage, "checkMarketingGeminiAllowance")
+      .mockResolvedValue({ ok: false, error: "monthly_cap" });
+    const r = await polishCreativeVisualSuggestionWithGemini(
+      {
+        creative: baseCreative(),
+        productName: "GlowLamp Pro",
+        stage: "launch",
+      },
+      { env: { GEMINI_API_KEY: "fake-key" }, workspaceId: "ws_test" },
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe("monthly_cap");
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

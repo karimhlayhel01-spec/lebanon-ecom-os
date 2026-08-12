@@ -36,6 +36,11 @@ import {
   serializeCreativesKit,
   type CreativesKitSource,
 } from "@/lib/marketing/creatives-ai";
+import {
+  checkMarketingGeminiAllowance,
+  isMarketingGeminiCapReached,
+  recordMarketingGeminiCalls,
+} from "@/lib/marketing/marketing-gemini-usage";
 import { resolveBatchArrivalEta } from "@/lib/supplier/batch-eta";
 import type { BatchArrivalEtaView } from "@/lib/supplier/batch-eta";
 import {
@@ -125,6 +130,11 @@ export type MarketingPanelView = {
   selectedCategory: string;
   /** True when GEMINI_API_KEY (or Discovery Gemini alias) is set on the server. */
   geminiConfigured: boolean;
+  /**
+   * True when this workspace is at/over MARKETING_GEMINI_MONTHLY_CAP for the
+   * current UTC month (Intro + creatives; not Store).
+   */
+  geminiCapReached: boolean;
   /**
    * Known planning/actual margins miss 70%/35% bars — top note uses fail copy.
    * Informational only; never blocks generate.
@@ -350,6 +360,8 @@ export async function getMarketingPanel(
     marginAfter: margins.after,
   });
 
+  const geminiCapReached = await isMarketingGeminiCapReached(workspaceId);
+
   return {
     currentStage,
     capacityTier: capacityTierFor(onboarding?.hoursPerWeek ?? 8),
@@ -365,6 +377,7 @@ export async function getMarketingPanel(
     isShopKit,
     selectedCategory: isShopKit ? "multi" : (sku?.basics.category ?? ""),
     geminiConfigured: isGeminiConfigured(),
+    geminiCapReached,
     needsMarginAck,
   };
 }
@@ -501,18 +514,28 @@ export async function generateKit(
       hooks,
     };
     // Approach A: Gemini on Generate lesson only; fail closed → template.
-    const llm = getMarketingLlmProvider();
-    const filled = await llm.fillIntroLessonBodies(introInput);
-    let lesson: IntroLessonPayload;
-    if (filled.ok) {
-      lesson = filled.lesson;
-      kitSource = "gemini";
-    } else {
-      lesson = buildIntroLesson(introInput);
+    // Phase 7: monthly Marketing Gemini cap (not Store).
+    const allowance = await checkMarketingGeminiAllowance(workspaceId);
+    if (!allowance.ok) {
+      const lesson = buildIntroLesson(introInput);
       kitSource = "template";
-      introFillError = filled.error;
+      introFillError = "monthly_cap";
+      itemsJson = JSON.stringify(lesson);
+    } else {
+      const llm = getMarketingLlmProvider();
+      const filled = await llm.fillIntroLessonBodies(introInput);
+      let lesson: IntroLessonPayload;
+      if (filled.ok) {
+        lesson = filled.lesson;
+        kitSource = "gemini";
+        await recordMarketingGeminiCalls({ workspaceId, calls: 1 });
+      } else {
+        lesson = buildIntroLesson(introInput);
+        kitSource = "template";
+        introFillError = filled.error;
+      }
+      itemsJson = JSON.stringify(lesson);
     }
-    itemsJson = JSON.stringify(lesson);
   } else if (creativeStage) {
     const creativeInput = {
       name: productName,
@@ -524,15 +547,21 @@ export async function generateKit(
       weekCount: creativeStage === "pre_launch" ? eta.weekCount : undefined,
     };
     const skeleton = buildCreatives(creativeInput);
-    const llm = getMarketingLlmProvider();
-    const filled = await llm.improveCreativesKit(creativeInput, skeleton);
+    const allowance = await checkMarketingGeminiAllowance(workspaceId);
     let creatives = skeleton;
     let source: CreativesKitSource = "template";
-    if (filled.ok) {
-      creatives = filled.creatives;
-      source = "gemini";
+    if (!allowance.ok) {
+      kitSource = "template";
+    } else {
+      const llm = getMarketingLlmProvider();
+      const filled = await llm.improveCreativesKit(creativeInput, skeleton);
+      if (filled.ok) {
+        creatives = filled.creatives;
+        source = "gemini";
+        await recordMarketingGeminiCalls({ workspaceId, calls: 1 });
+      }
+      kitSource = source;
     }
-    kitSource = source;
     creativeCount = creatives.length;
     itemsJson = serializeCreativesKit({
       kind: "creatives",

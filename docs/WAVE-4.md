@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 4**.
 **Wave 1** (multi-SKU hub, stage-aware Marketing FSM, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery) and **Wave 3** (Supplier) remain locked — see `docs/WAVE-2.md`, `docs/WAVE-3.md`. Do not reopen those locks here.
 
-**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + copyable prompts). Phases **6–7** remain next on the roadmap (amend in § changelog when promoted).
+**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + copyable prompts). **Phase 6 parked** (in-app visual gen). **Phase 7 shipped** (Marketing Gemini spend ledger + harden / EN–AR / tests). **Store pack follow-ups parked** (deal with later — not in Phase 7).
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -49,8 +49,24 @@ Amend dates / promotion in §7 changelog.
 | **3** | AI-native creative kits + external AI desk roles — **shipped** |
 | **4** | This week’s one post + Posted / Skipped — **parked / deferred** (UI race — revisit later) |
 | **5** | Tool suggest Nano Banana / Seedance + copyable prompts — **shipped** |
-| **6** | Optional in-app visual gen (capped spend) |
-| **7** | Harden / EN–AR / tests / spend ledger |
+| **6** | Optional in-app visual gen (capped spend) — **parked / deferred** |
+| **7** | Harden / EN–AR / tests / Marketing Gemini spend ledger — **shipped** |
+
+**Parked follow-ups (not Phase 7):** Store pack Gemini metering / Store UI polish — deal with later. Phase 4 hero remains parked. Phase 6 visual gen remains parked.
+
+---
+
+## 4g) Phase 7 — Harden / EN–AR / Marketing Gemini ledger (**SHIPPED**)
+
+- **Ledger (Marketing only):** successful Gemini calls for **Intro fill** + **creatives kit improve** counted per workspace per UTC month (`marketing_gemini_usage`). Visual-prompt polish meters only when it actually calls Gemini (with `workspaceId`). **Store `improveStorePageCopy` is not wired** into this ledger.
+- Env: `MARKETING_GEMINI_MONTHLY_CAP` (default 40; `0` = templates only). At/over cap → fail-closed to templates / skills + calm honesty (`lessonAiCap` / `kitAiCap`); Try AI fill again hidden while capped.
+- Targeted EN/AR + RTL for Marketing Phase 3/5 / how-to / More help / cap copy. Desk stays behind More help. No Marketing redesign; no Phase 4/6 work.
+
+---
+
+## 4f) Phase 6 — In-app visual gen (**PARKED**)
+
+Optional in-app Nano Banana / Seedance generation with spend cap. **Not shipped** — founders use Copy prompt + external tools (Phase 5). Revisit later.
 
 ---
 
@@ -129,10 +145,12 @@ Same Intro accordion under a literacy subheading.
 ## 5) Flags / env (names only)
 
 ```text
-# Phase 1 — Gemini for Intro bodies (fail-closed when missing)
-GEMINI_API_KEY=…          # or a Marketing-scoped alias if added later
-# Optional later waves:
-# MARKETING_VISUAL_GEN=0  # Phase 6 in-app visual gen (default off)
+# Phase 1 — Gemini for Intro / creatives (fail-closed when missing)
+GEMINI_API_KEY=…          # or DISCOVERY_EXPLAIN_GEMINI_API_KEY
+# Phase 7 — Marketing Gemini monthly cap (per workspace; not Store)
+# MARKETING_GEMINI_MONTHLY_CAP=40
+# Phase 6 — in-app visual gen (parked; default off)
+# MARKETING_VISUAL_GEN=0
 ```
 
 Never commit secrets.
@@ -156,6 +174,7 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-12 | **Phase 7 shipped** — Marketing Gemini monthly ledger (`MARKETING_GEMINI_MONTHLY_CAP`, per workspace); Intro + creatives metered; polish only if Gemini; Store pack out of scope / parked; Phase 6 parked; Phase 4 stays parked; EN/AR + cap honesty + tests. |
 | 2026-08-12 | UI: external AI desk collapsed behind **More help · Claude / ChatGPT** (default closed); kit + visual prompts stay primary. |
 | 2026-08-12 | Phase 3/5 addendum — elaborated shot lists (see / camera / action) + **How to shoot** on cards (`howToShootEn/Ar`); Gemini validate rejects thin shots; visual prompts reuse full shots + how-to; template fallback richer. |
 | 2026-08-12 | Phase 5 UI: show full visual-tool prompt on each creative card (scrollable preview + Copy). |

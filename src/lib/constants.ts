@@ -37,6 +37,12 @@ export const DISCOVERY_INTAKE_QUERIES_PER_RUN_MAX = 40;
  * quota. Raise per deployment with DISCOVERY_SEARCH_MONTHLY_QUERY_CAP.
  */
 export const DISCOVERY_SEARCH_MONTHLY_QUERY_CAP_DEFAULT = 100;
+/**
+ * Wave 4 Phase 7 — default monthly successful Marketing Gemini calls per workspace
+ * (Intro fill + creatives improve; visual polish only when it actually calls Gemini).
+ * Raise per deployment with MARKETING_GEMINI_MONTHLY_CAP. Explicit 0 = spend nothing.
+ */
+export const MARKETING_GEMINI_MONTHLY_CAP_DEFAULT = 40;
 /** Per-request timeout for an outbound search call (no unbounded hangs). */
 export const DISCOVERY_SEARCH_REQUEST_TIMEOUT_MS = 30_000;
 /** Total attempts (1 initial + bounded retries) for a transient search failure. */

@@ -8,6 +8,10 @@ import {
   resolveGeminiModel,
 } from "@/lib/discovery/explain/llm";
 import {
+  checkMarketingGeminiAllowance,
+  recordMarketingGeminiCalls,
+} from "@/lib/marketing/marketing-gemini-usage";
+import {
   suggestCreativeVisualTool,
   validateVisualSuggestion,
   type CreativeVisualSuggestion,
@@ -16,7 +20,16 @@ import {
 
 export type VisualToolLlmResult =
   | { ok: true; suggestion: CreativeVisualSuggestion; source: "gemini" }
-  | { ok: false; error: "missing_key" | "api_error" | "empty" | "parse_error" | "invalid" };
+  | {
+      ok: false;
+      error:
+        | "missing_key"
+        | "api_error"
+        | "empty"
+        | "parse_error"
+        | "invalid"
+        | "monthly_cap";
+    };
 
 function stripJsonFence(raw: string): string {
   const trimmed = raw.trim();
@@ -26,6 +39,8 @@ function stripJsonFence(raw: string): string {
 
 /**
  * Polish why + prompt only. Never changes `tool` (skills routing).
+ * When `workspaceId` is set, respects Marketing Gemini monthly cap and records
+ * a successful call. Store pack is not metered here.
  */
 export async function polishCreativeVisualSuggestionWithGemini(
   input: SuggestCreativeVisualToolInput,
@@ -33,11 +48,20 @@ export async function polishCreativeVisualSuggestionWithGemini(
     fetchFn?: typeof fetch;
     env?: Record<string, string | undefined>;
     apiKey?: string;
+    workspaceId?: string;
   },
 ): Promise<VisualToolLlmResult> {
   const env = opts?.env ?? process.env;
   const apiKey = opts?.apiKey ?? resolveGeminiApiKey(env);
   if (!apiKey) return { ok: false, error: "missing_key" };
+
+  if (opts?.workspaceId) {
+    const allowance = await checkMarketingGeminiAllowance(
+      opts.workspaceId,
+      env,
+    );
+    if (!allowance.ok) return { ok: false, error: "monthly_cap" };
+  }
 
   const baseline = suggestCreativeVisualTool(input);
   const model = resolveGeminiModel(env);
@@ -127,8 +151,15 @@ Plain founder language. Keep prompts practical and short.`,
     if (!validateVisualSuggestion(suggestion, name)) {
       return { ok: false, error: "invalid" };
     }
+    if (opts?.workspaceId) {
+      await recordMarketingGeminiCalls({
+        workspaceId: opts.workspaceId,
+        calls: 1,
+      });
+    }
     return { ok: true, suggestion, source: "gemini" };
   } catch {
     return { ok: false, error: "api_error" };
   }
 }
+

@@ -78,6 +78,13 @@
       "when": 1786800000000,
       "tag": "0010_marketing_weekly_refresh",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786900000000,
+      "tag": "0011_marketing_gemini_usage",
+      "breakpoints": true
     }
   ]
 }
