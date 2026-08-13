@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import {
@@ -14,17 +14,22 @@ import {
 import { getSkuViewById } from "@/lib/sku/service";
 import { listLiveSkus } from "@/lib/sku/journey";
 import { assertSkuOwned } from "@/lib/sku/ownership";
-import { parseRequiredSkuId } from "@/lib/sku/require-sku-id";
+import { parseGenerateKitSkuScope } from "@/lib/sku/require-sku-id";
 import { canCheckStoreChecklistKey } from "@/lib/store/gating";
 import { isGeminiConfigured } from "@/lib/discovery/explain/llm";
 import { getMarketingLlmProvider } from "@/lib/marketing/intro-llm";
-import { resolveStorePanelSkuId } from "@/lib/store/page-pack-scope";
+import {
+  resolveStorePanelSkuId,
+  shopPackAvailable,
+} from "@/lib/store/page-pack-scope";
 import {
   buildTemplateStorePageCopy,
+  buildTemplateStoreShopPageCopy,
   parseDiscoverabilityPack,
   parseStoredPackSource,
   serializeDiscoverabilityPack,
   type DiscoverabilityPack,
+  type StorePageCopyPayload,
   type StorePageCopySource,
 } from "@/lib/store/page-copy";
 import {
@@ -46,8 +51,9 @@ import {
  * Store setup — a SIDE status. The Shopify readiness checklist lives here and
  * store readiness NEVER blocks batch ordering or selling. The `store_ready`
  * gate is side-only (no journey transition). Product-page AI packs are per
- * live SKU (`store_page_packs`). Checklist / URL / WhatsApp / courier stay
- * workspace `store_readiness`.
+ * live SKU (`store_page_packs`) plus one shop pack (`sku_id` NULL) when ≥3
+ * live SKUs. Checklist / URL / WhatsApp / courier stay workspace
+ * `store_readiness`. Store Gemini is not on the Marketing Phase 7 ledger.
  */
 
 type Checklist = Record<StoreChecklistKey, boolean>;
@@ -114,7 +120,7 @@ async function ensureStoreRow(workspaceId: string) {
 
 async function loadPackRow(
   workspaceId: string,
-  skuId: string,
+  skuId: string | null,
 ): Promise<StorePagePackRow | undefined> {
   return db
     .select()
@@ -122,7 +128,9 @@ async function loadPackRow(
     .where(
       and(
         eq(schema.storePagePacks.workspaceId, workspaceId),
-        eq(schema.storePagePacks.skuId, skuId),
+        skuId === null
+          ? isNull(schema.storePagePacks.skuId)
+          : eq(schema.storePagePacks.skuId, skuId),
       ),
     )
     .then((rows) => rows[0]);
@@ -164,6 +172,37 @@ async function ensureStorePagePack(
   return (await loadPackRow(workspaceId, skuId)) ?? null;
 }
 
+async function ensureShopStorePagePack(
+  workspaceId: string,
+  shopName: string,
+  liveSkuNames: string[],
+): Promise<StorePagePackRow | null> {
+  const existing = await loadPackRow(workspaceId, null);
+  if (existing) return existing;
+
+  const template = buildTemplateStoreShopPageCopy({
+    shopName,
+    liveSkuNames,
+  });
+  const now = nowIso();
+  await db.insert(schema.storePagePacks).values({
+    id: newId(),
+    workspaceId,
+    skuId: null,
+    policiesDraft: template.policiesDraft,
+    contentDraftEn: template.contentDraftEn,
+    contentDraftAr: template.contentDraftAr,
+    discoverabilityPack: serializeDiscoverabilityPack(
+      template.discoverability,
+      "template",
+    ),
+    pageCopyVersions: "",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return (await loadPackRow(workspaceId, null)) ?? null;
+}
+
 export type StorePanelView = {
   checklist: Checklist;
   checklistKeys: readonly StoreChecklistKey[];
@@ -183,6 +222,8 @@ export type StorePanelView = {
   skuName: string | null;
   selectedSkuId: string | null;
   liveSkus: Array<{ id: string; name: string }>;
+  shopPackAvailable: boolean;
+  isShopPack: boolean;
   /** Version picker: baseline + ≤3 AI (per pack). */
   pageCopyVersions: StorePageCopyVersionSummary[];
   pageCopyActiveIndex: number;
@@ -221,6 +262,22 @@ function emptyPackFields(): {
   };
 }
 
+function packFieldsFromRow(pack: StorePagePackRow): ReturnType<typeof emptyPackFields> {
+  const packRaw = pack.discoverabilityPack ?? "";
+  const versionsState = parsePageCopyVersions(pack.pageCopyVersions ?? "");
+  return {
+    policiesDraft: pack.policiesDraft,
+    contentDraftEn: pack.contentDraftEn,
+    contentDraftAr: pack.contentDraftAr,
+    discoverability: parseDiscoverabilityPack(packRaw),
+    pageCopySource: parseStoredPackSource(packRaw),
+    pageCopyVersions: versionSummaries(versionsState),
+    pageCopyActiveIndex: versionsState.activeIndex,
+    pageCopyAiCount: countAiVersions(versionsState),
+    pageCopyAiLeft: aiImprovesLeft(versionsState),
+  };
+}
+
 export async function getStorePanel(
   workspaceId: string,
   skuId?: string | null,
@@ -228,41 +285,42 @@ export async function getStorePanel(
   const row = await ensureStoreRow(workspaceId);
   if (!row) return null;
 
-  const [side, liveRaw] = await Promise.all([
+  const [side, liveRaw, workspace] = await Promise.all([
     db
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
       .then((rows) => rows[0]),
     listLiveSkus(workspaceId),
+    getWorkspace(workspaceId),
   ]);
 
   const live = sortLiveSkus(liveRaw);
   const liveIds = live.map((s) => s.id);
-  const selectedSkuId = resolveStorePanelSkuId(liveIds, skuId);
+  const shopOk = shopPackAvailable(live.length);
+  const isShopPack = skuId === null && shopOk;
 
   const checklist = parseChecklist(row.checklist);
   let packFields = emptyPackFields();
   let skuName: string | null = null;
+  let selectedSkuId: string | null = null;
 
-  if (selectedSkuId) {
-    const sku = await getSkuViewById(workspaceId, selectedSkuId);
-    skuName = sku?.name ?? null;
-    const pack = await ensureStorePagePack(workspaceId, selectedSkuId);
-    if (pack) {
-      const packRaw = pack.discoverabilityPack ?? "";
-      const versionsState = parsePageCopyVersions(pack.pageCopyVersions ?? "");
-      packFields = {
-        policiesDraft: pack.policiesDraft,
-        contentDraftEn: pack.contentDraftEn,
-        contentDraftAr: pack.contentDraftAr,
-        discoverability: parseDiscoverabilityPack(packRaw),
-        pageCopySource: parseStoredPackSource(packRaw),
-        pageCopyVersions: versionSummaries(versionsState),
-        pageCopyActiveIndex: versionsState.activeIndex,
-        pageCopyAiCount: countAiVersions(versionsState),
-        pageCopyAiLeft: aiImprovesLeft(versionsState),
-      };
+  if (isShopPack) {
+    selectedSkuId = null;
+    skuName = workspace?.name?.trim() || "My Store";
+    const pack = await ensureShopStorePagePack(
+      workspaceId,
+      skuName,
+      live.map((s) => s.name),
+    );
+    if (pack) packFields = packFieldsFromRow(pack);
+  } else {
+    selectedSkuId = resolveStorePanelSkuId(liveIds, skuId);
+    if (selectedSkuId) {
+      const sku = await getSkuViewById(workspaceId, selectedSkuId);
+      skuName = sku?.name ?? null;
+      const pack = await ensureStorePagePack(workspaceId, selectedSkuId);
+      if (pack) packFields = packFieldsFromRow(pack);
     }
   }
 
@@ -279,6 +337,8 @@ export async function getStorePanel(
     skuName,
     selectedSkuId,
     liveSkus: live.map((s) => ({ id: s.id, name: s.name })),
+    shopPackAvailable: shopOk,
+    isShopPack,
     pageCopyMaxAi: MAX_AI_STORE_PAGE_COPY_VERSIONS,
     ...packFields,
   };
@@ -360,36 +420,21 @@ function applyLiveFields(
   };
 }
 
-/**
- * Approach A: explicit click — Gemini improve (consumes 1 of 3 AI slots) or
- * template fallback (does not consume). Cap refuses before LLM when full.
- * Fail-closed without skuId (no workspace-active SKU fallback). Store Gemini is
- * not on the Marketing Phase 7 ledger.
- */
-export async function improveStorePageCopy(
-  workspaceId: string,
-  skuId: unknown,
-): Promise<ImproveStorePageCopyResult> {
-  const scope = parseRequiredSkuId(skuId);
-  if (!scope.ok) return { ok: false, error: "not_found" };
-  await ensureMigrated();
-  const owned = await assertSkuOwned(workspaceId, scope.skuId);
-  if (!owned.ok) return { ok: false, error: "not_found" };
-
-  const sku = await getSkuViewById(workspaceId, scope.skuId);
-  if (!sku) return { ok: false, error: "no_sku" };
-
-  await ensureStoreRow(workspaceId);
-  const pack = await ensureStorePagePack(workspaceId, scope.skuId);
-  if (!pack) return { ok: false, error: "not_found" };
-
+async function persistPageCopyImprove(args: {
+  workspaceId: string;
+  pack: StorePagePackRow;
+  filled: { ok: true; payload: StorePageCopyPayload } | { ok: false };
+  template: StorePageCopyPayload;
+  eventLabel: string;
+  meta: Record<string, unknown>;
+}): Promise<ImproveStorePageCopyResult> {
   const now = nowIso();
-  let versions = parsePageCopyVersions(pack.pageCopyVersions ?? "");
+  let versions = parsePageCopyVersions(args.pack.pageCopyVersions ?? "");
   versions = ensureBaseline(versions, {
-    contentDraftEn: pack.contentDraftEn,
-    contentDraftAr: pack.contentDraftAr,
-    policiesDraft: pack.policiesDraft,
-    discoverabilityPackRaw: pack.discoverabilityPack ?? "",
+    contentDraftEn: args.pack.contentDraftEn,
+    contentDraftAr: args.pack.contentDraftAr,
+    policiesDraft: args.pack.policiesDraft,
+    discoverabilityPackRaw: args.pack.discoverabilityPack ?? "",
     createdAt: now,
   });
 
@@ -400,30 +445,19 @@ export async function improveStorePageCopy(
         pageCopyVersions: serializePageCopyVersions(versions),
         updatedAt: now,
       })
-      .where(eq(schema.storePagePacks.id, pack.id));
+      .where(eq(schema.storePagePacks.id, args.pack.id));
     return { ok: false, error: "ai_cap" };
   }
 
-  const input = {
-    name: sku.name,
-    category: sku.basics.category,
-    differentiation: sku.basics.differentiation,
-    hooks: sku.marketingHooks.hooks,
-    sellPrice: sku.basics.sellPrice,
-  };
-
-  const llm = getMarketingLlmProvider();
-  const filled = await llm.improveStorePageCopy(input);
-
-  if (filled.ok && filled.payload.source === "gemini") {
-    const snap = snapshotFromPayload(filled.payload, now);
+  if (args.filled.ok && args.filled.payload.source === "gemini") {
+    const snap = snapshotFromPayload(args.filled.payload, now);
     const appended = appendAiVersion(versions, snap);
     if (!appended.ok) {
       return { ok: false, error: "ai_cap" };
     }
     versions = appended.state;
     const live = applyLiveFields({
-      ...filled.payload,
+      ...args.filled.payload,
       source: "gemini",
     });
     await db
@@ -433,18 +467,18 @@ export async function improveStorePageCopy(
         pageCopyVersions: serializePageCopyVersions(versions),
         updatedAt: now,
       })
-      .where(eq(schema.storePagePacks.id, pack.id));
+      .where(eq(schema.storePagePacks.id, args.pack.id));
 
     await db.insert(schema.orchestratorEvents).values({
       id: newId(),
-      workspaceId,
+      workspaceId: args.workspaceId,
       kind: "store_page_copy",
-      message: `Store page copy AI improve for ${sku.name} (${countAiVersions(versions)}/${MAX_AI_STORE_PAGE_COPY_VERSIONS})`,
+      message: args.eventLabel,
       meta: JSON.stringify({
         source: "gemini",
-        skuId: sku.id,
         aiCount: countAiVersions(versions),
         activeIndex: versions.activeIndex,
+        ...args.meta,
       }),
       createdAt: now,
     });
@@ -456,8 +490,7 @@ export async function improveStorePageCopy(
     };
   }
 
-  const template = buildTemplateStorePageCopy(input);
-  const live = applyLiveFields(template);
+  const live = applyLiveFields(args.template);
   await db
     .update(schema.storePagePacks)
     .set({
@@ -465,17 +498,17 @@ export async function improveStorePageCopy(
       pageCopyVersions: serializePageCopyVersions(versions),
       updatedAt: now,
     })
-    .where(eq(schema.storePagePacks.id, pack.id));
+    .where(eq(schema.storePagePacks.id, args.pack.id));
 
   await db.insert(schema.orchestratorEvents).values({
     id: newId(),
-    workspaceId,
+    workspaceId: args.workspaceId,
     kind: "store_page_copy",
-    message: `Store page copy template refresh for ${sku.name} (no AI slot used)`,
+    message: args.eventLabel,
     meta: JSON.stringify({
       source: "template",
-      skuId: sku.id,
       aiCount: countAiVersions(versions),
+      ...args.meta,
     }),
     createdAt: now,
   });
@@ -487,6 +520,83 @@ export async function improveStorePageCopy(
   };
 }
 
+/**
+ * Approach A: explicit click — Gemini improve (consumes 1 of 3 AI slots) or
+ * template fallback (does not consume). Cap refuses before LLM when full.
+ * Fail-closed without skuId (no workspace-active SKU fallback). Explicit
+ * null = shop pack when ≥3 live. Store Gemini is not on the Marketing Phase 7 ledger.
+ */
+export async function improveStorePageCopy(
+  workspaceId: string,
+  skuId: unknown,
+): Promise<ImproveStorePageCopyResult> {
+  const scope = parseGenerateKitSkuScope(skuId);
+  if (!scope.ok) return { ok: false, error: "not_found" };
+  await ensureMigrated();
+  await ensureStoreRow(workspaceId);
+
+  const llm = getMarketingLlmProvider();
+
+  if (scope.skuId === null) {
+    const live = sortLiveSkus(await listLiveSkus(workspaceId));
+    if (!shopPackAvailable(live.length)) {
+      return { ok: false, error: "not_found" };
+    }
+    const workspace = await getWorkspace(workspaceId);
+    const shopName = workspace?.name?.trim() || "My Store";
+    const liveSkuNames = live.map((s) => s.name);
+    const pack = await ensureShopStorePagePack(
+      workspaceId,
+      shopName,
+      liveSkuNames,
+    );
+    if (!pack) return { ok: false, error: "not_found" };
+
+    const shopInput = { shopName, liveSkuNames };
+    const filled = await llm.improveStoreShopPageCopy(shopInput);
+    return persistPageCopyImprove({
+      workspaceId,
+      pack,
+      filled,
+      template: buildTemplateStoreShopPageCopy(shopInput),
+      eventLabel: filled.ok && filled.payload.source === "gemini"
+        ? `Store shop copy AI improve for ${shopName} (${countAiVersions(parsePageCopyVersions(pack.pageCopyVersions ?? "")) + 1}/${MAX_AI_STORE_PAGE_COPY_VERSIONS})`
+        : `Store shop copy template refresh for ${shopName} (no AI slot used)`,
+      meta: { skuId: null, shopPack: true },
+    });
+  }
+
+  const owned = await assertSkuOwned(workspaceId, scope.skuId);
+  if (!owned.ok) return { ok: false, error: "not_found" };
+
+  const sku = await getSkuViewById(workspaceId, scope.skuId);
+  if (!sku) return { ok: false, error: "no_sku" };
+
+  const pack = await ensureStorePagePack(workspaceId, scope.skuId);
+  if (!pack) return { ok: false, error: "not_found" };
+
+  const input = {
+    name: sku.name,
+    category: sku.basics.category,
+    differentiation: sku.basics.differentiation,
+    hooks: sku.marketingHooks.hooks,
+    sellPrice: sku.basics.sellPrice,
+  };
+
+  const filled = await llm.improveStorePageCopy(input);
+  return persistPageCopyImprove({
+    workspaceId,
+    pack,
+    filled,
+    template: buildTemplateStorePageCopy(input),
+    eventLabel:
+      filled.ok && filled.payload.source === "gemini"
+        ? `Store page copy AI improve for ${sku.name} (${countAiVersions(parsePageCopyVersions(pack.pageCopyVersions ?? "")) + 1}/${MAX_AI_STORE_PAGE_COPY_VERSIONS})`
+        : `Store page copy template refresh for ${sku.name} (no AI slot used)`,
+    meta: { skuId: sku.id },
+  });
+}
+
 export type SelectStorePageCopyVersionResult =
   | { ok: true }
   | { ok: false; error: "not_found" | "bad_index" };
@@ -496,11 +606,19 @@ export async function selectStorePageCopyVersion(
   skuId: unknown,
   index: number,
 ): Promise<SelectStorePageCopyVersionResult> {
-  const scope = parseRequiredSkuId(skuId);
+  const scope = parseGenerateKitSkuScope(skuId);
   if (!scope.ok) return { ok: false, error: "not_found" };
   await ensureMigrated();
-  const owned = await assertSkuOwned(workspaceId, scope.skuId);
-  if (!owned.ok) return { ok: false, error: "not_found" };
+
+  if (scope.skuId === null) {
+    const live = await listLiveSkus(workspaceId);
+    if (!shopPackAvailable(live.length)) {
+      return { ok: false, error: "not_found" };
+    }
+  } else {
+    const owned = await assertSkuOwned(workspaceId, scope.skuId);
+    if (!owned.ok) return { ok: false, error: "not_found" };
+  }
 
   const pack = await loadPackRow(workspaceId, scope.skuId);
   if (!pack) return { ok: false, error: "not_found" };

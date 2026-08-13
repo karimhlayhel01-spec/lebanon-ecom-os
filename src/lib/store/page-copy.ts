@@ -40,6 +40,12 @@ export type StorePageCopyInput = {
   sellPrice?: number | null;
 };
 
+/** Whole-shop Store pack — homepage / shop SEO / shared policies (not a fake SKU). */
+export type StoreShopPageCopyInput = {
+  shopName: string;
+  liveSkuNames: string[];
+};
+
 export type StorePageCopyValidateError =
   | "invalid_shape"
   | "too_short"
@@ -153,6 +159,105 @@ export function buildTemplateStorePageCopy(
       "استخدم ٣–٥ صور واضحة: المنتج، الاستخدام، محتوى العلبة.",
       "أظهر واتساب بوضوح؛ المشترون في لبنان غالباً يسألون قبل الدفع.",
       "الصق العنوان والوصف القصير في حقول SEO في Shopify — بلا وعود ترتيب.",
+    ],
+  };
+
+  return {
+    contentDraftEn,
+    contentDraftAr,
+    policiesDraft,
+    discoverability,
+    source: "template",
+  };
+}
+
+export function buildTemplateStoreShopPageCopy(
+  input: StoreShopPageCopyInput,
+): StorePageCopyPayload {
+  const shop = input.shopName.trim() || "your shop";
+  const catalog = input.liveSkuNames.map((n) => n.trim()).filter(Boolean);
+  const catalogLine =
+    catalog.length > 0 ? catalog.join(", ") : "your live products";
+
+  const contentDraftEn = [
+    `Title: ${shop}`,
+    ``,
+    `• What the shop is: a Lebanon store — homepage and brand copy for ${shop}, not a single product page.`,
+    `• Catalog: ${catalogLine}.`,
+    `• Why visit: browse the catalog, ask on WhatsApp, order with clear delivery.`,
+    `• How you receive orders: delivery in about 3–7 days nationwide. Pay cash to the delivery person when it arrives (COD).`,
+    `• Support: message ${shop} on WhatsApp with any question before you order.`,
+    `• Shared policies: shipping, returns, and COD terms apply across the shop.`,
+  ].join("\n");
+
+  const contentDraftAr = [
+    `العنوان: ${shop}`,
+    ``,
+    `• ما هو المتجر: متجر في لبنان — نصوص الصفحة الرئيسية والعلامة لـ ${shop}، وليست صفحة منتج واحد.`,
+    `• الكتالوج: ${catalogLine}.`,
+    `• لماذا تزور: تصفّح المنتجات، اسأل على واتساب، اطلب مع توصيل واضح.`,
+    `• كيف يصلك الطلب: توصيل خلال نحو ٣–٧ أيام لكل لبنان. ادفع نقداً لمندوب التوصيل عند الوصول (الدفع عند الاستلام).`,
+    `• الدعم: راسل ${shop} على واتساب لأي سؤال قبل الطلب.`,
+    `• سياسات مشتركة: الشحن والإرجاع وشروط الدفع عند الاستلام تنطبق على المتجر كله.`,
+  ].join("\n");
+
+  const policiesDraft = [
+    "Shipping: 3–7 business days nationwide via a local delivery company — shop-wide.",
+    "Cash on delivery: pay the delivery person when your order arrives.",
+    "Returns: 3-day return for unused items in original packaging (any product in the shop).",
+    "Damaged/wrong item: we replace or refund — contact us on WhatsApp.",
+    "These lines are drafts for your Shopify homepage / policies — not legal advice.",
+  ].join("\n");
+
+  const discoverability: DiscoverabilityPack = {
+    titleEn: `${shop} — online shop in Lebanon`,
+    titleAr: `${shop} — متجر إلكتروني في لبنان`,
+    shortDescriptionEn: `${shop} is a Lebanon shop with ${catalogLine}. Order with WhatsApp help; delivery nationwide.`,
+    shortDescriptionAr: `${shop} متجر في لبنان مع ${catalogLine}. اطلب بمساعدة واتساب؛ توصيل لكل لبنان.`,
+    searchPhrasesEn: [
+      shop,
+      `${shop} Lebanon`,
+      `${shop} online shop`,
+      "Lebanon online store",
+      ...catalog.slice(0, 2),
+    ].slice(0, 6),
+    searchPhrasesAr: [
+      shop,
+      `${shop} لبنان`,
+      `متجر ${shop}`,
+      "متجر إلكتروني لبنان",
+    ].slice(0, 6),
+    faqs: [
+      {
+        qEn: `What is ${shop}?`,
+        aEn: `${shop} is a Lebanon shop. Browse the catalog (${catalogLine}) on the homepage — this is shop-level copy, not one product page.`,
+        qAr: `ما هو ${shop}؟`,
+        aAr: `${shop} متجر في لبنان. تصفّح الكتالوج (${catalogLine}) من الصفحة الرئيسية — هذه نصوص المتجر وليست صفحة منتج واحد.`,
+      },
+      {
+        qEn: "How long does delivery take?",
+        aEn: "About 3–7 business days nationwide with a local delivery company.",
+        qAr: "كم يستغرق التوصيل؟",
+        aAr: "نحو ٣–٧ أيام عمل لكل لبنان مع شركة توصيل محلية.",
+      },
+      {
+        qEn: "How do I pay?",
+        aEn: "Cash to the delivery person when the order arrives (COD). Message us on WhatsApp with questions.",
+        qAr: "كيف أدفع؟",
+        aAr: "نقداً لمندوب التوصيل عند وصول الطلب (الدفع عند الاستلام). راسلنا على واتساب لأي سؤال.",
+      },
+    ],
+    attractivenessTipsEn: [
+      `Lead the homepage with ${shop} and what the catalog is for — not a single product page.`,
+      "Paste title + short description into Online Store preferences / homepage SEO, not a single product.",
+      "Put shared shipping, returns, and COD terms on Policies / Pages — they apply across SKUs.",
+      "Keep WhatsApp visible on the homepage; no ranking or Merchant Center promises.",
+    ],
+    attractivenessTipsAr: [
+      `ابدأ الصفحة الرئيسية بـ ${shop} وما يقدّمه الكتالوج — ليست صفحة منتج واحد.`,
+      "الصق العنوان والوصف القصير في تفضيلات Online Store / SEO للصفحة الرئيسية، لا في منتج واحد.",
+      "ضع الشحن والإرجاع وشروط الدفع عند الاستلام في السياسات/الصفحات — تنطبق على كل المنتجات.",
+      "أظهر واتساب في الصفحة الرئيسية؛ بلا وعود ترتيب أو Merchant Center.",
     ],
   };
 

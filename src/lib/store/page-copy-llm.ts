@@ -8,10 +8,12 @@ import {
 } from "@/lib/discovery/explain/llm";
 import {
   buildTemplateStorePageCopy,
+  buildTemplateStoreShopPageCopy,
   validateStorePageCopyPayload,
   type StorePageCopyInput,
   type StorePageCopyPayload,
   type StorePageCopyValidateError,
+  type StoreShopPageCopyInput,
 } from "@/lib/store/page-copy";
 
 export type StorePageCopyLlmError =
@@ -61,6 +63,37 @@ HARD RULES
 - Arabic bodies in clear simplified Arabic; English in clear English.`;
 }
 
+function buildShopSystemPrompt(): string {
+  return `You improve Shopify homepage / shop-level drafts for a Lebanon ecommerce founder (Store side status — not Marketing stages).
+
+HARD RULES
+- Return ONLY valid JSON with this shape:
+{
+  "contentDraftEn": "...",
+  "contentDraftAr": "...",
+  "policiesDraft": "...",
+  "discoverability": {
+    "titleEn": "...",
+    "titleAr": "...",
+    "shortDescriptionEn": "...",
+    "shortDescriptionAr": "...",
+    "searchPhrasesEn": ["...", "..."],
+    "searchPhrasesAr": ["...", "..."],
+    "faqs": [{"qEn":"...","aEn":"...","qAr":"...","aAr":"..."}],
+    "attractivenessTipsEn": ["...", "..."],
+    "attractivenessTipsAr": ["...", "..."]
+  }
+}
+- This is BRAND / SHOP copy: homepage, shop SEO, shared policy tone. liveSkuNames are catalog context only — do NOT write a single-SKU niche product page, and do NOT invent a fake product named "Whole shop".
+- Name the shop (shopName) in contentDraftEn and titleEn.
+- contentDraftEn/Ar: founder-ready homepage bullets (what the shop is, catalog snapshot, why visit, delivery window, WhatsApp, shared policies). Plain text with • bullets.
+- policiesDraft: short shop-wide shipping / COD ops / returns / damage lines — drafts only, not legal advice. Operational COD mention is OK; never pitch COD as a marketing wow or unique advantage.
+- discoverability: paste-ready Shopify helpers for homepage / Online Store preferences / policies — title, short description, 3–6 search phrases EN+AR, 2–4 FAQs, 3–5 attractiveness tips.
+- BAN ranking guarantees, “SEO #1”, chatbot citation promises, Google Merchant API claims.
+- Keep shopName spelling as given (do not translate the name).
+- Arabic bodies in clear simplified Arabic; English in clear English.`;
+}
+
 function factsPack(input: StorePageCopyInput) {
   const name = input.name.trim() || "your product";
   return {
@@ -78,19 +111,34 @@ function factsPack(input: StorePageCopyInput) {
   };
 }
 
-export async function improveStorePageCopyWithGemini(
-  input: StorePageCopyInput,
-  opts?: {
-    fetchFn?: typeof fetch;
-    env?: Record<string, string | undefined>;
-    apiKey?: string;
-  },
+function shopFactsPack(input: StoreShopPageCopyInput) {
+  const shopName = input.shopName.trim() || "your shop";
+  return {
+    shopName,
+    liveSkuNames: input.liveSkuNames
+      .map((n) => n.trim())
+      .filter(Boolean)
+      .slice(0, 12),
+  };
+}
+
+type GeminiStoreCopyOpts = {
+  fetchFn?: typeof fetch;
+  env?: Record<string, string | undefined>;
+  apiKey?: string;
+};
+
+async function runStorePageCopyGemini(
+  facts: Record<string, unknown>,
+  systemPrompt: string,
+  validateName: string,
+  retryLines: string[],
+  opts?: GeminiStoreCopyOpts,
 ): Promise<StorePageCopyLlmResult> {
   const env = opts?.env ?? process.env;
   const apiKey = opts?.apiKey ?? resolveGeminiApiKey(env);
   if (!apiKey) return { ok: false, error: "missing_key" };
 
-  const facts = factsPack(input);
   const model = resolveGeminiModel(env);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const fetchFn = opts?.fetchFn ?? fetch;
@@ -103,7 +151,7 @@ export async function improveStorePageCopyWithGemini(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: buildSystemPrompt() }] },
+          systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: [
             {
               role: "user",
@@ -143,7 +191,7 @@ export async function improveStorePageCopyWithGemini(
 
       const validated = validateStorePageCopyPayload(
         parsed,
-        facts.productName,
+        validateName,
         "gemini",
       );
       if (!validated.ok) return { ok: false, error: validated.error };
@@ -161,13 +209,46 @@ export async function improveStorePageCopyWithGemini(
   ) {
     return first;
   }
-  return attempt(
+  return attempt(retryLines.join("\n"));
+}
+
+export async function improveStorePageCopyWithGemini(
+  input: StorePageCopyInput,
+  opts?: GeminiStoreCopyOpts,
+): Promise<StorePageCopyLlmResult> {
+  const facts = factsPack(input);
+  return runStorePageCopyGemini(
+    facts,
+    buildSystemPrompt(),
+    facts.productName,
     [
       "RETRY — previous JSON was rejected.",
       `Name "${facts.productName}" in contentDraftEn and titleEn.`,
       "No ranking / SEO #1 / chatbot citation promises.",
       "No COD-as-wow pitch. Return valid JSON only.",
-    ].join("\n"),
+    ],
+    opts,
+  );
+}
+
+export async function improveStoreShopPageCopyWithGemini(
+  input: StoreShopPageCopyInput,
+  opts?: GeminiStoreCopyOpts,
+): Promise<StorePageCopyLlmResult> {
+  const facts = shopFactsPack(input);
+  return runStorePageCopyGemini(
+    facts,
+    buildShopSystemPrompt(),
+    facts.shopName,
+    [
+      "RETRY — previous JSON was rejected.",
+      `Name "${facts.shopName}" in contentDraftEn and titleEn.`,
+      "Homepage / shop SEO / shared policies — not a single product page.",
+      "Do not invent a product named Whole shop.",
+      "No ranking / SEO #1 / chatbot citation promises.",
+      "No COD-as-wow pitch. Return valid JSON only.",
+    ],
+    opts,
   );
 }
 
@@ -182,4 +263,16 @@ export async function resolveStorePageCopy(
   const r = await improveStorePageCopyWithGemini(input, opts);
   if (r.ok) return r.payload;
   return buildTemplateStorePageCopy(input);
+}
+
+export async function resolveStoreShopPageCopy(
+  input: StoreShopPageCopyInput,
+  opts?: {
+    fetchFn?: typeof fetch;
+    env?: Record<string, string | undefined>;
+  },
+): Promise<StorePageCopyPayload> {
+  const r = await improveStoreShopPageCopyWithGemini(input, opts);
+  if (r.ok) return r.payload;
+  return buildTemplateStoreShopPageCopy(input);
 }

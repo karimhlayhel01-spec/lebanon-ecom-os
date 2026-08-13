@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 4**.
 **Wave 1** (multi-SKU hub, stage-aware Marketing FSM, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery) and **Wave 3** (Supplier) remain locked — see `docs/WAVE-2.md`, `docs/WAVE-3.md`. Do not reopen those locks here.
 
-**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + copyable prompts). **Phase 6 parked** (in-app visual gen). **Phase 7 shipped** (Marketing Gemini spend ledger + harden / EN–AR / tests). **Store follow-up shipped** (per-SKU page packs + Marketing-style picker). **Whole-shop Store pack still parked.**
+**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + copyable prompts). **Phase 6 parked** (in-app visual gen). **Phase 7 shipped** (Marketing Gemini spend ledger + harden / EN–AR / tests). **Store follow-up shipped** (per-SKU page packs + Marketing-style picker). **Whole-shop Store pack shipped** (≥3 live SKUs).
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -52,7 +52,7 @@ Amend dates / promotion in §7 changelog.
 | **6** | Optional in-app visual gen (capped spend) — **parked / deferred** |
 | **7** | Harden / EN–AR / tests / Marketing Gemini spend ledger — **shipped** |
 
-**Parked follow-ups:** Whole-shop Store pack (no Whole-shop chip yet). Store Gemini metering (still not on Marketing Phase 7 ledger). Phase 4 hero remains parked. Phase 6 visual gen remains parked.
+**Parked follow-ups:** Store Gemini metering (still not on Marketing Phase 7 ledger). Phase 4 hero remains parked. Phase 6 visual gen remains parked.
 
 ---
 
@@ -103,8 +103,8 @@ Intent remains: one next creative, Posted / Skipped honor-system, OS SoT (no Cal
 - Store side surface only — **no** new Marketing stage.
 - Approach A: **Improve with AI** click → Gemini EN/AR product drafts + optional policies + discoverability pack (title, short description, search phrases, FAQs, attractiveness tips).
 - Fail-closed without `GEMINI_API_KEY` → deterministic template drafts; calm honesty in UI.
-- Persist per live SKU on `store_page_packs` (drafts, policies, discoverability, versions). Shop checklist / URL / WhatsApp / courier stay on workspace `store_readiness`. Founder **Copy**s drafts/pack for Shopify paste (read-only in OS — no Save drafts). No Whole-shop Store pack yet.
-- **Versions:** baseline captured once before first Improve; up to **3** successful Gemini snapshots; template/LLM miss does not consume a slot; founder picks active version (≤4).
+- Persist per live SKU on `store_page_packs` (drafts, policies, discoverability, versions). When ≥3 live SKUs, a **Whole-shop** pack (`sku_id` NULL) is available — homepage / shop SEO / shared policies, not a fake product page. Shop checklist / URL / WhatsApp / courier stay on workspace `store_readiness`. Founder **Copy**s drafts/pack for Shopify paste (read-only in OS — no Save drafts).
+- **Versions:** baseline captured once before first Improve; up to **3** successful Gemini snapshots **per pack** (product and shop each have their own 3 AI slots); template/LLM miss does not consume a slot; founder picks active version (≤4).
 - Non-promises: no ranking guarantees, Merchant API, chatbot citations, or auto-Shopify write.
 
 ---
@@ -174,6 +174,7 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-13 | Store Whole-shop pack shipped — `store_page_packs.sku_id` nullable + one shop row per workspace; Marketing-style picker (`?sku=shop`, ≥3 live); shop Improve is homepage/SEO/shared policies; product packs stay isolated; Store Gemini still not on Marketing ledger. |
 | 2026-08-13 | Store discoverability intro: why / how to paste in Shopify / no Merchant or ranking claims (EN+AR). |
 | 2026-08-13 | Store follow-up — **per-SKU page packs** (`store_page_packs`); Marketing-style picker (no Whole-shop chip); checklist stays shop-wide; Improve/versions fail-closed on `skuId`; Store Gemini still not on Marketing ledger. Whole-shop Store parked. |
 | 2026-08-12 | **Phase 7 shipped** — Marketing Gemini monthly ledger (`MARKETING_GEMINI_MONTHLY_CAP`, per workspace); Intro + creatives metered; polish only if Gemini; Store pack out of scope / parked; Phase 6 parked; Phase 4 stays parked; EN/AR + cap honesty + tests. |

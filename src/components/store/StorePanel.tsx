@@ -85,7 +85,11 @@ export function StorePanel({ view }: { view: StorePanelView }) {
   const [openKey, setOpenKey] = useState<StoreChecklistKey | null>(null);
   const checklist = view.checklist as StoreChecklistState;
 
-  function pickSku(skuId: string) {
+  function pickSku(skuId: string | null) {
+    if (!skuId) {
+      router.replace("/store?sku=shop");
+      return;
+    }
     router.replace(`/store?sku=${skuId}`);
   }
 
@@ -118,7 +122,7 @@ export function StorePanel({ view }: { view: StorePanelView }) {
               type="button"
               onClick={() => pickSku(s.id)}
               className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                view.selectedSkuId === s.id
+                view.selectedSkuId === s.id && !view.isShopPack
                   ? "border-cedar bg-cedar/10 text-cedar-deep"
                   : "border-stone bg-surface text-ink hover:bg-sand"
               }`}
@@ -126,6 +130,20 @@ export function StorePanel({ view }: { view: StorePanelView }) {
               {s.name}
             </button>
           ))}
+          {view.shopPackAvailable && (
+            <button
+              type="button"
+              onClick={() => pickSku(null)}
+              title={t("shopPackHint")}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                view.isShopPack
+                  ? "border-cedar bg-cedar/10 text-cedar-deep"
+                  : "border-stone bg-surface text-ink hover:bg-sand"
+              }`}
+            >
+              {t("shopPack")}
+            </button>
+          )}
         </div>
       )}
 
@@ -291,7 +309,7 @@ function PageStrongerSection({ view }: { view: StorePanelView }) {
   const atCap = aiLeft <= 0;
   const hasVersions = view.pageCopyVersions.length > 0;
   const hasAiVersion = view.pageCopyAiCount > 0;
-  const canRunAi = Boolean(view.selectedSkuId) && !atCap;
+  const canRunAi = (view.isShopPack || Boolean(view.selectedSkuId)) && !atCap;
 
   async function copyField(key: string, text: string) {
     const ok = await copyTextToClipboard(text);
@@ -304,8 +322,8 @@ function PageStrongerSection({ view }: { view: StorePanelView }) {
     setImproveError(null);
     setImproveNote(null);
     startImprove(async () => {
-      const skuId = view.selectedSkuId;
-      if (!skuId) {
+      const skuId = view.isShopPack ? null : view.selectedSkuId;
+      if (!view.isShopPack && !skuId) {
         setImproveError("noSku");
         return;
       }
@@ -331,9 +349,11 @@ function PageStrongerSection({ view }: { view: StorePanelView }) {
     <section className="mt-6 border-t border-stone pt-5">
       <h3 className="font-display text-base text-ink">{t("pageStrongerTitle")}</h3>
       <p className="mt-1 max-w-2xl text-sm text-stone-dark">
-        {t("pageStrongerIntro", {
-          name: view.skuName ?? t("pageStrongerNoSku"),
-        })}
+        {view.isShopPack
+          ? t("pageStrongerIntroShop")
+          : t("pageStrongerIntro", {
+              name: view.skuName ?? t("pageStrongerNoSku"),
+            })}
       </p>
       <p className="mt-2 text-xs text-stone-dark">{t("pageStrongerHonesty")}</p>
 
@@ -394,9 +414,12 @@ function PageStrongerSection({ view }: { view: StorePanelView }) {
                   aria-pressed={active}
                   onClick={() => {
                     startSelect(async () => {
-                      if (!view.selectedSkuId) return;
+                      const skuId = view.isShopPack
+                        ? null
+                        : view.selectedSkuId;
+                      if (!view.isShopPack && !skuId) return;
                       await selectStorePageCopyVersionAction(
-                        view.selectedSkuId,
+                        skuId,
                         v.index,
                       );
                       router.refresh();
@@ -463,6 +486,7 @@ function PageStrongerSection({ view }: { view: StorePanelView }) {
         <DiscoverabilityBlock
           pack={view.discoverability}
           isAr={isAr}
+          isShopPack={view.isShopPack}
           copied={copiedKey === "pack"}
           onCopy={() =>
             copyField(
@@ -481,11 +505,13 @@ function PageStrongerSection({ view }: { view: StorePanelView }) {
 function DiscoverabilityBlock({
   pack,
   isAr,
+  isShopPack,
   copied,
   onCopy,
 }: {
   pack: DiscoverabilityPack;
   isAr: boolean;
+  isShopPack: boolean;
   copied: boolean;
   onCopy: () => void;
 }) {
@@ -498,7 +524,9 @@ function DiscoverabilityBlock({
             {t("discoverabilityTitle")}
           </h4>
           <p className="mt-1 max-w-2xl whitespace-pre-line text-xs text-stone-dark">
-            {t("discoverabilityIntro")}
+            {isShopPack
+              ? t("discoverabilityIntroShop")
+              : t("discoverabilityIntro")}
           </p>
         </div>
         <button

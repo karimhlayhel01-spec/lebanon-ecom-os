@@ -22,9 +22,13 @@ import {
 } from "@/lib/marketing/intro-validate";
 import {
   improveStorePageCopyWithGemini,
+  improveStoreShopPageCopyWithGemini,
   type StorePageCopyLlmResult,
 } from "@/lib/store/page-copy-llm";
-import type { StorePageCopyInput } from "@/lib/store/page-copy";
+import type {
+  StorePageCopyInput,
+  StoreShopPageCopyInput,
+} from "@/lib/store/page-copy";
 import { fillCreativesKitWithGemini } from "@/lib/marketing/creatives-llm";
 import type { BuildCreativesInput, Creative } from "@/lib/marketing/creatives";
 import type { CreativesKitLlmResult } from "@/lib/marketing/creatives-llm";
@@ -51,6 +55,11 @@ export type MarketingLlmProvider = {
   /** Wave 4 Phase 2 — Store page drafts + discoverability pack. */
   improveStorePageCopy(
     input: StorePageCopyInput,
+    opts?: { fetchFn?: typeof fetch; env?: Record<string, string | undefined> },
+  ): Promise<StorePageCopyLlmResult>;
+  /** Wave 4 Store whole-shop pack — homepage / shop SEO (not Marketing ledger). */
+  improveStoreShopPageCopy(
+    input: StoreShopPageCopyInput,
     opts?: { fetchFn?: typeof fetch; env?: Record<string, string | undefined> },
   ): Promise<StorePageCopyLlmResult>;
   /** Wave 4 Phase 3 — fill creative kit copy onto a skeleton. */
@@ -233,6 +242,9 @@ export function createGeminiMarketingLlmProvider(): MarketingLlmProvider {
     },
     async improveStorePageCopy(input, opts) {
       return improveStorePageCopyWithGemini(input, opts);
+    },
+    async improveStoreShopPageCopy(input, opts) {
+      return improveStoreShopPageCopyWithGemini(input, opts);
     },
     async improveCreativesKit(input, skeleton, opts) {
       return fillCreativesKitWithGemini(input, skeleton, opts);

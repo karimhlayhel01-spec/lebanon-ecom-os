@@ -54,7 +54,7 @@ export async function saveStoreFieldsAction(
 }
 
 export async function improveStorePageCopyAction(
-  skuId: string,
+  skuId: string | null,
 ): Promise<{
   ok: boolean;
   source?: "gemini" | "template";
@@ -79,7 +79,7 @@ export async function improveStorePageCopyAction(
 }
 
 export async function selectStorePageCopyVersionAction(
-  skuId: string,
+  skuId: string | null,
   index: number,
 ): Promise<{ ok: boolean; error?: string }> {
   await ensureMigrated();

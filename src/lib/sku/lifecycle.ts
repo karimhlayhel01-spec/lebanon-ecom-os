@@ -28,6 +28,7 @@ async function deleteSkuWipeDependents(
           .where(eq(schema.marketingKits.skuId, skuId));
         break;
       case "store_page_packs":
+        // SKU wipe deletes only this SKU's pack. Shop pack (sku_id NULL) survives.
         await exec
           .delete(schema.storePagePacks)
           .where(eq(schema.storePagePacks.skuId, skuId));

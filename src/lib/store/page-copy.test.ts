@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTemplateStorePageCopy,
+  buildTemplateStoreShopPageCopy,
   formatDiscoverabilityForCopy,
   parseDiscoverabilityPack,
   serializeDiscoverabilityPack,
   validateStorePageCopyPayload,
 } from "@/lib/store/page-copy";
-import { improveStorePageCopyWithGemini } from "@/lib/store/page-copy-llm";
+import {
+  improveStorePageCopyWithGemini,
+  improveStoreShopPageCopyWithGemini,
+} from "@/lib/store/page-copy-llm";
 
 describe("buildTemplateStorePageCopy", () => {
   it("includes product name and discoverability fields", () => {
@@ -105,6 +109,67 @@ describe("improveStorePageCopyWithGemini fail-closed", () => {
   it("returns missing_key without env", async () => {
     const r = await improveStorePageCopyWithGemini(
       { name: "Test", category: "home_kitchen" },
+      { env: {} },
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe("missing_key");
+  });
+});
+
+describe("buildTemplateStoreShopPageCopy", () => {
+  it("is homepage / catalog copy — not a fake product named Whole shop", () => {
+    const pack = buildTemplateStoreShopPageCopy({
+      shopName: "Cedar Home",
+      liveSkuNames: ["Spatula", "Organizer", "Lamp"],
+    });
+    expect(pack.source).toBe("template");
+    expect(pack.contentDraftEn).toContain("Cedar Home");
+    expect(pack.contentDraftEn).toContain("Spatula");
+    expect(pack.contentDraftEn.toLowerCase()).not.toMatch(/whole shop/);
+    expect(pack.discoverability.titleEn).toContain("Cedar Home");
+    expect(pack.policiesDraft.toLowerCase()).toMatch(/shipping|return/);
+    const validated = validateStorePageCopyPayload(
+      {
+        contentDraftEn: pack.contentDraftEn,
+        contentDraftAr: pack.contentDraftAr,
+        policiesDraft: pack.policiesDraft,
+        discoverability: pack.discoverability,
+      },
+      "Cedar Home",
+      "template",
+    );
+    expect(validated.ok).toBe(true);
+  });
+
+  it("shop validate still bans ranking and COD-as-wow", () => {
+    const pack = buildTemplateStoreShopPageCopy({
+      shopName: "Cedar Home",
+      liveSkuNames: ["A", "B", "C"],
+    });
+    const ranked = {
+      contentDraftEn: pack.contentDraftEn,
+      contentDraftAr: pack.contentDraftAr,
+      policiesDraft: pack.policiesDraft,
+      discoverability: {
+        ...pack.discoverability,
+        attractivenessTipsEn: [
+          "This will rank #1 on Google guaranteed.",
+          "Another tip about the homepage.",
+        ],
+      },
+    };
+    const r = validateStorePageCopyPayload(ranked, "Cedar Home", "gemini");
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBe("ranking_promise");
+  });
+});
+
+describe("improveStoreShopPageCopyWithGemini fail-closed", () => {
+  it("returns missing_key without env", async () => {
+    const r = await improveStoreShopPageCopyWithGemini(
+      { shopName: "Cedar Home", liveSkuNames: ["A", "B", "C"] },
       { env: {} },
     );
     expect(r.ok).toBe(false);

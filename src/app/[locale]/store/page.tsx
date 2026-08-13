@@ -5,7 +5,11 @@ import { getStorePanel } from "@/lib/store/service";
 import { StorePanel } from "@/components/store/StorePanel";
 import { DeepPageLayout, EmptyState } from "@/components/dashboard/DeepPageLayout";
 import { listLiveSkus } from "@/lib/sku/journey";
-import { resolveStorePanelSkuId } from "@/lib/store/page-pack-scope";
+import {
+  isStoreShopPackRequest,
+  resolveStorePanelSkuId,
+  skuParamForStoreResolve,
+} from "@/lib/store/page-pack-scope";
 
 type Props = {
   params: Promise<{ locale: string }>;
@@ -36,15 +40,20 @@ export default async function StorePage({ params, searchParams }: Props) {
           a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
       )
       .map((s) => s.id);
-    const selected = resolveStorePanelSkuId(liveIds, skuParam);
-    view = await getStorePanel(ctx.workspace.id, selected);
+    const isShopPackRequest = isStoreShopPackRequest(skuParam, live.length);
+    view = isShopPackRequest
+      ? await getStorePanel(ctx.workspace.id, null)
+      : await getStorePanel(
+          ctx.workspace.id,
+          resolveStorePanelSkuId(liveIds, skuParamForStoreResolve(skuParam)),
+        );
   }
 
   return (
     <DeepPageLayout isPaused={isPaused} title={t("pageStore")}>
       {view ? (
         <StorePanel
-          key={view.selectedSkuId ?? "store"}
+          key={view.isShopPack ? "shop" : (view.selectedSkuId ?? "store")}
           view={view}
         />
       ) : (
