@@ -76,6 +76,7 @@ function deliveryCompanyLabel(
 
 export function StorePanel({ view }: { view: StorePanelView }) {
   const t = useTranslations("Store");
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [fieldsState, saveFields, fieldsPending] = useActionState(
     saveStoreFieldsAction,
@@ -83,6 +84,10 @@ export function StorePanel({ view }: { view: StorePanelView }) {
   );
   const [openKey, setOpenKey] = useState<StoreChecklistKey | null>(null);
   const checklist = view.checklist as StoreChecklistState;
+
+  function pickSku(skuId: string) {
+    router.replace(`/store?sku=${skuId}`);
+  }
 
   return (
     <div className="surface-card p-5">
@@ -101,6 +106,28 @@ export function StorePanel({ view }: { view: StorePanelView }) {
           <div className="text-xs text-stone-dark">{t("ready")}</div>
         </div>
       </div>
+
+      {view.liveSkus.length > 1 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-stone-dark">
+            {t("skuPicker")}
+          </span>
+          {view.liveSkus.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => pickSku(s.id)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                view.selectedSkuId === s.id
+                  ? "border-cedar bg-cedar/10 text-cedar-deep"
+                  : "border-stone bg-surface text-ink hover:bg-sand"
+              }`}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="mt-3 rounded-md border border-sea/40 bg-sea/10 px-3 py-2.5 text-xs font-medium text-sea">
         {t("sideOnlyNote")}
@@ -264,7 +291,7 @@ function PageStrongerSection({ view }: { view: StorePanelView }) {
   const atCap = aiLeft <= 0;
   const hasVersions = view.pageCopyVersions.length > 0;
   const hasAiVersion = view.pageCopyAiCount > 0;
-  const canRunAi = Boolean(view.skuName) && !atCap;
+  const canRunAi = Boolean(view.selectedSkuId) && !atCap;
 
   async function copyField(key: string, text: string) {
     const ok = await copyTextToClipboard(text);
@@ -277,7 +304,12 @@ function PageStrongerSection({ view }: { view: StorePanelView }) {
     setImproveError(null);
     setImproveNote(null);
     startImprove(async () => {
-      const res = await improveStorePageCopyAction();
+      const skuId = view.selectedSkuId;
+      if (!skuId) {
+        setImproveError("noSku");
+        return;
+      }
+      const res = await improveStorePageCopyAction(skuId);
       if (!res.ok) {
         setImproveError(
           res.error === "noSku"
@@ -362,7 +394,11 @@ function PageStrongerSection({ view }: { view: StorePanelView }) {
                   aria-pressed={active}
                   onClick={() => {
                     startSelect(async () => {
-                      await selectStorePageCopyVersionAction(v.index);
+                      if (!view.selectedSkuId) return;
+                      await selectStorePageCopyVersionAction(
+                        view.selectedSkuId,
+                        v.index,
+                      );
                       router.refresh();
                     });
                   }}
@@ -461,7 +497,7 @@ function DiscoverabilityBlock({
           <h4 className="text-sm font-semibold text-ink">
             {t("discoverabilityTitle")}
           </h4>
-          <p className="mt-1 text-xs text-stone-dark">
+          <p className="mt-1 max-w-2xl whitespace-pre-line text-xs text-stone-dark">
             {t("discoverabilityIntro")}
           </p>
         </div>

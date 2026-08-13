@@ -326,10 +326,32 @@ export const storeReadiness = pgTable("store_readiness", {
   policiesDraft: text("policies_draft").notNull().default(""),
   contentDraftEn: text("content_draft_en").notNull().default(""),
   contentDraftAr: text("content_draft_ar").notNull().default(""),
-  /** JSON DiscoverabilityPack — title, short desc, search phrases, FAQs (Wave 4 Phase 2). */
+  /** Legacy shop-level pack columns — AI reads `store_page_packs` (per SKU). Left in place. */
   discoverabilityPack: text("discoverability_pack").notNull().default(""),
-  /** JSON StorePageCopyVersionsState — baseline + ≤3 AI snapshots. */
+  /** Legacy shop-level versions — AI reads `store_page_packs`. Left in place. */
   pageCopyVersions: text("page_copy_versions").notNull().default(""),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * Wave 4 Store follow-up — per live SKU product-page pack (drafts, policies,
+ * discoverability, versions). Shop checklist stays on store_readiness.
+ */
+export const storePagePacks = pgTable("store_page_packs", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id),
+  skuId: text("sku_id")
+    .notNull()
+    .unique()
+    .references(() => skuCards.id),
+  policiesDraft: text("policies_draft").notNull().default(""),
+  contentDraftEn: text("content_draft_en").notNull().default(""),
+  contentDraftAr: text("content_draft_ar").notNull().default(""),
+  discoverabilityPack: text("discoverability_pack").notNull().default(""),
+  pageCopyVersions: text("page_copy_versions").notNull().default(""),
+  createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
 

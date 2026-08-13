@@ -53,7 +53,9 @@ export async function saveStoreFieldsAction(
   return { ok: true };
 }
 
-export async function improveStorePageCopyAction(): Promise<{
+export async function improveStorePageCopyAction(
+  skuId: string,
+): Promise<{
   ok: boolean;
   source?: "gemini" | "template";
   aiLeft?: number;
@@ -62,7 +64,7 @@ export async function improveStorePageCopyAction(): Promise<{
   await ensureMigrated();
   const ctx = await workspaceForRequest();
   if (!ctx.ok) return { ok: false, error: ctx.error };
-  const res = await improveStorePageCopy(ctx.workspace.id);
+  const res = await improveStorePageCopy(ctx.workspace.id, skuId);
   if (!res.ok) {
     const error =
       res.error === "no_sku"
@@ -77,12 +79,13 @@ export async function improveStorePageCopyAction(): Promise<{
 }
 
 export async function selectStorePageCopyVersionAction(
+  skuId: string,
   index: number,
 ): Promise<{ ok: boolean; error?: string }> {
   await ensureMigrated();
   const ctx = await workspaceForRequest();
   if (!ctx.ok) return { ok: false, error: ctx.error };
-  const res = await selectStorePageCopyVersion(ctx.workspace.id, index);
+  const res = await selectStorePageCopyVersion(ctx.workspace.id, skuId, index);
   if (!res.ok) {
     return {
       ok: false,

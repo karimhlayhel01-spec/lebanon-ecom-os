@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import {
@@ -11,10 +11,14 @@ import {
   founderEditStoreReadiness,
   getWorkspace,
 } from "@/lib/memory/repos";
-import { getSkuView } from "@/lib/sku/service";
+import { getSkuViewById } from "@/lib/sku/service";
+import { listLiveSkus } from "@/lib/sku/journey";
+import { assertSkuOwned } from "@/lib/sku/ownership";
+import { parseRequiredSkuId } from "@/lib/sku/require-sku-id";
 import { canCheckStoreChecklistKey } from "@/lib/store/gating";
 import { isGeminiConfigured } from "@/lib/discovery/explain/llm";
 import { getMarketingLlmProvider } from "@/lib/marketing/intro-llm";
+import { resolveStorePanelSkuId } from "@/lib/store/page-pack-scope";
 import {
   buildTemplateStorePageCopy,
   parseDiscoverabilityPack,
@@ -41,12 +45,14 @@ import {
 /**
  * Store setup — a SIDE status. The Shopify readiness checklist lives here and
  * store readiness NEVER blocks batch ordering or selling. The `store_ready`
- * gate is side-only (no journey transition). Content/policy drafts are
- * system-written starter text (Wave 4: AI-improved on click); the founder
- * edits checklist marks, URLs, and draft text.
+ * gate is side-only (no journey transition). Product-page AI packs are per
+ * live SKU (`store_page_packs`). Checklist / URL / WhatsApp / courier stay
+ * workspace `store_readiness`.
  */
 
 type Checklist = Record<StoreChecklistKey, boolean>;
+
+type StorePagePackRow = typeof schema.storePagePacks.$inferSelect;
 
 function emptyChecklist(): Checklist {
   return Object.fromEntries(
@@ -67,19 +73,12 @@ function parseChecklist(raw: string): Checklist {
   return base;
 }
 
-function contentEn(name: string): string {
-  return buildTemplateStorePageCopy({ name, category: "" }).contentDraftEn;
-}
-
-function contentAr(name: string): string {
-  return buildTemplateStorePageCopy({ name, category: "" }).contentDraftAr;
-}
-
-function policiesDraft(): string {
-  return buildTemplateStorePageCopy({
-    name: "your product",
-    category: "",
-  }).policiesDraft;
+function sortLiveSkus<T extends { id: string; createdAt: string; name: string }>(
+  rows: T[],
+): T[] {
+  return [...rows].sort(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+  );
 }
 
 async function ensureStoreRow(workspaceId: string) {
@@ -91,8 +90,6 @@ async function ensureStoreRow(workspaceId: string) {
     .then((rows) => rows[0]);
   if (existing) return existing;
 
-  const sku = await getSkuView(workspaceId);
-  const name = sku?.name ?? "your product";
   const now = nowIso();
   await db.insert(schema.storeReadiness).values({
     id: newId(),
@@ -101,9 +98,9 @@ async function ensureStoreRow(workspaceId: string) {
     storeUrl: null,
     whatsappNumber: null,
     courierChoice: null,
-    policiesDraft: policiesDraft(),
-    contentDraftEn: contentEn(name),
-    contentDraftAr: contentAr(name),
+    policiesDraft: "",
+    contentDraftEn: "",
+    contentDraftAr: "",
     discoverabilityPack: "",
     pageCopyVersions: "",
     updatedAt: now,
@@ -113,6 +110,58 @@ async function ensureStoreRow(workspaceId: string) {
     .from(schema.storeReadiness)
     .where(eq(schema.storeReadiness.workspaceId, workspaceId))
     .then((rows) => rows[0]);
+}
+
+async function loadPackRow(
+  workspaceId: string,
+  skuId: string,
+): Promise<StorePagePackRow | undefined> {
+  return db
+    .select()
+    .from(schema.storePagePacks)
+    .where(
+      and(
+        eq(schema.storePagePacks.workspaceId, workspaceId),
+        eq(schema.storePagePacks.skuId, skuId),
+      ),
+    )
+    .then((rows) => rows[0]);
+}
+
+async function ensureStorePagePack(
+  workspaceId: string,
+  skuId: string,
+): Promise<StorePagePackRow | null> {
+  const existing = await loadPackRow(workspaceId, skuId);
+  if (existing) return existing;
+
+  const sku = await getSkuViewById(workspaceId, skuId);
+  if (!sku) return null;
+
+  const template = buildTemplateStorePageCopy({
+    name: sku.name,
+    category: sku.basics.category,
+    differentiation: sku.basics.differentiation,
+    hooks: sku.marketingHooks.hooks,
+    sellPrice: sku.basics.sellPrice,
+  });
+  const now = nowIso();
+  await db.insert(schema.storePagePacks).values({
+    id: newId(),
+    workspaceId,
+    skuId,
+    policiesDraft: template.policiesDraft,
+    contentDraftEn: template.contentDraftEn,
+    contentDraftAr: template.contentDraftAr,
+    discoverabilityPack: serializeDiscoverabilityPack(
+      template.discoverability,
+      "template",
+    ),
+    pageCopyVersions: "",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return (await loadPackRow(workspaceId, skuId)) ?? null;
 }
 
 export type StorePanelView = {
@@ -130,9 +179,11 @@ export type StorePanelView = {
   pageCopySource: StorePageCopySource | null;
   geminiConfigured: boolean;
   storeReady: boolean;
-  /** Active / orientation SKU name for copy context. */
+  /** Selected live SKU name for copy context. */
   skuName: string | null;
-  /** Version picker: baseline + ≤3 AI. */
+  selectedSkuId: string | null;
+  liveSkus: Array<{ id: string; name: string }>;
+  /** Version picker: baseline + ≤3 AI (per pack). */
   pageCopyVersions: StorePageCopyVersionSummary[];
   pageCopyActiveIndex: number;
   pageCopyAiCount: number;
@@ -146,24 +197,75 @@ function percentOf(checklist: Checklist): number {
   return Math.round((done / total) * 100);
 }
 
+function emptyPackFields(): {
+  policiesDraft: string;
+  contentDraftEn: string;
+  contentDraftAr: string;
+  discoverability: DiscoverabilityPack | null;
+  pageCopySource: StorePageCopySource | null;
+  pageCopyVersions: StorePageCopyVersionSummary[];
+  pageCopyActiveIndex: number;
+  pageCopyAiCount: number;
+  pageCopyAiLeft: number;
+} {
+  return {
+    policiesDraft: "",
+    contentDraftEn: "",
+    contentDraftAr: "",
+    discoverability: null,
+    pageCopySource: null,
+    pageCopyVersions: [],
+    pageCopyActiveIndex: 0,
+    pageCopyAiCount: 0,
+    pageCopyAiLeft: MAX_AI_STORE_PAGE_COPY_VERSIONS,
+  };
+}
+
 export async function getStorePanel(
   workspaceId: string,
+  skuId?: string | null,
 ): Promise<StorePanelView | null> {
   const row = await ensureStoreRow(workspaceId);
   if (!row) return null;
 
-  const [side, sku] = await Promise.all([
+  const [side, liveRaw] = await Promise.all([
     db
       .select()
       .from(schema.sideStatuses)
       .where(eq(schema.sideStatuses.workspaceId, workspaceId))
       .then((rows) => rows[0]),
-    getSkuView(workspaceId),
+    listLiveSkus(workspaceId),
   ]);
 
+  const live = sortLiveSkus(liveRaw);
+  const liveIds = live.map((s) => s.id);
+  const selectedSkuId = resolveStorePanelSkuId(liveIds, skuId);
+
   const checklist = parseChecklist(row.checklist);
-  const packRaw = row.discoverabilityPack ?? "";
-  const versionsState = parsePageCopyVersions(row.pageCopyVersions ?? "");
+  let packFields = emptyPackFields();
+  let skuName: string | null = null;
+
+  if (selectedSkuId) {
+    const sku = await getSkuViewById(workspaceId, selectedSkuId);
+    skuName = sku?.name ?? null;
+    const pack = await ensureStorePagePack(workspaceId, selectedSkuId);
+    if (pack) {
+      const packRaw = pack.discoverabilityPack ?? "";
+      const versionsState = parsePageCopyVersions(pack.pageCopyVersions ?? "");
+      packFields = {
+        policiesDraft: pack.policiesDraft,
+        contentDraftEn: pack.contentDraftEn,
+        contentDraftAr: pack.contentDraftAr,
+        discoverability: parseDiscoverabilityPack(packRaw),
+        pageCopySource: parseStoredPackSource(packRaw),
+        pageCopyVersions: versionSummaries(versionsState),
+        pageCopyActiveIndex: versionsState.activeIndex,
+        pageCopyAiCount: countAiVersions(versionsState),
+        pageCopyAiLeft: aiImprovesLeft(versionsState),
+      };
+    }
+  }
+
   return {
     checklist,
     checklistKeys: STORE_CHECKLIST_KEYS,
@@ -172,19 +274,13 @@ export async function getStorePanel(
     whatsappNumber: row.whatsappNumber,
     courierChoice: row.courierChoice,
     couriers: COURIERS_TBD,
-    policiesDraft: row.policiesDraft,
-    contentDraftEn: row.contentDraftEn,
-    contentDraftAr: row.contentDraftAr,
-    discoverability: parseDiscoverabilityPack(packRaw),
-    pageCopySource: parseStoredPackSource(packRaw),
     geminiConfigured: isGeminiConfigured(),
     storeReady: side?.storeReady ?? false,
-    skuName: sku?.name ?? null,
-    pageCopyVersions: versionSummaries(versionsState),
-    pageCopyActiveIndex: versionsState.activeIndex,
-    pageCopyAiCount: countAiVersions(versionsState),
-    pageCopyAiLeft: aiImprovesLeft(versionsState),
+    skuName,
+    selectedSkuId,
+    liveSkus: live.map((s) => ({ id: s.id, name: s.name })),
     pageCopyMaxAi: MAX_AI_STORE_PAGE_COPY_VERSIONS,
+    ...packFields,
   };
 }
 
@@ -267,35 +363,44 @@ function applyLiveFields(
 /**
  * Approach A: explicit click — Gemini improve (consumes 1 of 3 AI slots) or
  * template fallback (does not consume). Cap refuses before LLM when full.
+ * Fail-closed without skuId (no workspace-active SKU fallback). Store Gemini is
+ * not on the Marketing Phase 7 ledger.
  */
 export async function improveStorePageCopy(
   workspaceId: string,
+  skuId: unknown,
 ): Promise<ImproveStorePageCopyResult> {
+  const scope = parseRequiredSkuId(skuId);
+  if (!scope.ok) return { ok: false, error: "not_found" };
   await ensureMigrated();
-  const row = await ensureStoreRow(workspaceId);
-  if (!row) return { ok: false, error: "not_found" };
-  const sku = await getSkuView(workspaceId);
+  const owned = await assertSkuOwned(workspaceId, scope.skuId);
+  if (!owned.ok) return { ok: false, error: "not_found" };
+
+  const sku = await getSkuViewById(workspaceId, scope.skuId);
   if (!sku) return { ok: false, error: "no_sku" };
 
+  await ensureStoreRow(workspaceId);
+  const pack = await ensureStorePagePack(workspaceId, scope.skuId);
+  if (!pack) return { ok: false, error: "not_found" };
+
   const now = nowIso();
-  let versions = parsePageCopyVersions(row.pageCopyVersions ?? "");
+  let versions = parsePageCopyVersions(pack.pageCopyVersions ?? "");
   versions = ensureBaseline(versions, {
-    contentDraftEn: row.contentDraftEn,
-    contentDraftAr: row.contentDraftAr,
-    policiesDraft: row.policiesDraft,
-    discoverabilityPackRaw: row.discoverabilityPack ?? "",
+    contentDraftEn: pack.contentDraftEn,
+    contentDraftAr: pack.contentDraftAr,
+    policiesDraft: pack.policiesDraft,
+    discoverabilityPackRaw: pack.discoverabilityPack ?? "",
     createdAt: now,
   });
 
   if (countAiVersions(versions) >= MAX_AI_STORE_PAGE_COPY_VERSIONS) {
-    // Persist baseline capture if we just created it, then refuse.
     await db
-      .update(schema.storeReadiness)
+      .update(schema.storePagePacks)
       .set({
         pageCopyVersions: serializePageCopyVersions(versions),
         updatedAt: now,
       })
-      .where(eq(schema.storeReadiness.workspaceId, workspaceId));
+      .where(eq(schema.storePagePacks.id, pack.id));
     return { ok: false, error: "ai_cap" };
   }
 
@@ -322,13 +427,13 @@ export async function improveStorePageCopy(
       source: "gemini",
     });
     await db
-      .update(schema.storeReadiness)
+      .update(schema.storePagePacks)
       .set({
         ...live,
         pageCopyVersions: serializePageCopyVersions(versions),
         updatedAt: now,
       })
-      .where(eq(schema.storeReadiness.workspaceId, workspaceId));
+      .where(eq(schema.storePagePacks.id, pack.id));
 
     await db.insert(schema.orchestratorEvents).values({
       id: newId(),
@@ -351,17 +456,16 @@ export async function improveStorePageCopy(
     };
   }
 
-  // Template fallback / LLM miss — refresh live fields, do NOT burn an AI slot.
   const template = buildTemplateStorePageCopy(input);
   const live = applyLiveFields(template);
   await db
-    .update(schema.storeReadiness)
+    .update(schema.storePagePacks)
     .set({
       ...live,
       pageCopyVersions: serializePageCopyVersions(versions),
       updatedAt: now,
     })
-    .where(eq(schema.storeReadiness.workspaceId, workspaceId));
+    .where(eq(schema.storePagePacks.id, pack.id));
 
   await db.insert(schema.orchestratorEvents).values({
     id: newId(),
@@ -389,13 +493,19 @@ export type SelectStorePageCopyVersionResult =
 
 export async function selectStorePageCopyVersion(
   workspaceId: string,
+  skuId: unknown,
   index: number,
 ): Promise<SelectStorePageCopyVersionResult> {
+  const scope = parseRequiredSkuId(skuId);
+  if (!scope.ok) return { ok: false, error: "not_found" };
   await ensureMigrated();
-  const row = await ensureStoreRow(workspaceId);
-  if (!row) return { ok: false, error: "not_found" };
+  const owned = await assertSkuOwned(workspaceId, scope.skuId);
+  if (!owned.ok) return { ok: false, error: "not_found" };
 
-  const state = parsePageCopyVersions(row.pageCopyVersions ?? "");
+  const pack = await loadPackRow(workspaceId, scope.skuId);
+  if (!pack) return { ok: false, error: "not_found" };
+
+  const state = parsePageCopyVersions(pack.pageCopyVersions ?? "");
   const next = selectVersion(state, index);
   if (!next) return { ok: false, error: "bad_index" };
   const active = activeVersion(next);
@@ -415,13 +525,13 @@ export async function selectStorePageCopyVersion(
   });
   const now = nowIso();
   await db
-    .update(schema.storeReadiness)
+    .update(schema.storePagePacks)
     .set({
       ...live,
       pageCopyVersions: serializePageCopyVersions(next),
       updatedAt: now,
     })
-    .where(eq(schema.storeReadiness.workspaceId, workspaceId));
+    .where(eq(schema.storePagePacks.id, pack.id));
 
   return { ok: true };
 }

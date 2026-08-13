@@ -10,6 +10,7 @@ export const WORKSPACE_CASCADE_TABLES = [
   "sample_records",
   "supplier_options",
   "marketing_kits",
+  "store_page_packs",
   "demand_signals",
   "sku_journeys",
   "approval_requests",
@@ -19,6 +20,7 @@ export const WORKSPACE_CASCADE_TABLES = [
   "topic_a_entries",
   "finance_verdicts",
   "discovery_metric_events",
+  "marketing_gemini_usage",
   "orchestrator_events",
   "store_readiness",
   "onboarding_profiles",
@@ -61,6 +63,7 @@ export type SkuWipeTable =
   | "sample_records"
   | "supplier_options"
   | "marketing_kits"
+  | "store_page_packs"
   | "sku_journeys"
   | "approval_requests";
 
@@ -69,6 +72,7 @@ export const SKU_WIPE_DELETE_ORDER: readonly SkuWipeTable[] =
     t === "sample_records" ||
     t === "supplier_options" ||
     t === "marketing_kits" ||
+    t === "store_page_packs" ||
     t === "sku_journeys" ||
     t === "approval_requests",
   );

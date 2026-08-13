@@ -371,7 +371,7 @@ export default async function SkuDetailPage({ params }: Props) {
                   {t("storePct", { pct: storeReadyPercent })}
                 </p>
                 <Link
-                  href="/store"
+                  href={`/store?sku=${id}`}
                   className="text-sm font-medium text-sea underline-offset-2 hover:underline"
                 >
                   {t("openStoreSetup")} →

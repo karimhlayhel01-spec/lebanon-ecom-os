@@ -30,6 +30,9 @@ export async function resetWorkspaceJourney(
       .delete(schema.marketingKits)
       .where(eq(schema.marketingKits.workspaceId, id));
     await tx
+      .delete(schema.storePagePacks)
+      .where(eq(schema.storePagePacks.workspaceId, id));
+    await tx
       .delete(schema.demandSignals)
       .where(eq(schema.demandSignals.workspaceId, id));
     await tx
@@ -54,6 +57,9 @@ export async function resetWorkspaceJourney(
     await tx
       .delete(schema.discoveryMetricEvents)
       .where(eq(schema.discoveryMetricEvents.workspaceId, id));
+    await tx
+      .delete(schema.marketingGeminiUsage)
+      .where(eq(schema.marketingGeminiUsage.workspaceId, id));
     await tx
       .delete(schema.orchestratorEvents)
       .where(eq(schema.orchestratorEvents.workspaceId, id));

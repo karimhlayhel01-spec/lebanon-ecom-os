@@ -27,6 +27,11 @@ async function deleteSkuWipeDependents(
           .delete(schema.marketingKits)
           .where(eq(schema.marketingKits.skuId, skuId));
         break;
+      case "store_page_packs":
+        await exec
+          .delete(schema.storePagePacks)
+          .where(eq(schema.storePagePacks.skuId, skuId));
+        break;
       case "sku_journeys":
         await exec
           .delete(schema.skuJourneys)

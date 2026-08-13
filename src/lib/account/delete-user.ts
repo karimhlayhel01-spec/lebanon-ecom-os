@@ -21,6 +21,9 @@ async function deleteWorkspaceRows(
     .delete(schema.marketingKits)
     .where(eq(schema.marketingKits.workspaceId, id));
   await exec
+    .delete(schema.storePagePacks)
+    .where(eq(schema.storePagePacks.workspaceId, id));
+  await exec
     .delete(schema.demandSignals)
     .where(eq(schema.demandSignals.workspaceId, id));
   // Wave 1: sku_journeys + approvals reference sku_cards — delete before cards.
@@ -46,6 +49,9 @@ async function deleteWorkspaceRows(
   await exec
     .delete(schema.discoveryMetricEvents)
     .where(eq(schema.discoveryMetricEvents.workspaceId, id));
+  await exec
+    .delete(schema.marketingGeminiUsage)
+    .where(eq(schema.marketingGeminiUsage.workspaceId, id));
   await exec
     .delete(schema.orchestratorEvents)
     .where(eq(schema.orchestratorEvents.workspaceId, id));

@@ -58,15 +58,21 @@ describe("resolveHubOrientationSkuId", () => {
 });
 
 describe("tool hrefs", () => {
-  it("keeps store shop-level and SKU tools on section anchors", () => {
+  it("points Store at /store?sku= when a SKU is known", () => {
     expect(storeToolHref()).toBe("/store");
+    expect(storeToolHref("sku1")).toBe("/store?sku=sku1");
     expect(skuToolHref("sku1", "supplier")).toBe("/sku/sku1#supplier");
     expect(buildToolsHrefs("sku1")).toEqual({
-      store: "/store",
+      store: "/store?sku=sku1",
       supplier: "/sku/sku1#supplier",
       marketing: "/sku/sku1#marketing",
       finance: "/sku/sku1#finance",
     });
-    expect(buildToolsHrefs(null).supplier).toBeNull();
+    expect(buildToolsHrefs(null)).toEqual({
+      store: "/store",
+      supplier: null,
+      marketing: null,
+      finance: null,
+    });
   });
 });
