@@ -16,6 +16,8 @@ import { getSkuOrchestration } from "@/lib/orchestrator/service";
 import { getArchiveWarnings } from "@/lib/sku/lifecycle";
 import {
   filterSkuHeroCtas,
+  SKU_BATCH_ARRIVED_HREF,
+  skuHeroHrefSectionId,
   isSkuFinanceSectionUnlocked,
   isSkuMarketingSectionUnlocked,
   isSkuStoreSectionUnlocked,
@@ -144,7 +146,7 @@ export default async function SkuDetailPage({ params }: Props) {
         case "batch_ordered":
           return [
             {
-              href: `#supplier`,
+              href: SKU_BATCH_ARRIVED_HREF,
               label: td("ctaMarkArrived"),
               tone: "primary",
             },
@@ -212,7 +214,7 @@ export default async function SkuDetailPage({ params }: Props) {
   const uniqueCoaching = [...new Set(coaching)].slice(0, 4);
 
   const primaryCta = ctas.find((c) => c.tone === "primary") ?? null;
-  const primarySectionId = primaryCta?.href.replace(/^#/, "") ?? null;
+  const primarySectionId = skuHeroHrefSectionId(primaryCta?.href);
 
   function sectionToneClass(sectionId: string): string {
     if (!primarySectionId) return "";

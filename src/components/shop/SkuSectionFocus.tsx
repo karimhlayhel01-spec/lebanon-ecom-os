@@ -107,7 +107,7 @@ function SkuSectionFocusInner({
       );
       const hashId = hashRaw.replace(/^#/, "");
       const hashSection = normalizeSectionId(hashId);
-      // Non-section anchors (e.g. #batch-arrival-eta) must not fall through to cold scroll.
+      // Non-section anchors (e.g. #batch-arrival-eta, #batch-arrived) must not fall through to cold scroll.
       const hasElementHash = !!hashId && !hashSection;
       const attn = attnParam && isAttnKey(attnParam) ? attnParam : null;
       const coldRaw = normalizeSectionId(coldFocusSection);
@@ -151,7 +151,7 @@ function SkuSectionFocusInner({
         hashSection ?? (fromCold ? cold : null);
 
       if (!section) {
-        // Element deep-link (Marketing → #batch-arrival-eta): scroll once if present.
+        // Element deep-link (#batch-arrival-eta, #batch-arrived): scroll once if present.
         if (hasElementHash && fromDeepLink) {
           const el = document.getElementById(hashId);
           if (el && consumeDeepLinkIfUnlocked(skuId, locationKey)) {

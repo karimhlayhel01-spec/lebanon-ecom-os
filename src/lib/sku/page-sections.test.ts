@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "fs";
+import path from "path";
 import {
   effectiveJourneyState,
   filterSkuHeroCtas,
   isSkuFinanceSectionUnlocked,
   isSkuMarketingSectionUnlocked,
   isSkuStoreSectionUnlocked,
+  SKU_BATCH_ARRIVED_HREF,
+  SKU_BATCH_ARRIVED_ID,
+  skuHeroHrefSectionId,
 } from "@/lib/sku/page-sections";
 
 describe("isSkuMarketingSectionUnlocked", () => {
@@ -152,6 +157,42 @@ describe("filterSkuHeroCtas", () => {
         (c) => c.href,
       ),
     ).toEqual(["#supplier", "#marketing", "#finance"]);
+  });
+
+  it("keeps #batch-arrived (not a marketing/finance lock)", () => {
+    expect(
+      filterSkuHeroCtas(
+        [
+          { href: SKU_BATCH_ARRIVED_HREF, label: "arrived" },
+          { href: "#marketing", label: "mkt" },
+        ],
+        { marketing: true, finance: false },
+      ).map((c) => c.href),
+    ).toEqual([SKU_BATCH_ARRIVED_HREF, "#marketing"]);
+  });
+});
+
+describe("batch_ordered hero → Batch arrived card", () => {
+  it("hero href for batch_ordered is #batch-arrived, mapped to supplier section", () => {
+    expect(SKU_BATCH_ARRIVED_HREF).toBe("#batch-arrived");
+    expect(skuHeroHrefSectionId(SKU_BATCH_ARRIVED_HREF)).toBe("supplier");
+    expect(skuHeroHrefSectionId("#marketing")).toBe("marketing");
+  });
+
+  it("SKU page primary CTA uses #batch-arrived; card id exists when shown", () => {
+    const page = readFileSync(
+      path.join(process.cwd(), "src/app/[locale]/sku/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(page).toMatch(/case "batch_ordered"/);
+    expect(page).toMatch(/SKU_BATCH_ARRIVED_HREF/);
+
+    const panel = readFileSync(
+      path.join(process.cwd(), "src/components/supplier/SupplierPanel.tsx"),
+      "utf8",
+    );
+    expect(panel).toMatch(/batchOrdered && !view\.batchArrivedReady/);
+    expect(panel).toMatch(`id="${SKU_BATCH_ARRIVED_ID}"`);
   });
 });
 

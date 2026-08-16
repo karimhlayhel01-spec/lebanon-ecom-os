@@ -110,7 +110,7 @@ function attentionForSku(
   if (state === "batch_ordered" && !journey.batchArrivedReady) {
     chips.push({
       label: t("chip.arrived"),
-      href: `/sku/${skuId}?attn=arrived#supplier`,
+      href: `/sku/${skuId}?attn=arrived#batch-arrived`,
     });
   }
   if (state === "batch_arrived_ready") {

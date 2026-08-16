@@ -62,6 +62,26 @@ export function isSkuFinanceSectionUnlocked(args: {
   return state === "selling";
 }
 
+/** Supplier Batch arrived card (ack + Mark batch arrived). */
+export const SKU_BATCH_ARRIVED_ID = "batch-arrived";
+export const SKU_BATCH_ARRIVED_HREF = `#${SKU_BATCH_ARRIVED_ID}`;
+
+/**
+ * Map a hero CTA hash to the SKU section used for tone / cold focus.
+ * `#batch-arrived` lives inside Supplier — do not treat it as its own section.
+ */
+export function skuHeroHrefSectionId(
+  href: string | null | undefined,
+): string | null {
+  if (!href) return null;
+  const id = href.replace(/^#/, "").trim();
+  if (!id) return null;
+  if (id === SKU_BATCH_ARRIVED_ID || id === "batch-arrival-eta") {
+    return "supplier";
+  }
+  return id;
+}
+
 /** Drop hero anchors whose target section is not rendered. */
 export function filterSkuHeroCtas<T extends { href: string }>(
   ctas: readonly T[],

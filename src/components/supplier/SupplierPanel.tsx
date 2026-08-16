@@ -623,7 +623,10 @@ export function SupplierPanel({ view }: { view: SupplierPanelView }) {
       )}
 
       {view.batchOrdered && !view.batchArrivedReady && (
-        <div className={supplierBlockClass(boss, ["batch_transit"])}>
+        <div
+          id="batch-arrived"
+          className={`scroll-mt-6 ${supplierBlockClass(boss, ["batch_transit"])}`}
+        >
           <BatchArrived skuId={view.skuId} />
         </div>
       )}
