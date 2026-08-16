@@ -414,6 +414,69 @@ describe("buildCreatives", () => {
     expect(monthly.some((c) => /This week/i.test(c.whyEn))).toBe(true);
   });
 
+  it("weeklyWeek 1 uses open-style angles; weeklyWeek 2 uses convert/weekly extras", () => {
+    const w1 = buildCreatives({
+      ...base,
+      category: "office_desk_gadgets",
+      stage: "weekly_refresh",
+      weeklyWeek: 1,
+      varianceSeed: 7,
+    });
+    const w2 = buildCreatives({
+      ...base,
+      category: "office_desk_gadgets",
+      stage: "weekly_refresh",
+      weeklyWeek: 2,
+      varianceSeed: 7,
+    });
+    const w1Text = w1.map((c) => `${c.angleEn} ${c.captionEn}`).join("\n");
+    const w2Text = w2.map((c) => `${c.angleEn} ${c.hookEn}`).join("\n");
+    expect(w1Text).toMatch(/How to order|in stock|Launch push/i);
+    expect(w2Text).toMatch(
+      /Before \/ after|UGC-style|This week’s take|Social proof|Order .+ on WhatsApp today/i,
+    );
+    expect(w2.every((c) => !/How to order .+ this week/i.test(c.angleEn))).toBe(
+      true,
+    );
+  });
+
+  it("previousWeekHooks excluded from week-2 skeleton hooks", () => {
+    const excludedHook = "Ready to try Desk Cable Dock? Order now.";
+    const excludedAngle = "Order Desk Cable Dock on WhatsApp today";
+    const kit = buildCreatives({
+      ...base,
+      category: "office_desk_gadgets",
+      stage: "weekly_refresh",
+      weeklyWeek: 2,
+      previousWeekHooks: [excludedHook, excludedAngle],
+      varianceSeed: 1,
+    });
+    expect(
+      kit.every(
+        (c) => c.hookEn.trim().toLowerCase() !== excludedHook.toLowerCase(),
+      ),
+    ).toBe(true);
+    expect(
+      kit.every(
+        (c) => c.angleEn.trim().toLowerCase() !== excludedAngle.toLowerCase(),
+      ),
+    ).toBe(true);
+  });
+
+  it("weeklyWeek 2 sets weekIndex 2 and Week 2 labels", () => {
+    const kit = buildCreatives({
+      ...base,
+      category: "office_desk_gadgets",
+      stage: "weekly_refresh",
+      varianceSeed: 12,
+      weeklyWeek: 2,
+    });
+    expect(kit.every((c) => c.weekIndex === 2)).toBe(true);
+    expect(kit.every((c) => c.weekLabelEn === "Week 2")).toBe(true);
+    expect(kit.every((c) => c.weekLabelAr === "الأسبوع 2")).toBe(true);
+    expect(new Set(kit.map((c) => c.weekIndex)).size).toBe(1);
+  });
+
   it("orders weekly_refresh schedules within a single Week 1", () => {
     for (const seed of [12, 42, 99]) {
       const kit = buildCreatives({

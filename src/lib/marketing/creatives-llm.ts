@@ -8,13 +8,19 @@ import {
   resolveGeminiModel,
 } from "@/lib/discovery/explain/llm";
 import {
-  applyCreativeTextFills,
+  acceptCreativeFillsPerCard,
   buildCreativesFactsPack,
   parseCreativeTextFills,
-  validateFilledCreatives,
   type CreativesValidateError,
 } from "@/lib/marketing/creatives-ai";
-import type { BuildCreativesInput, Creative } from "@/lib/marketing/creatives";
+import {
+  launchWeekPhase,
+  type BuildCreativesInput,
+  type Creative,
+} from "@/lib/marketing/creatives";
+
+/** Creatives only — do not change Discovery / Intro token caps. */
+export const CREATIVES_GEMINI_MAX_OUTPUT_TOKENS = 16384;
 
 export type CreativesKitLlmError =
   | "missing_key"
@@ -24,8 +30,33 @@ export type CreativesKitLlmError =
   | CreativesValidateError;
 
 export type CreativesKitLlmResult =
-  | { ok: true; creatives: Creative[]; source: "gemini" }
+  | {
+      ok: true;
+      creatives: Creative[];
+      rejectedIds: string[];
+      lastError: CreativesValidateError | null;
+    }
   | { ok: false; error: CreativesKitLlmError };
+
+/** Leftover / one-card instruction. Do not weaken SHOT_MIN. */
+export function leftoverFillInstruction(): string {
+  return "Rewrite hookEn/Ar, angleEn/Ar, captionEn/Ar for the SKU. If you cannot write stronger shots, set shots and howToShootEn/Ar to patternShots / patternHowTo EXACTLY (copy arrays/strings). Include every required key. One id. Valid JSON only.";
+}
+
+/** Leftover / one-card retry note. Do not weaken SHOT_MIN. */
+export function buildLeftoverRetryNote(args: {
+  cards: Creative[];
+  lastError?: string | null;
+}): string {
+  const id = args.cards[0]?.id ?? args.cards.map((c) => c.id).join(", ");
+  return `${leftoverFillInstruction()} Id: ${id}.`;
+}
+
+/** Leftover-card retry — shots-heavy; do not weaken SHOT_MIN. */
+export const CREATIVES_SHOTS_RETRY_NOTE = buildLeftoverRetryNote({
+  cards: [],
+  lastError: "shots_too_thin",
+});
 
 function stripJsonFence(raw: string): string {
   const trimmed = raw.trim();
@@ -33,7 +64,26 @@ function stripJsonFence(raw: string): string {
   return (fenced?.[1] ?? trimmed).trim();
 }
 
-function buildSystemPrompt(stage: BuildCreativesInput["stage"]): string {
+function weeklyPlanInstruction(input: BuildCreativesInput): string {
+  if (input.stage !== "weekly_refresh") return "";
+  const w = Math.max(1, Math.round(input.weeklyWeek ?? 1));
+  const phase = launchWeekPhase(w);
+  const lines = [
+    `This is week ${w} (${phase}).`,
+    phase === "open"
+      ? "Write this week’s plan: open / stock-here / how-to-order."
+      : "Write this week’s plan: convert / proof / new weekly angles — not the week-1 open / stock-here list.",
+  ];
+  if (input.previousWeekHooks?.length) {
+    lines.push(
+      `Do not repeat these previous hooks/angles: ${input.previousWeekHooks.join(" | ")}.`,
+    );
+  }
+  return lines.join(" ");
+}
+
+function buildSystemPrompt(input: BuildCreativesInput): string {
+  const stage = input.stage;
   const pre =
     stage === "pre_launch"
       ? [
@@ -46,6 +96,7 @@ function buildSystemPrompt(stage: BuildCreativesInput["stage"]): string {
           "Never pitch COD / cash-on-delivery as a marketing wow.",
           "Do not invent ROAS, margins, or Topic A finance advice.",
         ].join(" ");
+  const weekly = weeklyPlanInstruction(input);
 
   return `You write SKU-tailored creative kit COPY for a Lebanon ecommerce founder (Marketing stage: ${stage}).
 
@@ -59,7 +110,7 @@ HARD RULES
 - SHOTS (required): each line is actionable filming guidance — what we see, camera/framing/duration hint, action, optional on-screen text/audio. Example style: "0–3s | Phone vertical close-up: … — hold steady, window light." Not thin one-liners.
 - howToShootEn/Ar: short calm summary — phone setup, light, length, shoot shots in order. Plain founder language. No OS / Topic A / unlocks / ROAS / COD-as-wow.
 - ${pre}
-- BAN COD / cash-on-delivery / الدفع عند الاستلام as a wow differentiator.
+${weekly ? `- ${weekly}\n` : ""}- BAN COD / cash-on-delivery / الدفع عند الاستلام as a wow differentiator.
 - BAN ROAS, ad spend advice, unlock language, stage gates.
 - Arabic in clear simplified Arabic; English clear and concrete.`;
 }
@@ -78,6 +129,45 @@ function skeletonPayload(skeleton: Creative[]) {
   }));
 }
 
+/** Leftover / one-card skeleton — draft example + built-in shot patterns. */
+export function leftoverSkeletonPayload(skeleton: Creative[]) {
+  return skeleton.map((c) => ({
+    id: c.id,
+    format: c.format,
+    weekIndex: c.weekIndex,
+    weekLabelEn: c.weekLabelEn,
+    weekLabelAr: c.weekLabelAr,
+    suggestedDay: c.suggestedDay,
+    suggestedTimeBand: c.suggestedTimeBand,
+    patternShots: c.shots,
+    patternHowToEn: c.howToShootEn,
+    patternHowToAr: c.howToShootAr,
+    exampleCreative: {
+      id: c.id,
+      hookEn: c.hookEn,
+      hookAr: c.hookAr,
+      angleEn: c.angleEn,
+      angleAr: c.angleAr,
+      captionEn: c.captionEn,
+      captionAr: c.captionAr,
+      shots: c.shots,
+      howToShootEn: c.howToShootEn,
+      howToShootAr: c.howToShootAr,
+      seriesLabelEn: c.seriesLabelEn,
+      seriesLabelAr: c.seriesLabelAr,
+      whyEn: c.whyEn,
+      whyAr: c.whyAr,
+    },
+  }));
+}
+
+function creativesUserPayload(
+  facts: ReturnType<typeof buildCreativesFactsPack>,
+  skeleton: Creative[],
+) {
+  return { facts, skeleton: skeletonPayload(skeleton) };
+}
+
 export async function fillCreativesKitWithGemini(
   input: BuildCreativesInput,
   skeleton: Creative[],
@@ -85,6 +175,7 @@ export async function fillCreativesKitWithGemini(
     fetchFn?: typeof fetch;
     env?: Record<string, string | undefined>;
     apiKey?: string;
+    retryNote?: string;
   },
 ): Promise<CreativesKitLlmResult> {
   const env = opts?.env ?? process.env;
@@ -106,17 +197,14 @@ export async function fillCreativesKitWithGemini(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           systemInstruction: {
-            parts: [{ text: buildSystemPrompt(input.stage) }],
+            parts: [{ text: buildSystemPrompt(input) }],
           },
           contents: [
             {
               role: "user",
               parts: [
                 {
-                  text: JSON.stringify({
-                    facts,
-                    skeleton: skeletonPayload(skeleton),
-                  }),
+                  text: JSON.stringify(creativesUserPayload(facts, skeleton)),
                 },
                 ...(retryNote ? [{ text: retryNote }] : []),
               ],
@@ -124,7 +212,7 @@ export async function fillCreativesKitWithGemini(
           ],
           generationConfig: {
             temperature: 0.45,
-            maxOutputTokens: 8192,
+            maxOutputTokens: CREATIVES_GEMINI_MAX_OUTPUT_TOKENS,
             thinkingConfig: { thinkingBudget: 0 },
             responseMimeType: "application/json",
           },
@@ -153,23 +241,24 @@ export async function fillCreativesKitWithGemini(
       const fills = parseCreativeTextFills(parsed);
       if (!fills) return { ok: false, error: "parse_error" };
 
-      const merged = applyCreativeTextFills(skeleton, fills);
-      if (!merged.ok) return { ok: false, error: merged.error };
-
-      const validated = validateFilledCreatives(
-        merged.creatives,
+      const accepted = acceptCreativeFillsPerCard(
+        skeleton,
+        fills,
         input.stage,
         facts.productName,
       );
-      if (!validated.ok) return { ok: false, error: validated.error };
-
-      return { ok: true, creatives: merged.creatives, source: "gemini" };
+      return {
+        ok: true,
+        creatives: accepted.accepted,
+        rejectedIds: accepted.rejectedIds,
+        lastError: accepted.lastError,
+      };
     } catch {
       return { ok: false, error: "api_error" };
     }
   };
 
-  const first = await attempt(null);
+  const first = await attempt(opts?.retryNote ?? null);
   if (
     first.ok ||
     first.error === "missing_key" ||

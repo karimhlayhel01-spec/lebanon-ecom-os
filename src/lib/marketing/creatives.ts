@@ -158,6 +158,16 @@ export type BuildCreativesInput = {
    * Defaults to 1-month (4) when omitted.
    */
   weekCount?: number;
+  /**
+   * weekly_refresh only: which selling week this kit is (min 1).
+   * Launch / pre_launch ignore this field.
+   */
+  weeklyWeek?: number;
+  /**
+   * Move to next week only — hookEn/angleEn from the kit being replaced.
+   * Regenerate must omit this.
+   */
+  previousWeekHooks?: string[];
 };
 
 type AngleDef = {
@@ -740,19 +750,10 @@ function buildLaunchConvertPool(niche: NicheWorld, name: string): AngleDef[] {
   ];
 }
 
-/** Weekly refresh pool: open + convert angles + weekly extras. */
-function buildLaunchPool(
-  niche: NicheWorld,
-  name: string,
-  stage: "launch" | "weekly_refresh",
-  hookFromSku: string | null,
-): AngleDef[] {
-  const open = buildLaunchOpenPool(niche, name, hookFromSku);
-  const convert = buildLaunchConvertPool(niche, name);
-  const pool = [...open, ...convert];
-  if (stage === "weekly_refresh") {
-    const b = launchNicheBits(niche, name);
-    pool.push({
+function buildWeeklyExtrasPool(niche: NicheWorld, name: string): AngleDef[] {
+  const b = launchNicheBits(niche, name);
+  return [
+    {
       angleEn: `New weekly angle — ${b.resultEn}`,
       angleAr: `زاوية أسبوعية جديدة — ${b.resultAr}`,
       hookEn: `This week’s take: ${b.strongEn}`,
@@ -761,9 +762,26 @@ function buildLaunchPool(
       seriesStemAr: b.shortAr,
       captionLeadEn: `Fresh cut of ${name} for ${b.world.en}.`,
       captionLeadAr: `قصّة جديدة لـ ${name} في ${b.world.ar}.`,
-    });
-  }
-  return pool;
+    },
+  ];
+}
+
+/** Drop last week’s hookEn/angleEn. Rotate remaining — do not put excluded hooks back first. */
+export function excludePreviousWeekHooks<
+  T extends { hookEn: string; angleEn: string },
+>(pool: T[], previousWeekHooks?: string[]): T[] {
+  const banned = new Set(
+    (previousWeekHooks ?? [])
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  if (!banned.size) return pool;
+  const kept = pool.filter(
+    (a) =>
+      !banned.has(a.hookEn.trim().toLowerCase()) &&
+      !banned.has(a.angleEn.trim().toLowerCase()),
+  );
+  return kept.length > 0 ? kept : pool;
 }
 
 function shotListPreLaunch(
@@ -1278,15 +1296,22 @@ export function buildCreatives(input: BuildCreativesInput): Creative[] {
     return creatives;
   }
 
-  // weekly_refresh (weekly refresh) — 1-week selling plan with schedules.
+  // weekly_refresh — one selling week. Week 1 = open; week 2+ = convert + extras.
   {
-    const pool = buildLaunchPool(
-      niche,
-      name,
-      "weekly_refresh",
-      hookFromSku,
-    );
-    const pinned = hookFromSku ? pool[0]! : null;
+    const w = Math.max(1, Math.round(input.weeklyWeek ?? 1));
+    const phase = launchWeekPhase(w);
+    const rawPool =
+      phase === "open"
+        ? buildLaunchOpenPool(niche, name, hookFromSku)
+        : [
+            ...buildLaunchConvertPool(niche, name),
+            ...buildWeeklyExtrasPool(niche, name),
+          ];
+    const pool = excludePreviousWeekHooks(rawPool, input.previousWeekHooks);
+    const pinned =
+      phase === "open" && hookFromSku && pool[0]?.hookEn === hookFromSku
+        ? pool[0]!
+        : null;
     const rest = pinned ? pool.slice(1) : pool;
     shuffleInPlace(rest, rand);
     const ordered = pinned
@@ -1295,7 +1320,6 @@ export function buildCreatives(input: BuildCreativesInput): Creative[] {
     const formats = rotate([...LAUNCH_FORMATS], seed + 3);
     const ctaOffset = Math.abs(seed) % ORDER_CTA_EN.length;
 
-    const w = 1;
     const n = count;
     const slots = scheduleSlotsForWeek({
       count: n,

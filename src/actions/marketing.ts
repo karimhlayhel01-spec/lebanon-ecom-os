@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 import { ensureMigrated } from "@/db";
 import { requireOnboardedWorkspace } from "@/lib/workspace";
 import {
+  continueCreativesKitFill,
   generateKit,
   saveKitCreatives,
+  type ContinueCreativesFillResult,
   type Creative,
   type GenerateKitResult,
 } from "@/lib/marketing/service";
@@ -22,6 +24,7 @@ export async function generateKitAction(
   stage: MarketingStage,
   launchBudgetAck: boolean,
   skuId?: string | null,
+  weeklyAdvance?: boolean,
 ): Promise<GenerateKitResult> {
   await ensureMigrated();
   const ctx = await workspaceForRequest();
@@ -38,6 +41,35 @@ export async function generateKitAction(
     ctx.workspace.id,
     stage,
     launchBudgetAck,
+    skuId,
+    weeklyAdvance ? { weeklyAdvance: true } : undefined,
+  );
+  revalidatePath("/", "layout");
+  return res;
+}
+
+export async function continueCreativesKitFillAction(
+  kitId: string,
+  templateIds: string[],
+  skuId?: string | null,
+): Promise<ContinueCreativesFillResult> {
+  await ensureMigrated();
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (skuId === undefined || (typeof skuId === "string" && !skuId.trim())) {
+    return { ok: false, error: "not_found" };
+  }
+  if (typeof skuId === "string") {
+    const owned = await assertSkuOwned(ctx.workspace.id, skuId.trim());
+    if (!owned.ok) return { ok: false, error: "not_found" };
+  }
+  if (!kitId.trim() || !Array.isArray(templateIds) || templateIds.length === 0) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await continueCreativesKitFill(
+    ctx.workspace.id,
+    kitId.trim(),
+    templateIds,
     skuId,
   );
   revalidatePath("/", "layout");

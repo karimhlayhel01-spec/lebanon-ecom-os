@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition, type MouseEvent } from "react";
+import { useRef, useState, useTransition, type MouseEvent } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import {
+  continueCreativesKitFillAction,
   generateKitAction,
   saveKitCreativesAction,
 } from "@/actions/marketing";
@@ -31,6 +32,12 @@ import {
   type CreativeVisualSuggestion,
 } from "@/lib/marketing/visual-tool";
 import { copyTextToClipboard } from "@/lib/store/clipboard";
+import { creativesFillReasonI18nKey } from "@/lib/marketing/creatives-ai";
+import {
+  formatCardNumberList,
+  leftoverShowTargets,
+  type LeftoverShowTarget,
+} from "@/lib/marketing/leftover-cards";
 import type { BatchArrivalEtaView } from "@/lib/supplier/batch-eta";
 import type { MarketingStage } from "@/lib/constants";
 
@@ -738,6 +745,82 @@ function LessonBody({ text }: { text: string }) {
   );
 }
 
+function KitFillHonesty({
+  source,
+  templateCount,
+  fillError,
+  geminiConfigured,
+  geminiCapReached,
+  leftoverTargets,
+  isAr,
+  onShowCard,
+}: {
+  source: "template" | "partial";
+  templateCount: number;
+  fillError: string | null;
+  geminiConfigured: boolean;
+  geminiCapReached: boolean;
+  leftoverTargets: LeftoverShowTarget[];
+  isAr: boolean;
+  onShowCard: (id: string) => void;
+}) {
+  const t = useTranslations("Marketing");
+  const reasonKey = creativesFillReasonI18nKey(fillError);
+  const templateN = Math.max(1, templateCount);
+  const leftoverLine =
+    leftoverTargets.length === 1
+      ? t("kitAiMissedCard", { n: leftoverTargets[0]!.badge })
+      : leftoverTargets.length > 1
+        ? t("kitAiMissedCards", {
+            list: formatCardNumberList(
+              leftoverTargets.map((row) => row.badge),
+              isAr ? "ar" : "en",
+            ),
+          })
+        : null;
+
+  return (
+    <div
+      className="space-y-1 text-xs text-amber-900/90"
+      dir={isAr ? "rtl" : undefined}
+    >
+      {geminiCapReached ? (
+        <>
+          {source === "partial" && <p>{t("kitAiPartial", { n: templateN })}</p>}
+          <p>{t("kitAiCap")}</p>
+        </>
+      ) : !geminiConfigured ? (
+        <p>{t("kitAiUnavailable")}</p>
+      ) : source === "partial" ? (
+        <>
+          <p>{t("kitAiPartial", { n: templateN })}</p>
+          {reasonKey && <p>{t(reasonKey as never)}</p>}
+          {leftoverLine && <p>{leftoverLine}</p>}
+          {leftoverTargets.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {leftoverTargets.map((row) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => onShowCard(row.id)}
+                  className="rounded-md border border-amber-400/60 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-950 transition hover:bg-amber-100"
+                >
+                  {t("showCard", { n: row.badge })}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <p>{t("kitAiFallback")}</p>
+          {reasonKey && <p>{t(reasonKey as never)}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function CreativeKitBlock({
   kit,
   skuId,
@@ -766,6 +849,12 @@ function CreativeKitBlock({
   const [editing, setEditing] = useState(false);
   const [copiedDesk, setCopiedDesk] = useState<string | null>(null);
   const [deskOpen, setDeskOpen] = useState(false);
+  const [focusedCreativeId, setFocusedCreativeId] = useState<string | null>(
+    null,
+  );
+  const [fillFailedId, setFillFailedId] = useState<string | null>(null);
+  const [kitFillFailed, setKitFillFailed] = useState(false);
+  const focusTimer = useRef<number | null>(null);
 
   const isPreLaunchPlan = kit.stage === "pre_launch";
   const isLaunchPlan = kit.stage === "launch";
@@ -786,6 +875,16 @@ function CreativeKitBlock({
     .forEach((c, i) => {
       badgeById[c.id] = i + 1;
     });
+  const leftoverTargets = leftoverShowTargets({
+    source: kit.source,
+    templateIds: kit.templateIds,
+    badgeById,
+    geminiConfigured,
+    geminiCapReached,
+  });
+  const leftoverIdSet = new Set(
+    kit.source === "partial" ? kit.templateIds : [],
+  );
 
   const deskPrompts =
     kit.stage === "pre_launch" ||
@@ -832,11 +931,61 @@ function CreativeKitBlock({
     persistSchedule(next);
   }
 
-  function tryAiAgain() {
+  function showLeftoverCard(id: string) {
+    setFocusedCreativeId(id);
+    document.getElementById(`creative-${id}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    if (focusTimer.current) window.clearTimeout(focusTimer.current);
+    focusTimer.current = window.setTimeout(() => {
+      setFocusedCreativeId((cur) => (cur === id ? null : cur));
+      focusTimer.current = null;
+    }, 2000);
+  }
+
+  function tryAiFillCard(id: string) {
+    startRegen(async () => {
+      setFillFailedId(null);
+      if (surface === "sku") stayOnMarketingForKitWrite(skuId);
+      const res = await continueCreativesKitFillAction(kit.id, [id], skuId);
+      if (res.ok) {
+        setFillFailedId(null);
+        router.refresh();
+        return;
+      }
+      if (res.error === "still_leftover") setFillFailedId(id);
+    });
+  }
+
+  function moveToNextWeek() {
     startRegen(async () => {
       if (surface === "sku") stayOnMarketingForKitWrite(skuId);
-      const res = await generateKitAction(kit.stage, true, skuId);
+      const res = await generateKitAction(kit.stage, true, skuId, true);
       if (res.ok) router.refresh();
+    });
+  }
+
+  function tryAiAgain() {
+    startRegen(async () => {
+      setKitFillFailed(false);
+      if (surface === "sku") stayOnMarketingForKitWrite(skuId);
+      const res =
+        kit.source === "partial" && kit.templateIds.length > 0
+          ? await continueCreativesKitFillAction(
+              kit.id,
+              kit.templateIds,
+              skuId,
+            )
+          : await generateKitAction(kit.stage, true, skuId);
+      if (res.ok) {
+        router.refresh();
+        return;
+      }
+      if (res.error === "still_leftover") {
+        setKitFillFailed(true);
+        router.refresh();
+      }
     });
   }
 
@@ -861,24 +1010,34 @@ function CreativeKitBlock({
         </div>
       </div>
 
-      {kit.source === "template" && (
+      {(kit.source === "template" || kit.source === "partial") && (
         <div className="mt-2 space-y-2">
-          <p className="text-xs text-amber-900/90" dir={isAr ? "rtl" : undefined}>
-            {geminiCapReached
-              ? t("kitAiCap")
-              : geminiConfigured
-                ? t("kitAiFallback")
-                : t("kitAiUnavailable")}
-          </p>
+          <KitFillHonesty
+            source={kit.source}
+            templateCount={kit.templateCount}
+            fillError={kit.fillError}
+            geminiConfigured={geminiConfigured}
+            geminiCapReached={geminiCapReached}
+            leftoverTargets={leftoverTargets}
+            isAr={isAr}
+            onShowCard={showLeftoverCard}
+          />
           {!geminiCapReached && (
-            <button
-              type="button"
-              disabled={regenPending}
-              onClick={tryAiAgain}
-              className="rounded-md border border-cedar/40 bg-cedar/10 px-3 py-1.5 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {regenPending ? t("generatingKit") : t("tryAiFillAgain")}
-            </button>
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                disabled={regenPending}
+                onClick={tryAiAgain}
+                className="rounded-md border border-cedar/40 bg-cedar/10 px-3 py-1.5 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {regenPending ? t("generatingKit") : t("tryAiFillAgain")}
+              </button>
+              {kitFillFailed && (
+                <p className="text-[11px] text-amber-900/90">
+                  {t("tryAiFillAgainFailed")}
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -919,6 +1078,15 @@ function CreativeKitBlock({
                   key={c.id}
                   c={c}
                   index={badgeById[c.id] ?? i + 1}
+                  leftover={leftoverIdSet.has(c.id)}
+                  focused={focusedCreativeId === c.id}
+                  fillFailed={fillFailedId === c.id}
+                  showTryAiFill={
+                    geminiConfigured &&
+                    !geminiCapReached &&
+                    (leftoverIdSet.has(c.id) || kit.source === "template")
+                  }
+                  regenPending={regenPending}
                   editing={editing}
                   isAr={isAr}
                   showSchedule={isWeekPlan}
@@ -930,6 +1098,7 @@ function CreativeKitBlock({
                   onUpdate={update}
                   onIgnore={() => setScheduleIgnored(c.id, true)}
                   onRestore={() => setScheduleIgnored(c.id, false)}
+                  onTryAiFill={() => tryAiFillCard(c.id)}
                 />
               ))}
             </div>
@@ -952,6 +1121,19 @@ function CreativeKitBlock({
         >
           {t("saveCreatives")}
         </button>
+      )}
+
+      {isWeeklyPlan && (
+        <div className="mt-4">
+          <button
+            type="button"
+            disabled={regenPending}
+            onClick={moveToNextWeek}
+            className="rounded-md border border-cedar/40 bg-cedar/10 px-3 py-1.5 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {regenPending ? t("generatingKit") : t("moveToNextWeek")}
+          </button>
+        </div>
       )}
 
       {deskPrompts.length > 0 && (
@@ -1055,6 +1237,11 @@ function groupCreativesByWeek(
 function CreativeCard({
   c,
   index,
+  leftover,
+  focused,
+  fillFailed,
+  showTryAiFill,
+  regenPending,
   editing,
   isAr,
   showSchedule,
@@ -1066,9 +1253,15 @@ function CreativeCard({
   onUpdate,
   onIgnore,
   onRestore,
+  onTryAiFill,
 }: {
   c: Creative;
   index: number;
+  leftover: boolean;
+  focused: boolean;
+  fillFailed: boolean;
+  showTryAiFill: boolean;
+  regenPending: boolean;
   editing: boolean;
   isAr: boolean;
   showSchedule: boolean;
@@ -1080,6 +1273,7 @@ function CreativeCard({
   onUpdate: (id: string, patch: Partial<Creative>) => void;
   onIgnore: () => void;
   onRestore: () => void;
+  onTryAiFill: () => void;
 }) {
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const hookEn = c.hookEn?.trim() ?? "";
@@ -1135,12 +1329,39 @@ function CreativeCard({
     : "";
 
   return (
-    <div className="rounded-lg border border-stone bg-surface p-3 text-xs">
+    <div
+      id={`creative-${c.id}`}
+      className={`rounded-lg border bg-surface p-3 text-xs ${
+        leftover ? "border-amber-300" : "border-stone"
+      } ${focused ? "ring-2 ring-amber-500/80" : ""}`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-1.5">
         <span className="rounded bg-sand px-2 py-0.5 font-medium text-stone-dark">
           {index}. {t(`format.${c.format}` as never)}
         </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {leftover && (
+            <span className="rounded bg-amber-100 px-2 py-0.5 font-medium text-amber-950">
+              {t("leftoverDraftChip")}
+            </span>
+          )}
+          {showTryAiFill && (
+            <button
+              type="button"
+              disabled={regenPending}
+              onClick={onTryAiFill}
+              className="rounded-md border border-cedar/40 bg-cedar/10 px-2 py-0.5 text-[11px] font-semibold text-cedar-deep transition hover:bg-cedar/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {regenPending ? t("generatingKit") : t("tryAiFillCard")}
+            </button>
+          )}
+        </div>
       </div>
+      {fillFailed && (
+        <p className="mt-1.5 text-[11px] text-amber-900/90">
+          {t("tryAiFillCardFailed")}
+        </p>
+      )}
 
       {showSchedule && hasSuggestion && (
         <div className="mt-2 rounded-md border border-stone/80 bg-sand/40 px-2.5 py-2">

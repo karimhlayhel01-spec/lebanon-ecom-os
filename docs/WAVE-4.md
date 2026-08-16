@@ -58,7 +58,7 @@ Amend dates / promotion in §7 changelog.
 
 ## 4g) Phase 7 — Harden / EN–AR / Marketing Gemini ledger (**SHIPPED**)
 
-- **Ledger (Marketing only):** successful Gemini calls for **Intro fill** + **creatives kit improve** counted per workspace per UTC month (`marketing_gemini_usage`). Visual-prompt polish meters only when it actually calls Gemini (with `workspaceId`). **Store `improveStorePageCopy` is not wired** into this ledger.
+- **Ledger (Marketing only):** successful Gemini calls for **Intro fill** + **creatives kit improve** counted per workspace per UTC month (`marketing_gemini_usage`). Launch / weekly creatives meter **once per successful chunk**. Visual-prompt polish meters only when it actually calls Gemini (with `workspaceId`). **Store `improveStorePageCopy` is not wired** into this ledger.
 - Env: `MARKETING_GEMINI_MONTHLY_CAP` (default 40; `0` = templates only). At/over cap → fail-closed to templates / skills + calm honesty (`lessonAiCap` / `kitAiCap`); Try AI fill again hidden while capped.
 - Targeted EN/AR + RTL for Marketing Phase 3/5 / how-to / More help / cap copy. Desk stays behind More help. No Marketing redesign; no Phase 4/6 work.
 
@@ -88,8 +88,10 @@ Intent remains: one next creative, Posted / Skipped honor-system, OS SoT (no Cal
 ## 4c) Phase 3 — AI creative kits + external AI desk (**SHIPPED**)
 
 - Stages stay: `pre_launch` / `launch` / `weekly_refresh` (UI: weekly refresh). **No** Marketing FSM rewrite.
+- **Weekly next-week move (LOCKED 2026-08-16):** one selling week, one kit per SKU/shop + `weekly_refresh` (replace, never stack). `WEEKLY_PLAN_WEEKS` stays 1. First **Generate week** → Week 1 open brief (stock-here / how-to-order). Stage rail **Regenerate week** → rebuild this week (same `weeklyWeek`, week-1/open brief; no `previousWeekHooks`). Kit-bottom **Move to next week** → increment `weeklyWeek`, author a new kit for week 2+ (convert / proof / weekly extras — not the week-1 open list reshuffled), exclude last kit’s `hookEn`/`angleEn`, Gemini facts include `weeklyWeek` + `weekPhase` + `previousWeekHooks`. New ids, replace the row. Last week not archived. No Move CTA on the stage rail or on Launch / pre-launch / Intro. No new stage, no kit stack. Phase 4 stays parked.
 - Approach A: **Generate kit** → Gemini fills niche creative **copy** (hooks, captions, angles, **elaborated shots**, **howToShootEn/Ar**, series labels, why) EN/AR onto deterministic `buildCreatives` skeleton (ids/format/week/schedule locked).
-- Fail-closed without key / validate miss → template kit + calm honesty; optional **Try AI fill again** only when `source === "template"`.
+- Fail-closed without key / validate miss → template kit + calm honesty; optional **Try AI fill again** when `source === "template"` or `partial` (hidden on full Gemini and at monthly cap).
+- **Launch / weekly_refresh chunked fill:** skeleton split by week (max 4 cards/call); creatives `maxOutputTokens` 16384; parsed JSON is accepted **per card** (one thin shot list does not drop the chunk); leftover fill uses the same Gemini request as generate (full card). Mix persists `source: "partial"` + `templateIds`. **Try AI fill again** on partial fills only leftovers (`continueCreativesKitFill`) — full `generateKit` only when `source === "template"`. Each successful Gemini call counts 1 toward `MARKETING_GEMINI_MONTHLY_CAP`. Pre-launch stays one-shot unless the kit has more than 6 cards. Validate locks unchanged.
 - Validate rejects COD-as-wow, pre_launch soft bans, required fields / length / product name, **thin shot lines**.
 - Cards show **How to shoot** (phone / light / length / order); Phase 5 prompts reuse the same shot + how-to detail.
 - Whole-kit generate only (no Store-style per-creative version picker; no visual gen).
@@ -174,6 +176,15 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-16 | leftover fill uses the same Gemini request as generate (full card). |
+| 2026-08-16 | leftover Try AI fill again is one card + copy draft shots if needed; kit button reports still leftover. Shot locks unchanged. |
+| 2026-08-16 | Move to next week authors a new convert/weekly plan (excludes last week’s hooks); Regenerate rebuilds this week without incrementing or `previousWeekHooks`. Phase 4 stays parked. |
+| 2026-08-15 | One-card leftover fill keeps a usable parse or tells the founder it failed; shot locks unchanged. |
+| 2026-08-15 | Leftover / one-card retry asks for complete JSON + built-in shot patterns; validate locks unchanged. |
+| 2026-08-15 | Leftover (or full-template) cards get per-card Try AI fill; kit-level button still does all leftovers. |
+| 2026-08-15 | Marketing partial amber names leftover card badges + in-page Show scroll; no hash; no per-card generate yet. |
+| 2026-08-15 | Marketing creatives: per-card Gemini accept inside a chunk; leftover template ids get one shots-focused retry; Try AI fill again on partial fills only leftovers (no full rebuild). Validate locks unchanged. |
+| 2026-08-15 | Marketing launch / weekly kit: chunked Gemini fill (week groups, max 4/call), creatives tokens 16384, `partial` source + honest banner; cap checked per chunk; Store Gemini still not on Marketing ledger. |
 | 2026-08-13 | Store Whole-shop pack shipped — `store_page_packs.sku_id` nullable + one shop row per workspace; Marketing-style picker (`?sku=shop`, ≥3 live); shop Improve is homepage/SEO/shared policies; product packs stay isolated; Store Gemini still not on Marketing ledger. |
 | 2026-08-13 | Store discoverability intro: why / how to paste in Shopify / no Merchant or ranking claims (EN+AR). |
 | 2026-08-13 | Store follow-up — **per-SKU page packs** (`store_page_packs`); Marketing-style picker (no Whole-shop chip); checklist stays shop-wide; Improve/versions fail-closed on `skuId`; Store Gemini still not on Marketing ledger. Whole-shop Store parked. |

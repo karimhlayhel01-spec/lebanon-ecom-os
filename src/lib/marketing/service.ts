@@ -29,11 +29,21 @@ import { getMarketingLlmProvider } from "@/lib/marketing/intro-llm";
 import { isGeminiConfigured } from "@/lib/discovery/explain/llm";
 import {
   buildCreatives,
+  type BuildCreativesInput,
   type Creative,
 } from "@/lib/marketing/creatives";
 import {
+  chunkCreativesForGemini,
+  creativesKitPayloadFromFill,
+  continueFillStillLeftover,
+  leftoverRetryChunks,
+  mergeLeftoverFills,
   parseCreativesKitItems,
+  resolveContinueFillAllowList,
+  resolveWeeklyKitWeek,
+  weeklyRefreshGenerateArgs,
   serializeCreativesKit,
+  shouldChunkCreativesKit,
   type CreativesKitSource,
 } from "@/lib/marketing/creatives-ai";
 import {
@@ -104,7 +114,13 @@ export type MarketingKitView = {
   creatives: Creative[];
   lesson: IntroLessonPayload | null;
   /** How creative/lesson bodies were produced (Wave 4). */
-  source: "gemini" | "template" | null;
+  source: "gemini" | "template" | "partial" | null;
+  /** Last creatives fill fail reason (banner). */
+  fillError: string | null;
+  /** Template cards kept on a partial fill. */
+  templateCount: number;
+  /** Leftover skeleton ids for Try AI fill again on partial. */
+  templateIds: string[];
   createdAt: string;
 };
 
@@ -168,7 +184,11 @@ function parseKitItems(raw: string): {
   kind: "creatives" | "intro_lesson";
   creatives: Creative[];
   lesson: IntroLessonPayload | null;
-  source: "gemini" | "template" | null;
+  source: "gemini" | "template" | "partial" | null;
+  fillError: string | null;
+  templateCount: number;
+  templateIds: string[];
+  weeklyWeek: number;
 } {
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -185,6 +205,10 @@ function parseKitItems(raw: string): {
         creatives: [],
         lesson,
         source: lesson.source ?? null,
+        fillError: null,
+        templateCount: 0,
+        templateIds: [],
+        weeklyWeek: 0,
       };
     }
     const creativesKit = parseCreativesKitItems(parsed);
@@ -194,12 +218,25 @@ function parseKitItems(raw: string): {
         creatives: creativesKit.creatives,
         lesson: null,
         source: creativesKit.source,
+        fillError: creativesKit.fillError,
+        templateCount: creativesKit.templateCount,
+        templateIds: creativesKit.templateIds,
+        weeklyWeek: creativesKit.weeklyWeek,
       };
     }
   } catch {
     /* ignore */
   }
-  return { kind: "creatives", creatives: [], lesson: null, source: null };
+  return {
+    kind: "creatives",
+    creatives: [],
+    lesson: null,
+    source: null,
+    fillError: null,
+    templateCount: 0,
+    templateIds: [],
+    weeklyWeek: 0,
+  };
 }
 
 export async function getMarketingPanel(
@@ -320,6 +357,9 @@ export async function getMarketingPanel(
       creatives: items.creatives,
       lesson: items.lesson,
       source: items.source,
+      fillError: items.fillError,
+      templateCount: items.templateCount,
+      templateIds: items.templateIds,
       createdAt: k.createdAt,
     });
   }
@@ -390,11 +430,89 @@ export type GenerateKitResult =
   | { ok: true }
   | { ok: false; error: "not_found" | "stage_locked" | "needs_launch_ack" };
 
+export type ContinueCreativesFillResult =
+  | { ok: true }
+  | { ok: false; error: "not_found" | "not_partial" | "still_leftover" };
+
+async function runCreativesGeminiPasses(args: {
+  workspaceId: string;
+  input: BuildCreativesInput;
+  kit: Creative[];
+  /** When set, skip the first week-chunk pass and retry only these leftover ids. */
+  onlyIds?: string[];
+  /** All leftover ids (not yet Gemini). Defaults to onlyIds so one-card fill does not mark the rest as Gemini. */
+  leftoverIds?: string[];
+}): Promise<{
+  creatives: Creative[];
+  geminiIds: Set<string>;
+  lastError?: string;
+}> {
+  const { workspaceId, input, kit, onlyIds, leftoverIds } = args;
+  let creatives = kit;
+  const leftoverOnly = new Set(onlyIds ?? []);
+  const stillLeftover = new Set(leftoverIds ?? onlyIds ?? []);
+  const geminiIds = new Set(
+    onlyIds || leftoverIds
+      ? kit.filter((c) => !stillLeftover.has(c.id)).map((c) => c.id)
+      : [],
+  );
+  let lastError: string | undefined;
+  const llm = getMarketingLlmProvider();
+
+  const runChunks = async (chunks: Creative[][]) => {
+    for (const chunk of chunks) {
+      const allowance = await checkMarketingGeminiAllowance(workspaceId);
+      if (!allowance.ok) {
+        lastError = "monthly_cap";
+        break;
+      }
+      const filled = await llm.improveCreativesKit(input, chunk, {
+        retryNote: undefined,
+      });
+      if (filled.ok) {
+        const chunkIds = chunk.map((c) => c.id);
+        creatives = mergeLeftoverFills(creatives, filled.creatives, chunkIds);
+        for (const c of filled.creatives) {
+          if (chunkIds.includes(c.id)) geminiIds.add(c.id);
+        }
+        await recordMarketingGeminiCalls({ workspaceId, calls: 1 });
+        if (filled.rejectedIds.length) {
+          lastError = filled.lastError ?? lastError;
+        }
+      } else {
+        lastError = filled.error;
+        if (filled.error === "missing_key") break;
+      }
+    }
+  };
+
+  if (!onlyIds) {
+    const chunks = shouldChunkCreativesKit(input.stage, kit.length)
+      ? chunkCreativesForGemini(kit)
+      : [kit];
+    await runChunks(chunks);
+  }
+
+  const leftovers = creatives.filter((c) =>
+    onlyIds ? leftoverOnly.has(c.id) && !geminiIds.has(c.id) : !geminiIds.has(c.id),
+  );
+  if (
+    leftovers.length > 0 &&
+    lastError !== "missing_key" &&
+    lastError !== "monthly_cap"
+  ) {
+    await runChunks(leftoverRetryChunks(leftovers));
+  }
+
+  return { creatives, geminiIds, lastError };
+}
+
 export async function generateKit(
   workspaceId: string,
   stageInput: MarketingStage | string,
   launchBudgetAck: boolean,
   skuId?: string | null,
+  opts?: { weeklyAdvance?: boolean },
 ): Promise<GenerateKitResult> {
   await ensureMigrated();
   const stage = normalizeMarketingStage(stageInput);
@@ -537,6 +655,21 @@ export async function generateKit(
       itemsJson = JSON.stringify(lesson);
     }
   } else if (creativeStage) {
+    const existingItems = existing[existing.length - 1]
+      ? parseKitItems(existing[existing.length - 1]!.items)
+      : null;
+    const weeklyArgs =
+      creativeStage === "weekly_refresh"
+        ? weeklyRefreshGenerateArgs({
+            weeklyAdvance: opts?.weeklyAdvance,
+            existingWeeklyWeek: existingItems?.weeklyWeek || null,
+            existingCreatives:
+              existingItems?.kind === "creatives"
+                ? existingItems.creatives
+                : [],
+          })
+        : null;
+    const weeklyWeek = weeklyArgs?.weeklyWeek;
     const creativeInput = {
       name: productName,
       category,
@@ -545,29 +678,26 @@ export async function generateKit(
       capacityTier: panel.capacityTier,
       varianceSeed,
       weekCount: creativeStage === "pre_launch" ? eta.weekCount : undefined,
+      weeklyWeek,
+      ...(weeklyArgs?.previousWeekHooks
+        ? { previousWeekHooks: weeklyArgs.previousWeekHooks }
+        : {}),
     };
     const skeleton = buildCreatives(creativeInput);
-    const allowance = await checkMarketingGeminiAllowance(workspaceId);
-    let creatives = skeleton;
-    let source: CreativesKitSource = "template";
-    if (!allowance.ok) {
-      kitSource = "template";
-    } else {
-      const llm = getMarketingLlmProvider();
-      const filled = await llm.improveCreativesKit(creativeInput, skeleton);
-      if (filled.ok) {
-        creatives = filled.creatives;
-        source = "gemini";
-        await recordMarketingGeminiCalls({ workspaceId, calls: 1 });
-      }
-      kitSource = source;
-    }
-    creativeCount = creatives.length;
-    itemsJson = serializeCreativesKit({
-      kind: "creatives",
-      source,
-      creatives,
+    const filled = await runCreativesGeminiPasses({
+      workspaceId,
+      input: creativeInput,
+      kit: skeleton,
     });
+    const payload = creativesKitPayloadFromFill({
+      creatives: filled.creatives,
+      geminiIds: filled.geminiIds,
+      lastError: filled.lastError,
+      weeklyWeek,
+    });
+    kitSource = payload.source;
+    creativeCount = payload.creatives.length;
+    itemsJson = serializeCreativesKit(payload);
   } else {
     itemsJson = "[]";
   }
@@ -645,6 +775,147 @@ export async function generateKit(
   return { ok: true };
 }
 
+/**
+ * Try AI fill on leftover ids only (kit-level all leftovers, or one card).
+ * Does not call buildCreatives or replace cards that already passed.
+ * Full-template kits allow any saved creative id; legacy/null source is not_partial.
+ */
+export async function continueCreativesKitFill(
+  workspaceId: string,
+  kitId: string,
+  templateIds: string[],
+  skuId: unknown,
+): Promise<ContinueCreativesFillResult> {
+  await ensureMigrated();
+  const scope = parseGenerateKitSkuScope(skuId);
+  if (!scope.ok) return { ok: false, error: "not_found" };
+
+  if (scope.skuId !== null) {
+    const owned = await assertSkuOwned(workspaceId, scope.skuId);
+    if (!owned.ok) return { ok: false, error: "not_found" };
+  }
+
+  const kit = await db
+    .select()
+    .from(schema.marketingKits)
+    .where(eq(schema.marketingKits.id, kitId))
+    .then((rows) => rows[0]);
+  if (!kit || kit.workspaceId !== workspaceId) {
+    return { ok: false, error: "not_found" };
+  }
+  if (scope.skuId === null) {
+    if (kit.skuId !== null) return { ok: false, error: "not_found" };
+  } else if (kit.skuId !== scope.skuId) {
+    return { ok: false, error: "not_found" };
+  }
+
+  const stage = normalizeMarketingStage(kit.stage);
+  if (
+    stage !== "pre_launch" &&
+    stage !== "launch" &&
+    stage !== "weekly_refresh"
+  ) {
+    return { ok: false, error: "not_found" };
+  }
+
+  const prev = parseKitItems(kit.items);
+  if (prev.kind !== "creatives" || prev.creatives.length === 0) {
+    return { ok: false, error: "not_found" };
+  }
+  const allowed = resolveContinueFillAllowList({
+    source: prev.source,
+    templateIds: prev.templateIds,
+    creativeIds: prev.creatives.map((c) => c.id),
+  });
+  if (!allowed || allowed.length === 0) {
+    return { ok: false, error: "not_partial" };
+  }
+  const allowedSet = new Set(allowed);
+  const targetIds = templateIds.filter(
+    (id) => typeof id === "string" && allowedSet.has(id),
+  );
+  if (targetIds.length === 0) return { ok: false, error: "not_partial" };
+
+  const panel = await getMarketingPanel(workspaceId, scope.skuId);
+  if (!panel) return { ok: false, error: "not_found" };
+  const isShopKit = panel.isShopKit;
+  const sku = isShopKit
+    ? null
+    : panel.selectedSkuId
+      ? await getSkuViewById(workspaceId, panel.selectedSkuId)
+      : null;
+  if (!isShopKit && !sku) return { ok: false, error: "not_found" };
+  if (scope.skuId !== null && panel.selectedSkuId !== scope.skuId) {
+    return { ok: false, error: "not_found" };
+  }
+
+  const productName = isShopKit ? "Whole shop" : sku!.name;
+  const category = isShopKit ? "multi" : sku!.basics.category;
+  const hooks = isShopKit ? ["@hooks.localAngle"] : sku!.marketingHooks.hooks;
+  const weeklyWeek =
+    stage === "weekly_refresh"
+      ? resolveWeeklyKitWeek({
+          weeklyWeek: prev.weeklyWeek || null,
+          creatives: prev.creatives,
+        })
+      : undefined;
+  const creativeInput: BuildCreativesInput = {
+    name: productName,
+    category,
+    hooks,
+    stage,
+    capacityTier: panel.capacityTier,
+    varianceSeed: 1,
+    weekCount: stage === "pre_launch" ? panel.batchArrivalEta.weekCount : undefined,
+    weeklyWeek,
+  };
+
+  const filled = await runCreativesGeminiPasses({
+    workspaceId,
+    input: creativeInput,
+    kit: prev.creatives,
+    onlyIds: targetIds,
+    leftoverIds: allowed,
+  });
+  const payload = creativesKitPayloadFromFill({
+    creatives: filled.creatives,
+    geminiIds: filled.geminiIds,
+    lastError: filled.lastError,
+    weeklyWeek,
+  });
+
+  const now = nowIso();
+  await db
+    .update(schema.marketingKits)
+    .set({
+      items: serializeCreativesKit(payload),
+      updatedAt: now,
+    })
+    .where(eq(schema.marketingKits.id, kit.id));
+
+  await db.insert(schema.orchestratorEvents).values({
+    id: newId(),
+    workspaceId,
+    kind: "marketing_kit",
+    message: `Continued AI fill for ${productName} (${targetIds.length} leftover cards)`,
+    meta: JSON.stringify({
+      stage,
+      kind: "creatives",
+      continued: true,
+      skuId: panel.selectedSkuId,
+      shopKit: isShopKit,
+      kitSource: payload.source,
+      leftoverCount: targetIds.length,
+    }),
+    createdAt: now,
+  });
+
+  if (continueFillStillLeftover(targetIds, filled.geminiIds)) {
+    return { ok: false, error: "still_leftover" };
+  }
+  return { ok: true };
+}
+
 export async function saveKitCreatives(
   workspaceId: string,
   kitId: string,
@@ -662,7 +933,9 @@ export async function saveKitCreatives(
   // Preserve wrapped kit + source so AI/template honesty survives founder edits.
   const prev = parseKitItems(kit.items);
   const source =
-    prev.source === "gemini" || prev.source === "template"
+    prev.source === "gemini" ||
+    prev.source === "template" ||
+    prev.source === "partial"
       ? prev.source
       : "template";
   await founderEditMarketingKit(kitId, {
@@ -670,6 +943,10 @@ export async function saveKitCreatives(
       kind: "creatives",
       source,
       creatives,
+      fillError: prev.fillError,
+      templateCount: prev.templateCount || undefined,
+      templateIds: prev.templateIds.length ? prev.templateIds : undefined,
+      weeklyWeek: prev.weeklyWeek || undefined,
     }),
   });
   return { ok: true };

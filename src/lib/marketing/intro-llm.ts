@@ -66,7 +66,11 @@ export type MarketingLlmProvider = {
   improveCreativesKit(
     input: BuildCreativesInput,
     skeleton: Creative[],
-    opts?: { fetchFn?: typeof fetch; env?: Record<string, string | undefined> },
+    opts?: {
+      fetchFn?: typeof fetch;
+      env?: Record<string, string | undefined>;
+      retryNote?: string;
+    },
   ): Promise<CreativesKitLlmResult>;
   /** Wave 4 Phase 5 — optional polish of visual-tool why/prompt (skills own tool). */
   polishCreativeVisualSuggestion(
