@@ -14,6 +14,9 @@ describe("WORKSPACE_CASCADE_TABLES", () => {
     expect([...WORKSPACE_CASCADE_DELETE_ORDER]).toEqual([
       "sample_records",
       "supplier_options",
+      "marketing_sku_photo_pack_assets",
+      "marketing_creative_visuals",
+      "marketing_sku_photo_packs",
       "marketing_kits",
       "store_page_packs",
       "demand_signals",
@@ -26,6 +29,7 @@ describe("WORKSPACE_CASCADE_TABLES", () => {
       "finance_verdicts",
       "discovery_metric_events",
       "marketing_gemini_usage",
+      "marketing_visual_usage",
       "orchestrator_events",
       "store_readiness",
       "onboarding_profiles",
@@ -50,6 +54,9 @@ describe("DEMO_JOURNEY_RESET_DELETE_ORDER", () => {
     expect([...DEMO_JOURNEY_RESET_DELETE_ORDER]).toEqual([
       "sample_records",
       "supplier_options",
+      "marketing_sku_photo_pack_assets",
+      "marketing_creative_visuals",
+      "marketing_sku_photo_packs",
       "marketing_kits",
       "store_page_packs",
       "demand_signals",
@@ -62,6 +69,7 @@ describe("DEMO_JOURNEY_RESET_DELETE_ORDER", () => {
       "finance_verdicts",
       "discovery_metric_events",
       "marketing_gemini_usage",
+      "marketing_visual_usage",
       "orchestrator_events",
       "store_readiness",
     ]);
@@ -89,6 +97,9 @@ describe("SKU_WIPE_DELETE_ORDER", () => {
     expect([...SKU_WIPE_DELETE_ORDER]).toEqual([
       "sample_records",
       "supplier_options",
+      "marketing_sku_photo_pack_assets",
+      "marketing_creative_visuals",
+      "marketing_sku_photo_packs",
       "marketing_kits",
       "store_page_packs",
       "sku_journeys",

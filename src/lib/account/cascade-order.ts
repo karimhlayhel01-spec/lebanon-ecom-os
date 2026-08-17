@@ -9,6 +9,9 @@
 export const WORKSPACE_CASCADE_TABLES = [
   "sample_records",
   "supplier_options",
+  "marketing_sku_photo_pack_assets",
+  "marketing_creative_visuals",
+  "marketing_sku_photo_packs",
   "marketing_kits",
   "store_page_packs",
   "demand_signals",
@@ -21,6 +24,7 @@ export const WORKSPACE_CASCADE_TABLES = [
   "finance_verdicts",
   "discovery_metric_events",
   "marketing_gemini_usage",
+  "marketing_visual_usage",
   "orchestrator_events",
   "store_readiness",
   "onboarding_profiles",
@@ -62,6 +66,9 @@ export const WORKSPACE_IDENTITY_TABLES = WORKSPACE_CASCADE_TABLES.slice(
 export type SkuWipeTable =
   | "sample_records"
   | "supplier_options"
+  | "marketing_sku_photo_pack_assets"
+  | "marketing_creative_visuals"
+  | "marketing_sku_photo_packs"
   | "marketing_kits"
   | "store_page_packs"
   | "sku_journeys"
@@ -71,6 +78,9 @@ export const SKU_WIPE_DELETE_ORDER: readonly SkuWipeTable[] =
   WORKSPACE_CASCADE_TABLES.filter((t): t is SkuWipeTable =>
     t === "sample_records" ||
     t === "supplier_options" ||
+    t === "marketing_sku_photo_pack_assets" ||
+    t === "marketing_creative_visuals" ||
+    t === "marketing_sku_photo_packs" ||
     t === "marketing_kits" ||
     t === "store_page_packs" ||
     t === "sku_journeys" ||

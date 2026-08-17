@@ -18,6 +18,15 @@ async function deleteWorkspaceRows(
     .delete(schema.supplierOptions)
     .where(eq(schema.supplierOptions.workspaceId, id));
   await exec
+    .delete(schema.marketingSkuPhotoPackAssets)
+    .where(eq(schema.marketingSkuPhotoPackAssets.workspaceId, id));
+  await exec
+    .delete(schema.marketingCreativeVisuals)
+    .where(eq(schema.marketingCreativeVisuals.workspaceId, id));
+  await exec
+    .delete(schema.marketingSkuPhotoPacks)
+    .where(eq(schema.marketingSkuPhotoPacks.workspaceId, id));
+  await exec
     .delete(schema.marketingKits)
     .where(eq(schema.marketingKits.workspaceId, id));
   await exec
@@ -52,6 +61,9 @@ async function deleteWorkspaceRows(
   await exec
     .delete(schema.marketingGeminiUsage)
     .where(eq(schema.marketingGeminiUsage.workspaceId, id));
+  await exec
+    .delete(schema.marketingVisualUsage)
+    .where(eq(schema.marketingVisualUsage.workspaceId, id));
   await exec
     .delete(schema.orchestratorEvents)
     .where(eq(schema.orchestratorEvents.workspaceId, id));

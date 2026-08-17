@@ -65,6 +65,15 @@ import {
 } from "@/lib/marketing/margin-gate";
 import { getCurrentActual } from "@/lib/finance/service";
 import type { SkuCardView } from "@/lib/sku/service";
+import {
+  listCreativePackChoices,
+  listPhotoPacksForSku,
+  type CreativePackChoice,
+  type PhotoPackOption,
+} from "@/lib/marketing/visual-packs";
+import { listCreativeVisualFiles } from "@/lib/marketing/visual-gen";
+import { isMarketingVisualGenReady } from "@/lib/marketing/visual-flags";
+import type { CreativeVisualFileView } from "@/lib/marketing/visual-pack-ui";
 
 export type { MarketingStageInfo };
 
@@ -156,6 +165,14 @@ export type MarketingPanelView = {
    * Informational only; never blocks generate.
    */
   needsMarginAck: boolean;
+  /** Per-SKU named photo packs. Empty on whole-shop kits. */
+  photoPacks: PhotoPackOption[];
+  /** Saved pack pick per kit card. Empty on whole-shop kits. */
+  creativePackChoices: CreativePackChoice[];
+  /** Generated still/clip on a card (owned file). Empty on whole-shop kits. */
+  creativeVisuals: CreativeVisualFileView[];
+  /** Flag on + Higgsfield keys present. Cap checked at click. */
+  visualGenReady: boolean;
 };
 
 async function resolveMarginsForKitContext(args: {
@@ -402,6 +419,24 @@ export async function getMarketingPanel(
 
   const geminiCapReached = await isMarketingGeminiCapReached(workspaceId);
 
+  let photoPacks: PhotoPackOption[] = [];
+  let creativePackChoices: CreativePackChoice[] = [];
+  let creativeVisuals: CreativeVisualFileView[] = [];
+  if (!isShopKit && selectedSkuId) {
+    const listed = await listPhotoPacksForSku(workspaceId, selectedSkuId);
+    photoPacks = listed.ok ? listed.value : [];
+    creativePackChoices = await listCreativePackChoices(
+      workspaceId,
+      selectedSkuId,
+      kits.map((k) => k.id),
+    );
+    creativeVisuals = await listCreativeVisualFiles(
+      workspaceId,
+      selectedSkuId,
+      kits.map((k) => k.id),
+    );
+  }
+
   return {
     currentStage,
     capacityTier: capacityTierFor(onboarding?.hoursPerWeek ?? 8),
@@ -419,6 +454,10 @@ export async function getMarketingPanel(
     geminiConfigured: isGeminiConfigured(),
     geminiCapReached,
     needsMarginAck,
+    photoPacks,
+    creativePackChoices,
+    creativeVisuals,
+    visualGenReady: isMarketingVisualGenReady(),
   };
 }
 

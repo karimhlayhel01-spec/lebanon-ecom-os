@@ -43,6 +43,12 @@ export const DISCOVERY_SEARCH_MONTHLY_QUERY_CAP_DEFAULT = 100;
  * Raise per deployment with MARKETING_GEMINI_MONTHLY_CAP. Explicit 0 = spend nothing.
  */
 export const MARKETING_GEMINI_MONTHLY_CAP_DEFAULT = 40;
+/**
+ * Wave 4 Phase 6 — default monthly successful Higgsfield visual runs per workspace.
+ * Raise with MARKETING_VISUAL_MONTHLY_CAP. Explicit 0 = no Generate (Copy prompt only).
+ * Do not read MARKETING_GEMINI_MONTHLY_CAP for visuals.
+ */
+export const MARKETING_VISUAL_MONTHLY_CAP_DEFAULT = 80;
 /** Per-request timeout for an outbound search call (no unbounded hangs). */
 export const DISCOVERY_SEARCH_REQUEST_TIMEOUT_MS = 30_000;
 /** Total attempts (1 initial + bounded retries) for a transient search failure. */

@@ -566,6 +566,123 @@ export const marketingGeminiUsage = pgTable(
 );
 
 /**
+ * Wave 4 Phase 6a — per-SKU named product photo packs (not whole-shop).
+ * One default pack per SKU. Optional product-motion clip metadata on the pack.
+ */
+export const marketingSkuPhotoPacks = pgTable(
+  "marketing_sku_photo_packs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    skuId: text("sku_id")
+      .notNull()
+      .references(() => skuCards.id),
+    name: text("name").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    motionClipStoragePath: text("motion_clip_storage_path"),
+    motionClipOriginalName: text("motion_clip_original_name"),
+    motionClipMimeType: text("motion_clip_mime_type"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    unique("marketing_sku_photo_packs_workspace_sku_name_unique").on(
+      t.workspaceId,
+      t.skuId,
+      t.name,
+    ),
+    uniqueIndex("marketing_sku_photo_packs_default_unique")
+      .on(t.workspaceId, t.skuId)
+      .where(sql`${t.isDefault} = true`),
+  ],
+);
+
+/** Photos we own for a pack (local durable paths — not Higgsfield URLs). */
+export const marketingSkuPhotoPackAssets = pgTable(
+  "marketing_sku_photo_pack_assets",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    skuId: text("sku_id")
+      .notNull()
+      .references(() => skuCards.id),
+    packId: text("pack_id")
+      .notNull()
+      .references(() => marketingSkuPhotoPacks.id),
+    kind: text("kind").notNull(),
+    storagePath: text("storage_path").notNull(),
+    originalName: text("original_name").notNull().default(""),
+    mimeType: text("mime_type").notNull().default(""),
+    createdAt: text("created_at").notNull(),
+  },
+);
+
+/**
+ * Wave 4 Phase 6a — generated still/clip on a kit card.
+ * Side table so kit JSON items stay Phase 3 copy.
+ */
+export const marketingCreativeVisuals = pgTable(
+  "marketing_creative_visuals",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    skuId: text("sku_id")
+      .notNull()
+      .references(() => skuCards.id),
+    kitId: text("kit_id")
+      .notNull()
+      .references(() => marketingKits.id),
+    creativeId: text("creative_id").notNull(),
+    packId: text("pack_id").references(() => marketingSkuPhotoPacks.id),
+    storagePath: text("storage_path").notNull().default(""),
+    kind: text("kind").notNull(),
+    regenerateCount: integer("regenerate_count").notNull().default(0),
+    generatedAt: text("generated_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    unique("marketing_creative_visuals_kit_creative_unique").on(
+      t.workspaceId,
+      t.kitId,
+      t.creativeId,
+    ),
+  ],
+);
+
+/**
+ * Wave 4 Phase 6a — monthly Higgsfield visual spend ledger (per workspace + UTC month).
+ * Separate from marketing_gemini_usage. Count successful Higgsfield runs later.
+ */
+export const marketingVisualUsage = pgTable(
+  "marketing_visual_usage",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    /** UTC month bucket, `YYYY-MM`. */
+    monthKey: text("month_key").notNull(),
+    callsUsed: integer("calls_used").notNull().default(0),
+    lastRunAt: text("last_run_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    unique("marketing_visual_usage_workspace_month_unique").on(
+      t.workspaceId,
+      t.monthKey,
+    ),
+  ],
+);
+
+/**
  * Wave 2 §7 "Measure" — append-only Discovery funnel counters.
  * Rows are never updated: `dedupe_key` is unique so a re-render, revalidate, or
  * retried request records one event. Read only by the metrics CLI — nothing

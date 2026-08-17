@@ -17,6 +17,7 @@ const base = {
   category: "home_kitchen",
   hooks: ["warm light"],
   capacityTier: 6 as const,
+  varianceSeed: 21,
 };
 
 describe("weekly refresh — two-mode generate", () => {

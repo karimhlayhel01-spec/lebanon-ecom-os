@@ -8,6 +8,13 @@ import {
   generateKitAction,
   saveKitCreativesAction,
 } from "@/actions/marketing";
+import { setCreativePackChoiceAction } from "@/actions/photo-packs";
+import {
+  discardVisualAction,
+  generateVisualAction,
+  regenerateVisualAction,
+} from "@/actions/visual-gen";
+import { VisualResultDialog } from "@/components/marketing/VisualResultDialog";
 import {
   isElementStartInView,
   isSkuPagePathname,
@@ -31,6 +38,17 @@ import {
   suggestCreativeVisualTool,
   type CreativeVisualSuggestion,
 } from "@/lib/marketing/visual-tool";
+import {
+  packIdForCreative,
+  productPhotosPath,
+  resolveSelectedPackId,
+  showPhotoPackDefaultControls,
+  visualToolUsesPhotoPack,
+  type CreativePackChoice,
+  type CreativeVisualFileView,
+  type PhotoPackOption,
+  type VisualGenError,
+} from "@/lib/marketing/visual-pack-ui";
 import { copyTextToClipboard } from "@/lib/store/clipboard";
 import { creativesFillReasonI18nKey } from "@/lib/marketing/creatives-ai";
 import {
@@ -45,6 +63,31 @@ import type { MarketingStage } from "@/lib/constants";
 function stayOnMarketingForKitWrite(skuId: string | null | undefined) {
   if (!skuId || !isSkuPagePathname()) return;
   markStayOnMarketingAfterKitAction(skuId);
+}
+
+function explainVisualGen(
+  code: VisualGenError,
+  t: ReturnType<typeof useTranslations<"Marketing">>,
+): string {
+  if (code === "monthly_cap") return t("visualGenHonestyCap");
+  if (code === "nsfw") return t("visualGenHonestyNsfw");
+  if (code === "regen_cap") return t("visualGenRegenDisabled");
+  return t("visualGenHonestyFail");
+}
+
+async function downloadOwnedVisual(
+  href: string,
+  kind: "still" | "clip",
+): Promise<void> {
+  const res = await fetch(`${href}?download=1`);
+  if (!res.ok) return;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = kind === "clip" ? "product-clip.mp4" : "product-still.jpg";
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function MarketingPanel({
@@ -235,6 +278,14 @@ export function MarketingPanel({
                         ?.name ?? "your product")
                 }
                 category={view.selectedCategory}
+                photoPacks={view.isShopKit ? [] : view.photoPacks}
+                creativePackChoices={
+                  view.isShopKit ? [] : view.creativePackChoices
+                }
+                creativeVisuals={view.isShopKit ? [] : view.creativeVisuals}
+                visualGenReady={
+                  !view.isShopKit && view.visualGenReady
+                }
               />
             ))
         )}
@@ -454,6 +505,10 @@ function KitBlock({
   geminiCapReached,
   productName,
   category,
+  photoPacks,
+  creativePackChoices,
+  creativeVisuals,
+  visualGenReady,
 }: {
   kit: MarketingKitView;
   skuId: string | null;
@@ -462,6 +517,10 @@ function KitBlock({
   geminiCapReached: boolean;
   productName: string;
   category: string;
+  photoPacks: PhotoPackOption[];
+  creativePackChoices: CreativePackChoice[];
+  creativeVisuals: CreativeVisualFileView[];
+  visualGenReady: boolean;
 }) {
   if (kit.kind === "intro_lesson" && kit.lesson) {
     return (
@@ -487,6 +546,10 @@ function KitBlock({
       geminiCapReached={geminiCapReached}
       productName={productName}
       category={category}
+      photoPacks={photoPacks}
+      creativePackChoices={creativePackChoices}
+      creativeVisuals={creativeVisuals}
+      visualGenReady={visualGenReady}
     />
   );
 }
@@ -829,6 +892,10 @@ function CreativeKitBlock({
   geminiCapReached,
   productName,
   category,
+  photoPacks,
+  creativePackChoices,
+  creativeVisuals,
+  visualGenReady,
 }: {
   kit: MarketingKitView;
   skuId: string | null;
@@ -837,6 +904,10 @@ function CreativeKitBlock({
   geminiCapReached: boolean;
   productName: string;
   category: string;
+  photoPacks: PhotoPackOption[];
+  creativePackChoices: CreativePackChoice[];
+  creativeVisuals: CreativeVisualFileView[];
+  visualGenReady: boolean;
 }) {
   const t = useTranslations("Marketing");
   const locale = useLocale();
@@ -999,6 +1070,14 @@ function CreativeKitBlock({
           {t(`stage.${kit.stage}` as never)} · {t("creativesCount", { n: creatives.length })}
         </h3>
         <div className="flex items-center gap-2">
+          {skuId ? (
+            <Link
+              href={productPhotosPath(skuId)}
+              className="rounded-md border border-cedar/40 bg-cedar/10 px-2.5 py-1 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15"
+            >
+              {t("photoPacksAdd")}
+            </Link>
+          ) : null}
           {saved && <span className="text-xs text-cedar-deep">{t("saved")}</span>}
           <button
             type="button"
@@ -1099,6 +1178,36 @@ function CreativeKitBlock({
                   onIgnore={() => setScheduleIgnored(c.id, true)}
                   onRestore={() => setScheduleIgnored(c.id, false)}
                   onTryAiFill={() => tryAiFillCard(c.id)}
+                  photoPackUi={
+                    skuId
+                      ? {
+                          skuId,
+                          kitId: kit.id,
+                          packs: photoPacks,
+                          selectedPackId: resolveSelectedPackId({
+                            chosenPackId: packIdForCreative(
+                              creativePackChoices,
+                              kit.id,
+                              c.id,
+                            ),
+                            packs: photoPacks,
+                          }),
+                        }
+                      : null
+                  }
+                  visualGen={
+                    skuId && visualGenReady
+                      ? {
+                          skuId,
+                          kitId: kit.id,
+                          file:
+                            creativeVisuals.find(
+                              (v) =>
+                                v.kitId === kit.id && v.creativeId === c.id,
+                            ) ?? null,
+                        }
+                      : null
+                  }
                 />
               ))}
             </div>
@@ -1254,6 +1363,8 @@ function CreativeCard({
   onIgnore,
   onRestore,
   onTryAiFill,
+  photoPackUi,
+  visualGen,
 }: {
   c: Creative;
   index: number;
@@ -1274,8 +1385,28 @@ function CreativeCard({
   onIgnore: () => void;
   onRestore: () => void;
   onTryAiFill: () => void;
+  photoPackUi: {
+    skuId: string;
+    kitId: string;
+    packs: PhotoPackOption[];
+    selectedPackId: string | null;
+  } | null;
+  visualGen: {
+    skuId: string;
+    kitId: string;
+    file: CreativeVisualFileView | null;
+  } | null;
 }) {
   const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [packPending, startPack] = useTransition();
+  const [genPending, startGen] = useTransition();
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [genHonesty, setGenHonesty] = useState<string | null>(null);
+  const [genFile, setGenFile] = useState(visualGen?.file ?? null);
+  const [usedGeneric, setUsedGeneric] = useState(false);
+  const [pickedPackId, setPickedPackId] = useState(
+    photoPackUi?.selectedPackId ?? "",
+  );
   const hookEn = c.hookEn?.trim() ?? "";
   const hookAr = c.hookAr?.trim() ?? "";
   const hookLine = (isAr ? hookAr : hookEn) || (isAr ? hookEn : hookAr);
@@ -1327,6 +1458,17 @@ function CreativeCard({
   const toolLabel = visual
     ? t(`visualTool.${visual.tool}` as never)
     : "";
+  const shotListChoiceKey =
+    visual?.tool === "seedance"
+      ? ("photoPacksSeedanceChoice" as const)
+      : visual?.tool === "nano_banana"
+        ? ("photoPacksNanoChoice" as const)
+        : null;
+  const shotListChoiceLine = shotListChoiceKey ? (
+    <p className="font-bold text-ink" dir={isAr ? "rtl" : undefined}>
+      {t(shotListChoiceKey)}
+    </p>
+  ) : null;
 
   return (
     <div
@@ -1438,6 +1580,7 @@ function CreativeCard({
             rows={2}
             className={fieldClass}
           />
+          {shotListChoiceLine}
           <div className="space-y-1">
             <p className="font-medium text-ink">{t("shotList")}</p>
             <textarea
@@ -1500,6 +1643,7 @@ function CreativeCard({
               ) : null}
             </>
           )}
+          {shotListChoiceLine}
           <div>
             <p className="font-medium text-ink">{t("shotList")}</p>
             <ul className="mt-0.5 space-y-1 text-stone-dark">
@@ -1549,6 +1693,51 @@ function CreativeCard({
           >
             {visualWhy}
           </p>
+          {photoPackUi && visualToolUsesPhotoPack(visual.tool) ? (
+            <div className="mt-2 space-y-2" dir={isAr ? "rtl" : undefined}>
+              {photoPackUi.packs.length === 0 ? (
+                <p className="text-stone-dark">
+                  <Link
+                    href={productPhotosPath(photoPackUi.skuId)}
+                    className="font-medium text-sea underline-offset-2 hover:underline"
+                  >
+                    {t("photoPacksEmptyPointer")}
+                  </Link>
+                </p>
+              ) : (
+                <label className="block font-medium text-ink">
+                  {t("photoPacksPickerLabel")}
+                  <select
+                    className="mt-1 w-full rounded border border-stone bg-surface px-2 py-1 text-xs outline-none focus:border-cedar"
+                    value={pickedPackId || photoPackUi.selectedPackId || ""}
+                    disabled={packPending}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setPickedPackId(next);
+                      startPack(async () => {
+                        stayOnMarketingForKitWrite(photoPackUi.skuId);
+                        await setCreativePackChoiceAction(
+                          photoPackUi.skuId,
+                          photoPackUi.kitId,
+                          c.id,
+                          next,
+                        );
+                      });
+                    }}
+                  >
+                    {photoPackUi.packs.map((pack) => (
+                      <option key={pack.id} value={pack.id}>
+                        {showPhotoPackDefaultControls(photoPackUi.packs.length) &&
+                        pack.isDefault
+                          ? `${pack.name} ${t("photoPacksDefaultSuffix")}`
+                          : pack.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          ) : null}
           <p className="mt-2 font-medium text-ink">{t("visualToolPromptLabel")}</p>
           <pre
             dir={isAr ? "rtl" : undefined}
@@ -1557,9 +1746,141 @@ function CreativeCard({
             {visualPrompt}
           </pre>
           <p className="mt-1 text-[10px] text-stone-dark">
-            {t("visualToolHint")}
+            {visualToolUsesPhotoPack(visual.tool)
+              ? t("visualToolHintInApp")
+              : t("visualToolHintPhoneFilm")}
           </p>
+          {visualGen && visualToolUsesPhotoPack(visual.tool) ? (
+            <div className="mt-2 space-y-2">
+              {photoPackUi && photoPackUi.packs.length === 0 ? (
+                <p className="text-[11px] text-stone-dark">
+                  {t("visualGenHonestyNoPack")}
+                </p>
+              ) : null}
+              {genFile ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  {genFile.kind === "clip" ? (
+                    <video
+                      src={`${genFile.href}?v=${genFile.generatedAt ?? ""}`}
+                      className="h-16 w-16 rounded border border-stone object-cover"
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`${genFile.href}?v=${genFile.generatedAt ?? ""}`}
+                      alt=""
+                      className="h-16 w-16 rounded border border-stone object-cover"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    disabled={genPending}
+                    onClick={() => setPopupOpen(true)}
+                    className="rounded-md border border-cedar/40 bg-cedar/10 px-2.5 py-1 text-xs font-semibold text-cedar-deep hover:bg-cedar/15 disabled:opacity-50"
+                  >
+                    {t("visualGenView")}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={genPending}
+                  onClick={() => {
+                    stayOnMarketingForKitWrite(visualGen.skuId);
+                    setGenHonesty(null);
+                    startGen(async () => {
+                      const res = await generateVisualAction(
+                        visualGen.skuId,
+                        visualGen.kitId,
+                        c.id,
+                      );
+                      if (!res.ok) {
+                        setGenHonesty(explainVisualGen(res.error, t));
+                        return;
+                      }
+                      setUsedGeneric(res.value.usedGeneric);
+                      setGenFile({
+                        kitId: visualGen.kitId,
+                        creativeId: c.id,
+                        href: res.value.href,
+                        kind: res.value.kind,
+                        regenerateCount: res.value.regenerateCount,
+                        generatedAt: new Date().toISOString(),
+                      });
+                      setPopupOpen(true);
+                    });
+                  }}
+                  className="rounded-md bg-cedar px-2.5 py-1 text-xs font-semibold text-foam hover:bg-cedar-deep disabled:opacity-50"
+                >
+                  {genPending ? t("visualGenGenerating") : t("visualGenGenerate")}
+                </button>
+              )}
+              {genHonesty ? (
+                <p className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-950">
+                  {genHonesty}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
+      ) : null}
+      {popupOpen && genFile && visualGen ? (
+        <VisualResultDialog
+          href={`${genFile.href}?v=${genFile.generatedAt ?? ""}`}
+          kind={genFile.kind}
+          regenerateCount={genFile.regenerateCount}
+          usedGeneric={
+            usedGeneric || Boolean(photoPackUi && photoPackUi.packs.length === 0)
+          }
+          pending={genPending}
+          honesty={genHonesty}
+          onClose={() => setPopupOpen(false)}
+          onSave={() => {
+            void downloadOwnedVisual(genFile.href, genFile.kind);
+          }}
+          onRegenerate={() => {
+            stayOnMarketingForKitWrite(visualGen.skuId);
+            setGenHonesty(null);
+            startGen(async () => {
+              const res = await regenerateVisualAction(
+                visualGen.skuId,
+                visualGen.kitId,
+                c.id,
+              );
+              if (!res.ok) {
+                setGenHonesty(explainVisualGen(res.error, t));
+                return;
+              }
+              setUsedGeneric(res.value.usedGeneric);
+              setGenFile({
+                kitId: visualGen.kitId,
+                creativeId: c.id,
+                href: res.value.href,
+                kind: res.value.kind,
+                regenerateCount: res.value.regenerateCount,
+                generatedAt: new Date().toISOString(),
+              });
+            });
+          }}
+          onDiscard={() => {
+            if (!window.confirm(t("visualGenDiscardConfirm"))) return;
+            stayOnMarketingForKitWrite(visualGen.skuId);
+            startGen(async () => {
+              const res = await discardVisualAction(
+                visualGen.skuId,
+                visualGen.kitId,
+                c.id,
+              );
+              if (!res.ok) {
+                setGenHonesty(explainVisualGen("not_found", t));
+                return;
+              }
+              setGenFile(null);
+              setPopupOpen(false);
+              setGenHonesty(null);
+            });
+          }}
+        />
       ) : null}
     </div>
   );

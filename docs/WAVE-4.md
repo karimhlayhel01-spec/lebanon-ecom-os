@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 4**.
 **Wave 1** (multi-SKU hub, stage-aware Marketing FSM, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery) and **Wave 3** (Supplier) remain locked — see `docs/WAVE-2.md`, `docs/WAVE-3.md`. Do not reopen those locks here.
 
-**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + copyable prompts). **Phase 6 parked** (in-app visual gen). **Phase 7 shipped** (Marketing Gemini spend ledger + harden / EN–AR / tests). **Store follow-up shipped** (per-SKU page packs + Marketing-style picker). **Whole-shop Store pack shipped** (≥3 live SKUs).
+**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + **Copy prompt**). **Phase 6c shipped 2026-08-17** (in-OS Nano Banana stills + Seedance clips via Higgsfield; `MARKETING_VISUAL_GEN` default still off). **Phase 7 shipped** (Marketing Gemini spend ledger + harden / EN–AR / tests). **Store follow-up shipped** (per-SKU page packs + Marketing-style picker). **Whole-shop Store pack shipped** (≥3 live SKUs). **Shopify connect parked.**
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -49,10 +49,10 @@ Amend dates / promotion in §7 changelog.
 | **3** | AI-native creative kits + external AI desk roles — **shipped** |
 | **4** | This week’s one post + Posted / Skipped — **parked / deferred** (UI race — revisit later) |
 | **5** | Tool suggest Nano Banana / Seedance + copyable prompts — **shipped** |
-| **6** | Optional in-app visual gen (capped spend) — **parked / deferred** |
+| **6** | In-OS Nano Banana stills + Seedance clips via Higgsfield — **shipped 2026-08-17** (`MARKETING_VISUAL_GEN` default off) |
 | **7** | Harden / EN–AR / tests / Marketing Gemini spend ledger — **shipped** |
 
-**Parked follow-ups:** Store Gemini metering (still not on Marketing Phase 7 ledger). Phase 4 hero remains parked. Phase 6 visual gen remains parked.
+**Parked follow-ups:** Store Gemini metering (still not on Marketing Phase 7 ledger). Phase 4 hero remains parked. Shopify connect/write remains parked.
 
 ---
 
@@ -64,9 +64,72 @@ Amend dates / promotion in §7 changelog.
 
 ---
 
-## 4f) Phase 6 — In-app visual gen (**PARKED**)
+## 4f) Phase 6 — In-OS visual gen via Higgsfield (**LOCKED 2026-08-16; Phase 6c shipped 2026-08-17, flag default off**)
 
-Optional in-app Nano Banana / Seedance generation with spend cap. **Not shipped** — founders use Copy prompt + external tools (Phase 5). Revisit later.
+In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate API**. File on the kit card. Download is extra, not the only copy. **Phase 6c shipped 2026-08-17**; `MARKETING_VISUAL_GEN` default still off. Phase 5 **Copy prompt** stays as the fail-closed fallback.
+
+### Positioning
+
+| Rule | Detail |
+| --- | --- |
+| **In-OS generate** | Approach A click → Next.js server → Higgsfield API → copy the output into **our** storage → save **our** URL on the card. Higgsfield URLs last ~7 days; do not treat them as durable. |
+| **Not MCP** | **NOT** Higgsfield MCP. MCP is Cursor/Claude only. |
+| **Shopify** | Connect/write is later — **not this slice**. Stays parked. |
+
+### What stays (do not reopen)
+
+| Lock | Detail |
+| --- | --- |
+| **Phase 3 kit copy** | Hook, captions, shot list, How to shoot **unchanged**. How to shoot = **phone film plan for THIS post**, **not** packshot instructions. |
+| **Phase 5 Copy prompt** | Stays as fail-closed fallback. |
+| **Phase 4** | Posted/Skipped stays **parked**. |
+| **Skills routing** | `post`/`carousel` → Nano still; `reel`/`story`/`ugc` → Seedance **NEW** clip (does **not** fix/polish founder footage); `testimonial` → `phone_film`, no AI. |
+| **One card, one Generate** | No generate-all 14 cards. |
+| **Whole-shop kit** (`skuId` null) | **No** photo packs and **no** Generate in this slice. Copy prompt only. Packs exist on **per-SKU** kits only. |
+| **Intro** | No visual gen. |
+
+### Product photo packs (per SKU)
+
+- Upload opens a **page** titled **Add product photos** (not a tiny button with no explanation).
+- Named **packs**: each pack = photos of the **same product look** (a few angles) + optional **one** short product-motion clip when the motion is the proof (collapse/pour). **Not** a finished social Reel.
+- One pack is **default**. On each Nano/Seedance card, founder may pick which pack **this post** uses (same SKU, different look). If they never pick, use default.
+- **Not** a shop-wide folder library and **not** “create a folder named folder then rename then attach to every product.” Packs live on **this SKU**.
+- **Bold HOW TO PHOTOGRAPH** (full checklist) at the **top of the upload page only**: window light, product fills the frame, a few angles, less clutter; optional short clip only if motion is the proof; bad photos → weak Nano/Seedance. **Do not** repeat this essay on every kit card.
+- Nano/Seedance card with **no pack**: short pointer to the upload page (e.g. add product photos; how to shoot them is on that page). **Not** a second shot list.
+- **No** AI photo-approval / Gemini judging uploads.
+
+### Generate
+
+- **With a pack:** Higgsfield uses that pack’s media + this card’s brief (hook, shots, how-to, format, stage-soft rules).
+- **No pack:** Generate still allowed → generic still/clip + calm honesty (won’t look like their product).
+- **Nano:** one still. Carousel v1 = **one still**, not an auto 5-slide set.
+- **Seedance:** **creates** a short draft clip from photos (and optional product clip). Does **not** edit a video they already filmed as the post.
+- **Seedance cards:** **bold** choice line: two ways — film this shot list on the phone, **or** add/pick a pack and Generate. The AI clip will **not** match every timed shot.
+- **Phone film cards:** no upload, no Generate, no Nano/Seedance, no pack picker.
+
+### Result popup
+
+- Generated still or clip appears in a popup (preview).
+- **Save:** download to their computer; file **stays on the card**.
+- **Regenerate:** replace this file (**never stack**). Max **3 regenerates** per card **after** the first Generate (**4 Higgsfield runs max** per creative id). Then Regenerates disabled; Save / Discard / Close / Copy prompt / film remain.
+- **Discard:** delete this generate from the card; they can film the shot list. Discard **resets** the regen count for that card.
+- **Close:** leave popup; **keep** file on the card; they can reopen the popup. Close is **not** Discard.
+
+### Caps / env (names)
+
+- Do **not** use `MARKETING_GEMINI_MONTHLY_CAP` for visuals.
+- **Primary founder rule:** 1 Generate + 3 Regenerates per Nano/Seedance card.
+- **Safety:** `MARKETING_VISUAL_MONTHLY_CAP` — successful Higgsfield runs per workspace per UTC month; default **80**; `0` = no Generate (Copy prompt only). At/over cap → fail-closed to Copy prompt + honesty.
+- **Flag:** `MARKETING_VISUAL_GEN` default **off** (`0`) until founder enables.
+- Higgsfield keys in env only (`HF_API_KEY_ID` / `HF_API_KEY_SECRET` or equivalent). **Never commit secrets.**
+
+### Fail-closed
+
+No flag / no keys / API fail / nsfw / cap → Copy prompt + calm honesty. **No silent spend.**
+
+### Non-goals for this lock
+
+Shopify, Instagram publish, Phase 4, AI photo referee, generate-all, footage-fix, shop-wide DAM, 5-slide auto-carousel, mixing visual spend into the Gemini copy ledger.
 
 ---
 
@@ -149,10 +212,13 @@ Same Intro accordion under a literacy subheading.
 ```text
 # Phase 1 — Gemini for Intro / creatives (fail-closed when missing)
 GEMINI_API_KEY=…          # or DISCOVERY_EXPLAIN_GEMINI_API_KEY
-# Phase 7 — Marketing Gemini monthly cap (per workspace; not Store)
+# Phase 7 — Marketing Gemini monthly cap (per workspace; not Store; not visuals)
 # MARKETING_GEMINI_MONTHLY_CAP=40
-# Phase 6 — in-app visual gen (parked; default off)
+# Phase 6 — in-OS visual gen (Phase 6c shipped; default off)
 # MARKETING_VISUAL_GEN=0
+# MARKETING_VISUAL_MONTHLY_CAP=80   # successful Higgsfield runs / workspace / UTC month; 0 = Copy prompt only
+# HF_API_KEY_ID=…                  # Higgsfield; never commit secrets
+# HF_API_KEY_SECRET=…
 ```
 
 Never commit secrets.
@@ -176,6 +242,10 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-17 | Phase 6c shipped (flag default still off). |
+| 2026-08-17 | Phase 6b — Add product photos page + named per-SKU packs + Nano/Seedance pack picker. No Generate / Higgsfield. |
+| 2026-08-17 | Phase 6a foundation — per-SKU photo packs + owned-file paths + creative visual side table + `marketing_visual_usage` ledger; `MARKETING_VISUAL_GEN` default off. No Generate UI. |
+| 2026-08-16 | **Phase 6 locked (not shipped)** — in-OS Nano Banana stills + Seedance clips via Higgsfield generate API; per-SKU photo packs; 1 Generate + 3 Regenerates per card; `MARKETING_VISUAL_MONTHLY_CAP` (default 80); fail-closed to Phase 5 Copy prompt. Phase 4 stays parked. Shopify connect stays parked. |
 | 2026-08-16 | leftover fill uses the same Gemini request as generate (full card). |
 | 2026-08-16 | leftover Try AI fill again is one card + copy draft shots if needed; kit button reports still leftover. Shot locks unchanged. |
 | 2026-08-16 | Move to next week authors a new convert/weekly plan (excludes last week’s hooks); Regenerate rebuilds this week without incrementing or `previousWeekHooks`. Phase 4 stays parked. |

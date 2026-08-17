@@ -14,8 +14,9 @@
  * Batch/reorder actions must clear that stay-finance flag so it cannot leak.
  * Dedicated /finance never sets stay-finance (already on Finance).
  *
- * Marketing Generate/Save kit on /sku/[id]: pin #marketing + suppress so a
- * leftover #batch-arrival-eta (Set ETA CTA) cannot re-scroll on revalidate.
+ * Marketing Generate/Save kit and pack picker on /sku/[id]: pin #marketing +
+ * suppress so remount/revalidate cannot jump to leftover #batch-arrival-eta
+ * or re-scroll the stage rail. Prefer stay-put on the card.
  */
 
 const STORAGE_PREFIX = "lebanon-ecom:sku-cold-hold:";
@@ -152,10 +153,11 @@ export const markStayOnFinanceAfterStartSelling =
   markStayOnFinanceAfterTopicAAction;
 
 /**
- * Call BEFORE Generate / Regenerate kit or Save creatives on the SKU page.
- * Pins #marketing and locks auto-scroll at that URL so remount/revalidate
- * cannot jump to leftover #batch-arrival-eta (Marketing “Set ETA” CTA).
- * No-op off /sku paths. Prefer stay-put — do not force-scroll Marketing.
+ * Call BEFORE Generate / Regenerate kit, Save creatives, or pack picker save
+ * on the SKU page. Pins #marketing and locks auto-scroll at that URL so
+ * remount/revalidate cannot jump to leftover #batch-arrival-eta or re-scroll
+ * the stage rail. No-op off /sku paths. Prefer stay-put — do not force-scroll
+ * Marketing.
  */
 export function markStayOnMarketingAfterKitAction(
   skuId: string,

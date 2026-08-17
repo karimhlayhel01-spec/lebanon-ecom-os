@@ -22,6 +22,21 @@ async function deleteSkuWipeDependents(
           .delete(schema.supplierOptions)
           .where(eq(schema.supplierOptions.skuId, skuId));
         break;
+      case "marketing_sku_photo_pack_assets":
+        await exec
+          .delete(schema.marketingSkuPhotoPackAssets)
+          .where(eq(schema.marketingSkuPhotoPackAssets.skuId, skuId));
+        break;
+      case "marketing_creative_visuals":
+        await exec
+          .delete(schema.marketingCreativeVisuals)
+          .where(eq(schema.marketingCreativeVisuals.skuId, skuId));
+        break;
+      case "marketing_sku_photo_packs":
+        await exec
+          .delete(schema.marketingSkuPhotoPacks)
+          .where(eq(schema.marketingSkuPhotoPacks.skuId, skuId));
+        break;
       case "marketing_kits":
         await exec
           .delete(schema.marketingKits)

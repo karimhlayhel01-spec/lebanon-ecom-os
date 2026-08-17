@@ -305,7 +305,7 @@ describe("batch-arrival-eta deep-link one-shot + Generate kit stay on Marketing"
     expect(isSkuAutoScrollSuppressed(SKU)).toBe(false);
   });
 
-  it("Generate kit pins #marketing and blocks leftover ETA remount scroll", () => {
+  it("Generate kit / pack pick pins #marketing and blocks leftover ETA remount scroll", () => {
     const loc: { pathname: string; search: string; hash: string } = {
       pathname: `/en/sku/${SKU}`,
       search: "",
@@ -341,6 +341,7 @@ describe("batch-arrival-eta deep-link one-shot + Generate kit stay on Marketing"
     // so a stale BatchArrivalEtaBlock check against ETA_KEY would unlock —
     // Generate clears hash first, so remount sees #marketing only.
     expect(consumeDeepLinkIfUnlocked(SKU, MARKETING_KEY)).toBe(false);
+    expect(shouldBlockSkuFocusScroll(SKU, MARKETING_KEY)).toBe(true);
 
     vi.unstubAllGlobals();
   });

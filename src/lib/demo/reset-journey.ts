@@ -27,6 +27,15 @@ export async function resetWorkspaceJourney(
       .delete(schema.supplierOptions)
       .where(eq(schema.supplierOptions.workspaceId, id));
     await tx
+      .delete(schema.marketingSkuPhotoPackAssets)
+      .where(eq(schema.marketingSkuPhotoPackAssets.workspaceId, id));
+    await tx
+      .delete(schema.marketingCreativeVisuals)
+      .where(eq(schema.marketingCreativeVisuals.workspaceId, id));
+    await tx
+      .delete(schema.marketingSkuPhotoPacks)
+      .where(eq(schema.marketingSkuPhotoPacks.workspaceId, id));
+    await tx
       .delete(schema.marketingKits)
       .where(eq(schema.marketingKits.workspaceId, id));
     await tx
@@ -60,6 +69,9 @@ export async function resetWorkspaceJourney(
     await tx
       .delete(schema.marketingGeminiUsage)
       .where(eq(schema.marketingGeminiUsage.workspaceId, id));
+    await tx
+      .delete(schema.marketingVisualUsage)
+      .where(eq(schema.marketingVisualUsage.workspaceId, id));
     await tx
       .delete(schema.orchestratorEvents)
       .where(eq(schema.orchestratorEvents.workspaceId, id));
