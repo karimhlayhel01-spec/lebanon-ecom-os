@@ -103,13 +103,9 @@ With flags **off**, Discovery stays Wave 1 (in-memory catalog; accept uses margi
 
 ### Session resync (POOL_V2)
 
-Active Discovery sessions freeze a shortlist at start. Path 1 intake / score jobs do **not** rewrite an open session. When `DISCOVERY_POOL_V2=1`, founders can use **Refresh suggestions** on the Discovery board to:
+**Default board (`DISCOVERY_AGENT_UI` off):** active Discovery sessions freeze a shortlist at start. Path 1 intake / score jobs do **not** rewrite an open session. When `DISCOVERY_POOL_V2=1`, **Refresh suggestions** closes the session, re-ranks from pool + score cache, and opens a new session. Workspace-seen keys stay excluded. Refresh does **not** increment the exhausted-round ladder.
 
-1. Close the active session  
-2. Re-score from the current Postgres pool + Approach A score cache  
-3. Open a new session  
-
-**Seen keys** (any catalog key already shown / rejected / accepted in the workspace) stay excluded — same rule as **Continue discovery**. Reject, show-more, and accept on the new session are unchanged. Refresh does **not** increment the exhausted-round ladder.
+**Agent UI (`DISCOVERY_AGENT_UI=1`, WAVE-2 §14):** **Explore more** pulls **new** products in the **same** session (does not freeze the visible grid; does not clear the basket). **Refresh** is still start-over (new session). **Show more** is hidden. See `docs/WAVE-2.md` §14.1.
 
 The app requires **`DATABASE_URL`** — a standard Postgres connection string (Neon, local Docker, RDS, etc.).
 

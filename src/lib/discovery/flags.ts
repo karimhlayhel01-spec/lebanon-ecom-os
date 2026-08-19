@@ -17,6 +17,14 @@ export function isDiscoveryPoolV2Enabled(): boolean {
 }
 
 /**
+ * WAVE-2 §14 Discovery agent UI (wizard + grid + basket).
+ * Default off — keep the 5-card board. When on, REPLACE that board (never both).
+ */
+export function isDiscoveryAgentUiEnabled(): boolean {
+  return isTruthyEnvFlag(process.env.DISCOVERY_AGENT_UI);
+}
+
+/**
  * Allow scheduled jobs to call a live search/shopping provider.
  * Default off — Discovery page loads must never live-search (Approach A).
  */

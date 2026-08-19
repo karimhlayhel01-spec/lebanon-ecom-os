@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  isDiscoveryAgentUiEnabled,
   isDiscoveryLiveSearchEnabled,
   isDiscoveryPoolV2Enabled,
   isSoftCompetitionBudgetEnabled,
@@ -7,6 +8,7 @@ import {
 
 const KEYS = [
   "DISCOVERY_POOL_V2",
+  "DISCOVERY_AGENT_UI",
   "DISCOVERY_LIVE_SEARCH",
   "DISCOVERY_SOFT_COMPETITION_BUDGET",
 ] as const;
@@ -16,8 +18,9 @@ afterEach(() => {
 });
 
 describe("discovery feature flags", () => {
-  it("defaults pool and live search off", () => {
+  it("defaults pool, agent UI, and live search off", () => {
     expect(isDiscoveryPoolV2Enabled()).toBe(false);
+    expect(isDiscoveryAgentUiEnabled()).toBe(false);
     expect(isDiscoveryLiveSearchEnabled()).toBe(false);
   });
 
@@ -26,6 +29,12 @@ describe("discovery feature flags", () => {
     process.env.DISCOVERY_LIVE_SEARCH = "true";
     expect(isDiscoveryPoolV2Enabled()).toBe(true);
     expect(isDiscoveryLiveSearchEnabled()).toBe(true);
+  });
+
+  it("enables agent UI only on 1|true", () => {
+    expect(isDiscoveryAgentUiEnabled()).toBe(false);
+    process.env.DISCOVERY_AGENT_UI = "1";
+    expect(isDiscoveryAgentUiEnabled()).toBe(true);
   });
 
   it("defaults soft competition×budget on (WAVE-2 safe)", () => {

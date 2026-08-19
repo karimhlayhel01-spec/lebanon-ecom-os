@@ -5,7 +5,7 @@ Product and engineering locks for Wave 2.
 
 This document starts with the **Discovery agent** slice (winning product pick). Other Wave 2 surfaces (Founder Consultant, Shopify sync, ads, supplier email MCP, etc.) are out of scope here until locked separately.
 
-**Status:** Discovery agent listing + **Path 1 product pool intake** + card **“Why we suggested this”** explain + **worth-considering compare (max 3)** (**required Gemini** narrates; skills pick winner) — **LOCKED** (founder discussion).
+**Status:** Path 1 intake + Approach A scores + accept-ready gates + Why/Compare engines remain **LOCKED**. **Discovery agent UI** — **LOCKED 2026-08-19** in **§14**. Flag `DISCOVERY_AGENT_UI` default **off**. Build only via §14.8 (three PRs). Do not ship chat, live-search on click, or a second Accept/Compare.
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -17,10 +17,10 @@ This document starts with the **Discovery agent** slice (winning product pick). 
 
 **UX target:**
 - Research is **automated** (no manual catalog tags, no founder market homework).
-- Founder mainly **accepts or rejects** shortlisted products.
+- Founder mainly **accepts or proceeds** from suggested products (or Compare, then one Proceed).
 - Focus is **winning products**, not brand discovery (brand text in a title is incidental).
 - Paste **demand confirm** (URL / note / screenshot) is **REMOVED** — accept uses **system skill gates only** (see §6.1 / §7).
-- **Founder Consultant / LLM chat** — **parked**; not part of this Discovery lock.
+- **Founder Consultant messenger / ChatGPT thread** — still **parked**. **§14** unlocks **OS-chrome questions** (one card at a time), not a transcript.
 
 **No commercial marketplace / courier / Alibaba partner agreements required** for this slice (founder has no live Alibaba business → official Alibaba Open Platform access is **out**).
 
@@ -41,8 +41,8 @@ A scheduled/robot intake uses a **normal web/shopping search API** (API key, no 
 Internet (search / shopping API)
    → product pool in Postgres (names, price seeds, category, source URL…)
    → locked Lebanon win scoring (demand × competition × budget × Fit × soft margin scoring)
-   → Discovery shortlist (accept-ready only)
-   → founder accept / reject
+   → Discovery retrieve (accept-ready only, then §14 hide-dump)
+   → founder Proceed / Compare / Explore more (§14)
 ```
 
 ### Path 1 goals
@@ -159,9 +159,9 @@ A **qualified** path label (`whitespace` / `local_proven`) requires **real measu
 | --- | --- |
 | **Low** (gap) | Easier Strong-friendly path |
 | **Medium** | Listable; later coaching optional |
-| **High** (Tier-1 + many locals) | Still **show** as **Okay** → **customize / drop** — **not** auto-hide |
+| **High** (Tier-1 + many locals) | **§14 hide-dump (LOCKED 2026-08-19):** do **not** retrieve / show on the agent grid when pool+scores exist. Supersedes “still show as Okay → customize/drop.” |
 
-**Customize → LLM differentiation coach** is **parked** (Consultant later), not required for this listing lock.
+**Customize → LLM differentiation coach (chat)** stays **parked**. **§14** puts a **differentiate line** on every shown card (never “sell as-is”) instead of listing Ishtari dumps.
 
 ### 4.3 Competition × budget (“can they fight?”)
 
@@ -194,7 +194,7 @@ Still gates ability to operate the product.
 - **Shortlist = accept-ready only.** A card appears iff Accept would not return `blocked` / `needs_system_demand_missing` / `needs_system_demand_weak` (hard margins pass, not oversized, system demand gate pass when `DISCOVERY_POOL_V2` is on).
 - Do **not** list soft_ok / soft-margin-only / hard-margin-fail / oversized / weak-demand cards “for browsing.”
 - Soft-margin bands (`pass` / `soft_ok` / `far_below`) may still exist for **scoring / explain** — they do **not** unlock listing for under-target margins.
-- Tier-1 customize/drop and Okay risk-ack remain on otherwise accept-ready cards.
+- Okay risk-ack remains on otherwise accept-ready cards that **still list**. High Tier-1 + cheap local clutter is **not listed** when §14 hide-dump applies.
 
 ---
 
@@ -290,7 +290,7 @@ These are part of the engineering contract, not optional nice-to-haves:
 | **Accept-ready shortlist** | List **only** products Accept would not block on margins / oversized / system demand. **No** soft-margin fill of non-accept cards |
 | **Edit onboarding** | When 0 (or below usable threshold) accept-ready products for this profile — empty shortlist + Edit onboarding note (see §8). Never strand on a page of blocked cards. **Unless the board is empty because scores are missing or failed**, which is a data outage and shows the market-data-not-ready state instead (§8) |
 | **Paste demand confirm** | **REMOVED** — accept uses system skill gates only (demand/competition/Fit/hard-margin/Tier-1/oversized); no founder paste |
-| **No LLM/MCP in pass/fail** | Skills score; **required Gemini** only for §6.1 “Why we suggested this” and §6.2 compare briefs — never the shortlist / compare winner brain; MCP optional wrapper later |
+| **No LLM/MCP in pass/fail** | Skills score; Gemini **never** sets 70/35%, demand gate, Fit pass/fail, or compare winner. **§14:** Gemini may **only reorder ids inside a skills-retrieved set** (invalid id dropped). Why + Compare briefs unchanged (§6.1 / §6.2). MCP optional wrapper later |
 | **Measure** | Empty rate, accept rate, edit-onboarding rate — tune thresholds from data (see §7.1) |
 
 **Never strand the founder:** when the pool has only weak / non-accept-ready products, show an **empty shortlist + Edit onboarding** — not soft-listed blocked cards.
@@ -393,9 +393,11 @@ Skills:
   Demand · Competition · BudgetFight · Fit · SoftMargin
   · SampleAffordability · Diversity · Confidence · Explain
         ↓
-Discovery agent: filter/rank → shortlist UI (~5, show more → session cap)
+Discovery agent: filter/rank → retrieve set
         ↓
-Founder: accept / reject (Tier-1: customize / drop)
+§14 UI (when DISCOVERY_AGENT_UI on): ask cards → photo grid → basket → Proceed / Compare / Explore more
+        ↓
+Founder: Proceed = existing accept; Compare = existing §6.2 (skills pick winner)
         ↓
 (After accept — Wave 1, unchanged)
 Supplier agent: 3+2 options, sample-first, …
@@ -406,9 +408,9 @@ Supplier agent: 3+2 options, sample-first, …
 | **Path 1 intake API** | Find live-ish **winning product** candidates; write pool (not brand DB) |
 | **Scoring API** | Fetch public web evidence for demand/competition on pool rows |
 | **Skills** | Deterministic (or rule-based) scoring — unit-testable; source of pass/rank truth |
-| **Discovery agent** | Orchestrates shortlist UI; does **not** bypass Human Approvals on accept |
+| **Discovery agent** | Orchestrates retrieve + §14 UI; does **not** bypass Human Approvals on accept |
 | **MCP** | Optional later tool wrapper around the **same** API clients — not required for Approach A |
-| **LLM** | **Required** §6.1 “Why we suggested this” + §6.2 compare briefs via **Gemini** — **not** the shortlist / compare-winner pass/fail brain |
+| **LLM** | **Required** §6.1 Why + §6.2 compare briefs; **§14** id-reorder inside retrieved set only — **not** pass/fail, **not** compare winner |
 | **Cursor MCP / Browser** | Builder/ops aids only — **not** the production catalog for founders |
 
 ### 10.1 Interface evolution note
@@ -432,21 +434,24 @@ Extend seams without requiring founder paste.
   - `DISCOVERY_SEARCH_MONTHLY_QUERY_CAP` — monthly ledger cap (safe default `DISCOVERY_SEARCH_MONTHLY_QUERY_CAP_DEFAULT`)
 - `DISCOVERY_SCORE_STALE_AFTER_DAYS` — days before a card's market read reads as out of date (§7; default `DISCOVERY_SCORE_STALE_AFTER_DAYS_DEFAULT`). **Display only** — never a gate
 - **Required for suggestion copy:** `GEMINI_API_KEY` or `DISCOVERY_EXPLAIN_GEMINI_API_KEY` (never commit secrets)
+- `DISCOVERY_AGENT_UI` — §14 board (default **off**). `1`/`true` **replaces** the 5-card board (never both). Hide-dump only when `DISCOVERY_POOL_V2` + usable scores.
 - Optional later: dropship catalog API key as backup intake
 
 All scoring vendors implement the same `DiscoverySearchProvider`, and `getDiscoverySearchProvider()` in `src/lib/discovery/search-provider.ts` stays the **only** production bind point — jobs receive a provider, they never construct one. Swapping vendor is an env change, not a code change.
 
 ### 10.3 Session vs pool resync (implementation)
 
-Approach A jobs update the **global** pool/score tables. An **active** Discovery session still shows the shortlist frozen at session start (reject / show-more / seen-key rules unchanged).
+Approach A jobs update the **global** pool/score tables. They still **must not** live-search on Discovery GET.
 
-When `DISCOVERY_POOL_V2` is on, the UI exposes **Refresh suggestions**: close the active session → re-rank from current pool + scores → open a new session. Workspace-seen catalog keys remain excluded (same as Continue). Refresh does not bump exhausted rounds.
+**When `DISCOVERY_AGENT_UI` is off:** an active session still **freezes** the shortlist at start (reject / show-more / seen-key unchanged). **Refresh suggestions** (POOL_V2): close session → re-rank → new session. Workspace-seen keys stay excluded. Refresh does not bump exhausted rounds.
+
+**When `DISCOVERY_AGENT_UI` is on (§14):** the session **keeps** frame chips, basket, explore count, and shown-id memory. **Explore more** pulls **new** retrieve ids (not in shown/rejected/basket) **without** closing the session — this **unlocks** freeze-at-start for the **visible grid only**. **Refresh suggestions** remains **start over** (new session, clears basket/chips/count). **Show more** is **not** on this surface.
 
 ---
 
 ## 11) Explicit non-goals (this Discovery lock)
 
-- Founder Consultant always-on chat / contextual triggers  
+- Founder Consultant **messenger / ChatGPT thread** (OS question cards in §14 are not this)
 - Shopify Admin sync  
 - Meta / TikTok ads pull into Topic A  
 - Courier / COD network APIs  
@@ -456,12 +461,14 @@ When `DISCOVERY_POOL_V2` is on, the UI exposes **Refresh suggestions**: close th
 - Pre-attaching full supplier shortlists on Discovery cards (Supplier stays post-accept)  
 - Requiring MCP for core shortlist scoring  
 - Using Gulf as primary abroad signal  
-- Hard-hiding all Tier-1 collisions  
+- Ditching Path 1 / score jobs so the model “knows” the Lebanese market  
+- Live-search or Serper on Explore more / page load  
+- Inventing catalogKeys not in the retrieved set  
 - Relying on Cursor-only MCP/browser as the live product feed for end users  
-- Using LLM as Fit / demand / competition / pass-fail scorer (explain + compare briefs only — §6.1 / §6.2)  
-- Treating “Why we suggested this” or compare as Founder Consultant chat or Tier-1 customize coach  
-- Letting Gemini override the skills-picked compare winner (§6.2)  
+- Using LLM as Fit / demand / competition / pass-fail scorer or compare winner  
+- Treating Why / Compare as Consultant chat  
 - Requiring founder paste demand confirm for Discovery accept  
+- Rewriting Marketing, Supplier, Store, Topic A/B, or journey FSM in this slice  
 
 ---
 
@@ -469,6 +476,7 @@ When `DISCOVERY_POOL_V2` is on, the UI exposes **Refresh suggestions**: close th
 
 | Date | Change |
 | --- | --- |
+| 2026-08-19 | **§14 Discovery agent UI LOCKED** — OS wizard + photo grid + click-basket (not ChatGPT); Explore more ≠ Refresh ≠ Show more; same-session new ids (unlock freeze for grid only); hide-dump when pool+scores; Other maps to 10 industries or none; intro card; Gemini id-reorder only; Proceed/Compare reuse accept + §6.2; Path 1/score jobs stay; Marketing/Supplier/Store/Topic A/B/hub FSM not rewritten. Flag `DISCOVERY_AGENT_UI` default off. Build: three PRs in §14.8. |
 | 2026-08-02 | Initial Wave 2 doc: Discovery agent listing + sources + engineering + risk tricks **LOCKED** |
 | 2026-08-03 | **Path 1** product pool intake **LOCKED** (search/shopping API; no Alibaba official; winning products not brands; catalog.ts seed/fallback; Supplier remains post-accept) |
 | 2026-08-03 | Card **“Why this pick?”** explain **LOCKED** (§6.1): demand-summary-sized paragraph from skill payloads only; optional LLM; never pass/fail |
@@ -492,8 +500,102 @@ When `DISCOVERY_POOL_V2` is on, the UI exposes **Refresh suggestions**: close th
 | 2026-08-08 | §6.1 / §6.2 **Arabic founder labels** **LOCKED** — AR Why/Compare prose uses **الملاءمة** / **مقبول** / **قوي** (not English Fit/Okay/Strong labels); facts JSON carries localized `fitLabel`/`strengthLabel`; sentence split accepts Arabic `؟`; Why cache `v10-ar-founder-labels`, Compare cache `v5-ar-founder-labels` (label ban later softened — see AR example length + rewrite) |
 | 2026-08-08 | §6.1 / §6.2 **AR example length + label rewrite** — AR GOOD prompt examples must meet locked min chars (Why ≥800, Compare ≥500); clear English Fit/Okay/Strong slips are rewritten to Arabic labels before finalize (residual mismatch → `okay_mismatch` retry, not false `incomplete`); Why cache `v11-ar-example-length`, Compare cache `v6-ar-example-length` |
 | 2026-08-08 | §6.1 **AR Strong vs Okay GOOD examples** **LOCKED** — AR system prompt branches on `strengthLabel`: مقبول cards keep Okay GOOD examples; قوي cards get Strong GOOD examples (`التوصية قوية`, no مقبول verdict) so Gemini does not copy Okay scare onto Strong → `okay_mismatch`; Why cache `v12-ar-strong-examples` |
-| 2026-08-09 | **Discovery photo / thumbnail gallery PARKED** — UX + ownership direction (per-card modal, max 5 URLs, Approach A, no MCP as production feed) stays product intent; **image API vendor not locked**; not in active build. Next shipping slice is **Wave 3 Supplier** (`docs/WAVE-3.md`) |
+| 2026-08-09 | **Discovery photo / thumbnail gallery PARKED** — **multi-photo modal** still parked. **§14** unlocks **one** pool image URL (or placeholder) per suggestion; no scrape/gen in this slice. |
 | 2026-08-11 | **Demo restore Discovery** (ops / recruiter, not a Discovery lock change): `DEMO_RESET` Settings control now wipe-then-seeds invent/catalog shortlist (5 visible → Show more → 25). No Serper/SerpAPI. Wipe-to-empty remains dev-only. |
+
+---
+
+## 14) Discovery agent UI (**LOCKED 2026-08-19**)
+
+Bounded agent: **OS chrome** (intro → one question card → photo grid → basket). **Not** a ChatGPT transcript. Skills/jobs remain SoT for 70/35%, demand, Lebanon competition, Fit. Gemini does not invent SKUs.
+
+**Out of slice:** Marketing kits, Supplier 3+2, Store checklist/packs, Topic A, Topic B shape, shop-hub routing / Next chips, Shopify, journey FSM. Proceed = existing `acceptProductAction`.
+
+### 14.1 Collisions Build must not guess (**required**)
+
+| Collision | Lock |
+| --- | --- |
+| **Explore more vs freeze** | Visible grid may change inside the **same** session. Persist `shownCatalogKeys[]`, basket, frame, `exploreMoreCount`. Do **not** implement Explore more as Refresh. |
+| **One UI** | `DISCOVERY_AGENT_UI=1` **replaces** the 5-card board. Flag **off** = current board (tests keep passing during PRs). Never both on one page. |
+| **Three “more” controls** | **Explore more** = next **unseen** retrieve batch (replace grid; keep basket). **Refresh** = start over (new session; clear basket/chips/count). **Show more** = **hidden** when agent UI on. |
+| **Hide-dump needs scores** | High competition (`COMPETITION_HIGH_MIN`) **and** Tier-1 (pool `tier1Marketplaces` or live evidence names Ishtari/EGLOW/Platza) → **not retrieved**. Rank remaining toward **whitespace**. If `DISCOVERY_POOL_V2` off or scores missing → **no hide-dump**; use existing empty / catalog / market-data-not-ready — do **not** fake an Ishtari filter. |
+| **Build order** | §14.8 three PRs. Do not land ask+explore+hide in one PR. |
+
+### 14.2 Flow
+
+```text
+first Discovery this profile → intro card (once) → persist discoveryIntroSeen
+  → ask (fixed questions, chips)
+  → retrieve → grid
+  → click basket (max 3; drag optional, same state)
+       1 in basket → Proceed with this product
+       2–3 → Compare (then Proceed on one)
+  → Explore more → why chips (not_convinced | keep_looking)
+       not_convinced → narrowing ask, then retrieve
+       keep_looking → new ids if exploreMoreCount < 5
+       6th Explore more → narrowing ask first
+```
+
+Reject/undo may remain as fail-closed on cards if needed; **primary** path is basket + Proceed, not a Reject-first board.
+
+### 14.3 Intro (fixed EN/AR, not Gemini)
+
+First visit only. Lists the **10** `INDUSTRY_OPTIONS` labels. Other must map to one; if it cannot, we cannot help. Example of **none** in copy: **used cars** or **a bakery** — **not** paintings (paintings map to Home & kitchen). Next → ask.
+
+### 14.4 Ask / Other / narrowing
+
+- **Want to sell:** same 10 industry chips (pre-check onboarding likes) + **Other** (short text, ~80 chars). Multi-select industries allowed.
+- Other → **keyword classifier** (code fixtures, not Gemini): `industry` | `none` | `unmapped`.  
+  - **Map:** `paintings`, canvas prints, diamond-painting kits → `home_kitchen` (then retrieve; empty if nothing accept-ready).  
+  - **`none`:** used cars / dealership, bakery / cooked food, sofas / full furniture, wedding dresses / bulky apparel, renting apartments.  
+  - **`unmapped` + at least one industry chip:** Other is **rank hint only**; retrieve those chips.  
+  - **`unmapped` or `none` with Other as the only selection:** **don’t-deal** — no invented grid, no silent remap to bins.  
+  - **Zero rows** after a real map: same don’t-deal / nothing-fits honesty.
+- Other questions (one card each): skip/refuse (e.g. cheap storage), who it’s for, how they want to differ (demo/bundle/niche — not cheaper). Skip allowed with explicit skip.
+- Narrowing uses the **same** cards; answers **overwrite** session fields; then retrieve again.
+- Answers render as **chips** above the grid, not a transcript.
+
+### 14.5 Grid, (i), differentiate, photos
+
+- Each suggestion: **one** photo (pool URL or placeholder — **no** scrape/gen), **name**, **(i)** → existing §6.1 Why popup, **one differentiate line** (never “sell as-is” / undercut Ishtari on price). Blocklist those phrases on Why + differ + any Gemini id-pick copy.
+- Gemini **optional** reorder of retrieved ids; every id must be in the retrieve set or **drop**. Gemini miss → **skill order** of the retrieve set. Empty retrieve → honesty (don’t-deal / Edit onboarding / market-data-not-ready per existing cause rules — **one** banner, §14.7).
+
+### 14.6 Basket / Compare / Proceed
+
+- Click add/remove. Max **3**. 4th refused with existing compare max copy.
+- Basket **replaces** worth-considering **checkboxes** when agent UI on. Same max; **same** `pickCompareWinner` + §6.2 brief. Do not keep two mark systems.
+- Refresh clears basket (new session). Explore more **does not**.
+
+### 14.7 Empty-state precedence (one banner)
+
+1. Scores missing/failed → **market-data-not-ready**  
+2. Other classifier `none` **or** mapped industry with 0 retrieve (including hide-dump emptied the aisle) → **don’t deal / nothing fits this frame** (not Edit onboarding unless profile Fit/budget is the traced blocker)  
+3. Profile 0 accept-ready → existing Edit onboarding  
+4. Else grid  
+
+Do not show Edit onboarding for “I typed bakery.”
+
+### 14.8 Build slices (required order)
+
+1. **PR1:** hide-dump (when scores exist) + click-basket + photo/name/(i) + differ line on **current** retrieve; Proceed/Compare wired to existing actions; flag still off or PR1 behind flag showing new **grid only** if cheaper — prefer flag-gated **replace of the result list** without ask yet. Tests: no dump ids when high+Tier-1; 1 vs 2+ button; max 3.  
+2. **PR2:** intro + ask + Other classifier fixtures (paintings vs bakery/cars) + chips + persist. Tests: `none` → no ids; paintings → `home_kitchen` retrieve.  
+3. **PR3:** Explore more (new ids, same session, counter) + why chips + narrowing at not_convinced or 6th explore. Tests: Explore more does not call session-close/Refresh; shown keys excluded; 6th blocked until narrowing fields written.
+
+### 14.9 KB / frame (no vector DB)
+
+**Frame:** onboarding + session fields + doctrine (10 industries, Other map-or-none, never as-is, always differ, ids ⊂ retrieve, 70/35% and oversized are gates, estimate-only without live evidence).  
+**KB:** pool row, scores (demand/competition/Fit/margins), capped evidence, shown/rejected/basket ids.  
+**Not in KB:** live Serper, Meta Ads, Topic A spend, WAVE-2.md as RAG, other founders’ chats.
+
+### 14.10 Tests Build must add
+
+- Explore more does not create a new Discovery session id  
+- Refresh does  
+- Id not in retrieve set is not rendered  
+- Why/differ containing sell-as-is / guaranteed sales → reject  
+- Classifier fixtures in §14.4  
+- Empty precedence in §14.7  
+- Compare still `pickCompareWinner`, never from prose  
 
 ---
 
@@ -504,6 +606,7 @@ When `DISCOVERY_POOL_V2` is on, the UI exposes **Refresh suggestions**: close th
 - Catalog seed + `DemandProvider` seam: `src/lib/discovery/catalog.ts` (seed/fallback until Path 1 pool is SoT)
 - Discovery ladder / edit-onboarding suggestions: `src/lib/discovery/ladder.ts`
 - Empty-shortlist cause — data outage vs profile filtering (§8): `src/lib/discovery/empty-state.ts`
+- §14 hide-dump + Other classifier (fixtures): `src/lib/discovery/agent/`
 - Score freshness (§7, display only): `src/lib/discovery/freshness.ts`
 - Undo reject (§7): `src/lib/discovery/undo-reject.ts`
 - Measurement loop (§7.1): `src/lib/discovery/metrics/` + `scripts/discovery-metrics.ts`
