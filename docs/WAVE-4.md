@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 4**.
 **Wave 1** (multi-SKU hub, stage-aware Marketing FSM, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery) and **Wave 3** (Supplier) remain locked — see `docs/WAVE-2.md`, `docs/WAVE-3.md`. Do not reopen those locks here.
 
-**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + **Copy prompt**). **Phase 6c shipped 2026-08-17** (in-OS Nano Banana stills + Seedance clips via Higgsfield; `MARKETING_VISUAL_GEN` default still off). **Phase 7 shipped** (Marketing Gemini spend ledger + harden / EN–AR / tests). **Store follow-up shipped** (per-SKU page packs + Marketing-style picker). **Whole-shop Store pack shipped** (≥3 live SKUs). **Shopify connect parked.**
+**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + **Copy prompt**). **Phase 6c shipped 2026-08-17** (in-OS Nano Banana stills + Seedance clips via Higgsfield; `MARKETING_VISUAL_GEN` default still off). **Phase 7 shipped** (Marketing Gemini spend ledger + harden / EN–AR / tests). **Store follow-up shipped** (per-SKU page packs + Marketing-style picker). **Whole-shop Store pack shipped** (≥3 live SKUs). **Shopify connect/write parked** (Phase 8 8a/8b reverted 2026-08-19).
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -52,7 +52,7 @@ Amend dates / promotion in §7 changelog.
 | **6** | In-OS Nano Banana stills + Seedance clips via Higgsfield — **shipped 2026-08-17** (`MARKETING_VISUAL_GEN` default off) |
 | **7** | Harden / EN–AR / tests / Marketing Gemini spend ledger — **shipped** |
 
-**Parked follow-ups:** Store Gemini metering (still not on Marketing Phase 7 ledger). Phase 4 hero remains parked. Shopify connect/write remains parked.
+**Parked follow-ups:** Store Gemini metering (still not on Marketing Phase 7 ledger). Phase 4 hero remains parked. **Shopify connect/write parked** — Phase 8 8a/8b reverted 2026-08-19 (Connect not working: Partner grant 500 / `redirect_uri`); retry later. Do not start 8c.
 
 ---
 
@@ -242,6 +242,7 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-19 | Phase 8 8a/8b reverted — Connect not working (Partner grant 500 / redirect_uri); retry later. Shopify connect/write parked. Phase 4 stays parked. |
 | 2026-08-17 | Phase 6c shipped (flag default still off). |
 | 2026-08-17 | Phase 6b — Add product photos page + named per-SKU packs + Nano/Seedance pack picker. No Generate / Higgsfield. |
 | 2026-08-17 | Phase 6a foundation — per-SKU photo packs + owned-file paths + creative visual side table + `marketing_visual_usage` ledger; `MARKETING_VISUAL_GEN` default off. No Generate UI. |
