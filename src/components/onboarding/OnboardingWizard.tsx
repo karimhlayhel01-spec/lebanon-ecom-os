@@ -40,9 +40,17 @@ export type OnboardingInitialValues = {
 export function OnboardingWizard({
   initialValues,
   isEditing = false,
+  fromDiscovery = false,
+  unlockField = null,
+  returnHub = false,
+  returnAddSku = false,
 }: {
   initialValues?: OnboardingInitialValues;
   isEditing?: boolean;
+  fromDiscovery?: boolean;
+  unlockField?: string | null;
+  returnHub?: boolean;
+  returnAddSku?: boolean;
 }) {
   const t = useTranslations("Onboarding");
   const [step, setStep] = useState(0);
@@ -83,6 +91,18 @@ export function OnboardingWizard({
 
   return (
     <form action={formAction} className="mx-auto w-full max-w-2xl">
+      {fromDiscovery ? (
+        <input type="hidden" name="from" value="discovery" />
+      ) : null}
+      {fromDiscovery && unlockField ? (
+        <input type="hidden" name="unlockField" value={unlockField} />
+      ) : null}
+      {fromDiscovery && returnHub ? (
+        <input type="hidden" name="hub" value="1" />
+      ) : null}
+      {fromDiscovery && returnAddSku ? (
+        <input type="hidden" name="addSku" value="1" />
+      ) : null}
       <ol className="mb-8 flex gap-2">
         {steps.map((label, i) => (
           <li

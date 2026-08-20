@@ -43,6 +43,8 @@ type SerpShoppingResult = {
   price?: string;
   extracted_price?: number;
   source?: string;
+  thumbnail?: string;
+  thumbnails?: unknown;
 };
 
 type SerpOrganicResult = {
@@ -68,6 +70,20 @@ function parsePrice(raw: string | undefined, extracted?: number): number | null 
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** One shopping thumbnail URL from SerpAPI JSON — no download. */
+export function pickSerpShoppingThumbnail(
+  row: Pick<SerpShoppingResult, "thumbnail" | "thumbnails">,
+): string | undefined {
+  const direct = typeof row.thumbnail === "string" ? row.thumbnail.trim() : "";
+  if (direct) return direct;
+  if (Array.isArray(row.thumbnails)) {
+    for (const t of row.thumbnails) {
+      if (typeof t === "string" && t.trim()) return t.trim();
+    }
+  }
+  return undefined;
+}
+
 export function mapSerpShoppingResults(
   results: readonly SerpShoppingResult[],
 ): SearchResultItem[] {
@@ -76,12 +92,14 @@ export function mapSerpShoppingResults(
     const title = (r.title ?? "").trim();
     const url = (r.link ?? r.product_link ?? "").trim();
     if (!title || !url) continue;
+    const imageUrl = pickSerpShoppingThumbnail(r);
     items.push({
       title,
       url,
       snippet: r.snippet ?? r.source ?? undefined,
       price: parsePrice(r.price, r.extracted_price),
       merchant: r.source ?? undefined,
+      ...(imageUrl ? { imageUrl } : {}),
     });
   }
   return items;

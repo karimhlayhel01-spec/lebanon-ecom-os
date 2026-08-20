@@ -56,11 +56,10 @@ export const DISCOVERY_SEARCH_MAX_ATTEMPTS = 3;
 /** Soft threshold for “thin shortlist” Edit-onboarding banner (WAVE-2 §8). */
 export const DISCOVERY_FALLBACK_SHORTLIST_MIN = 5;
 /**
- * Wave 2 §7 — a market read older than this reads as out of date on the card.
- * Matches the daily score cadence with slack for a few missed cron runs.
- * Override per deployment with DISCOVERY_SCORE_STALE_AFTER_DAYS.
+ * Wave 2 §7 — a market read this old (or older) reads as out of date on the card.
+ * DISPLAY ONLY. Override per deployment with DISCOVERY_SCORE_STALE_AFTER_DAYS.
  */
-export const DISCOVERY_SCORE_STALE_AFTER_DAYS_DEFAULT = 7;
+export const DISCOVERY_SCORE_STALE_AFTER_DAYS_DEFAULT = 30;
 /**
  * Wave 2 §7 — how long a reject stays recoverable. Long enough to catch a
  * mis-tap, short enough that undo never becomes a second shortlist.

@@ -16,6 +16,8 @@ import {
   resolveWorkspaceNameLocale,
   type WorkspaceNameLocale,
 } from "@/lib/workspace-name";
+import { retrieveAfterOnboardingEdit } from "@/lib/discovery/service";
+import { discoveryReturnHref } from "@/lib/discovery/agent/onboarding-unlock";
 
 const industryIdSchema = z.enum(INDUSTRY_OPTIONS);
 const namePart = z.string().trim().min(1).max(60);
@@ -241,6 +243,32 @@ export async function completeOnboardingAction(
     })
     .where(eq(schema.sideStatuses.workspaceId, workspace.id));
 
-  redirect({ href: "/dashboard", locale });
+  const fromDiscovery = formData.get("from") === "discovery";
+  const unlockRaw = formData.get("unlockField");
+  const unlockField = typeof unlockRaw === "string" ? unlockRaw : null;
+  const hub = formData.get("hub") === "1";
+  const addSku = formData.get("addSku") === "1";
+
+  if (!isFirstCompletion && fromDiscovery) {
+    const saved = await db
+      .select()
+      .from(schema.onboardingProfiles)
+      .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
+      .then((rows) => rows[0]);
+    if (saved) {
+      await retrieveAfterOnboardingEdit(workspace.id, saved);
+    }
+  }
+
+  redirect({
+    href: discoveryReturnHref({
+      fromDiscovery,
+      isFirstCompletion,
+      unlockField,
+      hub,
+      addSku,
+    }),
+    locale,
+  });
   return {};
 }

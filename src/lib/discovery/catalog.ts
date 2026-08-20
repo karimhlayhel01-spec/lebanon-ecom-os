@@ -30,6 +30,8 @@ export type CatalogProduct = {
   storageFootprint: StorageFootprint;
   oversized: boolean;
   tier1Marketplaces: string[];
+  /** Pool photo URL when stored; agent UI uses a placeholder if missing. */
+  imageUrl?: string | null;
 };
 
 type Row = [

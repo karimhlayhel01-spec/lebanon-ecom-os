@@ -5,7 +5,7 @@ Product and engineering locks for Wave 2.
 
 This document starts with the **Discovery agent** slice (winning product pick). Other Wave 2 surfaces (Founder Consultant, Shopify sync, ads, supplier email MCP, etc.) are out of scope here until locked separately.
 
-**Status:** Path 1 intake + Approach A scores + accept-ready gates + Why/Compare engines remain **LOCKED**. **Discovery agent UI** — **LOCKED 2026-08-19** in **§14**. Flag `DISCOVERY_AGENT_UI` default **off**. Build only via §14.8 (three PRs). Do not ship chat, live-search on click, or a second Accept/Compare.
+**Status:** Path 1 intake + Approach A scores + accept-ready gates + Why/Compare engines remain **LOCKED**. **Discovery agent UI** — **LOCKED 2026-08-19** in **§14**. **Frame-aware retrieve + differ required + tile receipts** — **LOCKED 2026-08-20** in **§14.11**. **Edit onboarding dry-run + return to same frame** — **LOCKED 2026-08-20** in **§14.12**. Flag `DISCOVERY_AGENT_UI` default **off**. Build only via §14.8 (three PRs) then §14.11 / §14.12. Do not ship chat, live-search on click, or a second Accept/Compare.
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -285,7 +285,7 @@ These are part of the engineering contract, not optional nice-to-haves:
 | **Missing data = neutral** | Incomplete MOQ/sample → don’t exclude. Neutral means **do not exclude**, never **counts as proven** (§3.2) |
 | **Neutral demand leg at the gate** | A scored row whose deciding demand leg was neutral-filled **still passes** the system demand gate on score alone (missing data never excludes) — **but** it earns **no** `demandPath`, reports `usedNeutral`, and the card is capped to **Okay** with `low_evidence_confidence` and labelled **estimate-only**. A row with **no usable score at all** stays fail-closed `missing` (unchanged) |
 | **Competition×budget** | Rank penalty first; harden later using empty/accept metrics |
-| **Score freshness on the card** | Every card states how old its market read is, from the last **successful** read (`lastScoredAt`) — a failed refresh keeps last-known scores, so the data is as old as the read that produced it. **DISPLAY ONLY:** freshness never changes rank, strength, or an accept gate. Older than `DISCOVERY_SCORE_STALE_AFTER_DAYS` (default `DISCOVERY_SCORE_STALE_AFTER_DAYS_DEFAULT`) says so plainly; a never-measured or undatable read fails closed to **estimate only**, in the same voice as §6.1 |
+| **Score freshness on the card** | Every card states how old its market read is, from the last **successful** read (`lastScoredAt`) — a failed refresh keeps last-known scores, so the data is as old as the read that produced it. **DISPLAY ONLY:** freshness never changes rank, strength, or an accept gate. Age **≥** `DISCOVERY_SCORE_STALE_AFTER_DAYS` (default **30** via `DISCOVERY_SCORE_STALE_AFTER_DAYS_DEFAULT`) says so plainly; a never-measured or undatable read fails closed to **estimate only**, in the same voice as §6.1. 16 days is not stale at the default window. |
 | **Undo reject** | A reject is recoverable for a short window so a mis-tap does not shrink the founder's world: the last `DISCOVERY_UNDO_REJECT_MAX` rejects of the **active** session, inside `DISCOVERY_UNDO_REJECT_WINDOW_MS`, restored to the current shortlist. Undo **never** bumps the exhausted-round ladder and never counts a second round (the session's `exhaustionCounted` flag already caps it at one). Accept-readiness is re-checked against **current** scores through the same resolver the page filters with — a card the gates moved against is **explained, not silently restored**. An **accepted** product is refused with its own reason: undo may never walk back a Human Approval or a created SKU. Legacy rejects carry no stamp and are never undoable. Refresh suggestions / new session empties the affordance |
 | **Accept-ready shortlist** | List **only** products Accept would not block on margins / oversized / system demand. **No** soft-margin fill of non-accept cards |
 | **Edit onboarding** | When 0 (or below usable threshold) accept-ready products for this profile — empty shortlist + Edit onboarding note (see §8). Never strand on a page of blocked cards. **Unless the board is empty because scores are missing or failed**, which is a data outage and shows the market-data-not-ready state instead (§8) |
@@ -432,7 +432,7 @@ Extend seams without requiring founder paste.
   - `BRAVE_SEARCH_API_KEY` — Brave, **scoring legs only**: Brave web search returns title/url/snippet but no shopping price/merchant, so **Path 1 intake stays on SerpAPI** whatever the vendor
   - `SERPER_API_KEY` — Serper.dev, **scoring legs only** (same Path 1 rule): Google organic title/link/snippet; free trial is one-time (~2,500 queries), not a monthly refill — keep `DISCOVERY_SEARCH_MONTHLY_QUERY_CAP` tight (suggested `400`)
   - `DISCOVERY_SEARCH_MONTHLY_QUERY_CAP` — monthly ledger cap (safe default `DISCOVERY_SEARCH_MONTHLY_QUERY_CAP_DEFAULT`)
-- `DISCOVERY_SCORE_STALE_AFTER_DAYS` — days before a card's market read reads as out of date (§7; default `DISCOVERY_SCORE_STALE_AFTER_DAYS_DEFAULT`). **Display only** — never a gate
+- `DISCOVERY_SCORE_STALE_AFTER_DAYS` — days before a card's market read reads as out of date (§7; default **30** via `DISCOVERY_SCORE_STALE_AFTER_DAYS_DEFAULT`). **Display only** — never a gate. Malformed / ≤0 fall back to 30.
 - **Required for suggestion copy:** `GEMINI_API_KEY` or `DISCOVERY_EXPLAIN_GEMINI_API_KEY` (never commit secrets)
 - `DISCOVERY_AGENT_UI` — §14 board (default **off**). `1`/`true` **replaces** the 5-card board (never both). Hide-dump only when `DISCOVERY_POOL_V2` + usable scores.
 - Optional later: dropship catalog API key as backup intake
@@ -476,6 +476,9 @@ Approach A jobs update the **global** pool/score tables. They still **must not**
 
 | Date | Change |
 | --- | --- |
+| 2026-08-20 | **§14.12 Edit onboarding dry-run + min delta + preview names + return to same frame LOCKED** — name a field only when a one-knob dry-run proves ≥1 extra accept-ready id in **this** agent frame; never advise `monthlyFollowOnBudget`, `storageDescription`/`storageLimits`, or `categoryLikes`; extra ids === 0 hides the banner (nothing-fits / empty-catalog honesty instead); after save from Discovery keep the session chips / `agentFrameJson` and retrieve again, do not dump on `/dashboard`. |
+| 2026-08-20 | **Score freshness default window 7 → 30 days** (§7 / §10.2) — **DISPLAY ONLY**; out-of-date note when age **≥ 30**. Env `DISCOVERY_SCORE_STALE_AFTER_DAYS` still overrides; malformed / ≤0 fall back to 30. Does not change rank, strength, accept gates, or score-job cadence. |
+| 2026-08-20 | **§14.11 Frame-aware retrieve + differ required + tile receipts LOCKED** — retrieve uses the session frame (not industry-only) inside the same accept-ready set; cheap storage is a hard drop; audience / differ / unmapped Other / explore whyNote are boost-only and never empty the list; differ has no Skip on first ask (must pick demo \| bundle \| niche); Skip remains on skip/refuse and audience unless narrowing; agent tiles show compact receipts (live vs estimate, score age, Fit + margins) with Why (i) and chips above the grid; Gemini id-reorder still optional / not required; Edit onboarding dry-run is **not** this lock. Skills/jobs still own 70/35%, demand, Fit, and compare winner. |
 | 2026-08-19 | **§14 Discovery agent UI LOCKED** — OS wizard + photo grid + click-basket (not ChatGPT); Explore more ≠ Refresh ≠ Show more; same-session new ids (unlock freeze for grid only); hide-dump when pool+scores; Other maps to 10 industries or none; intro card; Gemini id-reorder only; Proceed/Compare reuse accept + §6.2; Path 1/score jobs stay; Marketing/Supplier/Store/Topic A/B/hub FSM not rewritten. Flag `DISCOVERY_AGENT_UI` default off. Build: three PRs in §14.8. |
 | 2026-08-02 | Initial Wave 2 doc: Discovery agent listing + sources + engineering + risk tricks **LOCKED** |
 | 2026-08-03 | **Path 1** product pool intake **LOCKED** (search/shopping API; no Alibaba official; winning products not brands; catalog.ts seed/fallback; Supplier remains post-accept) |
@@ -551,14 +554,15 @@ First visit only. Lists the **10** `INDUSTRY_OPTIONS` labels. Other must map to 
   - **`unmapped` + at least one industry chip:** Other is **rank hint only**; retrieve those chips.  
   - **`unmapped` or `none` with Other as the only selection:** **don’t-deal** — no invented grid, no silent remap to bins.  
   - **Zero rows** after a real map: same don’t-deal / nothing-fits honesty.
-- Other questions (one card each): skip/refuse (e.g. cheap storage), who it’s for, how they want to differ (demo/bundle/niche — not cheaper). Skip allowed with explicit skip.
+- Other questions (one card each): skip/refuse (e.g. cheap storage), who it’s for, how they want to differ (demo/bundle/niche — not cheaper). Skip remains on skip/refuse and audience (unless narrowing). **Differ has no Skip** — Next/select requires demo \| bundle \| niche.
 - Narrowing uses the **same** cards; answers **overwrite** session fields; then retrieve again.
 - Answers render as **chips** above the grid, not a transcript.
 
 ### 14.5 Grid, (i), differentiate, photos
 
 - Each suggestion: **one** photo (pool URL or placeholder — **no** scrape/gen), **name**, **(i)** → existing §6.1 Why popup, **one differentiate line** (never “sell as-is” / undercut Ishtari on price). Blocklist those phrases on Why + differ + any Gemini id-pick copy.
-- Gemini **optional** reorder of retrieved ids; every id must be in the retrieve set or **drop**. Gemini miss → **skill order** of the retrieve set. Empty retrieve → honesty (don’t-deal / Edit onboarding / market-data-not-ready per existing cause rules — **one** banner, §14.7).
+- **Receipts (compact, on the tile):** Fit score, margin before/after (existing candidate fields), score age (`ScoreFreshnessNote`), live vs estimate (existing honesty keys). Why (i) stays. Chips stay above the grid. No scrape, no generate-all.
+- Gemini **optional** reorder of retrieved ids; every id must be in the retrieve set or **drop**. Gemini miss → **skill order** of the retrieve set. Empty retrieve → honesty (don’t-deal / Edit onboarding / market-data-not-ready per existing cause rules — **one** banner, §14.7). Gemini id-reorder is still optional / **not required** for §14.11.
 
 ### 14.6 Basket / Compare / Proceed
 
@@ -569,7 +573,7 @@ First visit only. Lists the **10** `INDUSTRY_OPTIONS` labels. Other must map to 
 ### 14.7 Empty-state precedence (one banner)
 
 1. Scores missing/failed → **market-data-not-ready**  
-2. Other classifier `none` **or** mapped industry with 0 retrieve (including hide-dump emptied the aisle) → **don’t deal / nothing fits this frame** (not Edit onboarding unless profile Fit/budget is the traced blocker)  
+2. Other classifier `none` **or** mapped industry with 0 retrieve (including hide-dump or cheap-storage emptied the aisle) → **don’t deal / nothing fits this frame** (not Edit onboarding unless profile Fit/budget is the traced blocker)  
 3. Profile 0 accept-ready → existing Edit onboarding  
 4. Else grid  
 
@@ -597,6 +601,46 @@ Do not show Edit onboarding for “I typed bakery.”
 - Empty precedence in §14.7  
 - Compare still `pickCompareWinner`, never from prose  
 
+### 14.11 Frame-aware retrieve + differ required + tile receipts (**LOCKED 2026-08-20**)
+
+The ask is not theater. After the founder answers, retrieve must use those answers **inside the same accept-ready set**. No invented products. `DISCOVERY_AGENT_UI` off → old board unchanged.
+
+Skills/jobs still own 70/35%, demand, Fit, and compare winner. Gemini does **not** invent SKUs, does **not** pick the compare winner, and does **not** invent money advice.
+
+**Retrieve** starts from `scoreRankForDiscovery` + existing `restrictCategories` (industry / mapped Other / don’t-deal), then:
+
+| Rule | Effect |
+| --- | --- |
+| **Cheap storage** (`skipRefuse === "cheap_storage"`) | **Hard drop** when `storageFootprint` is `medium` or `large`, **or** name/summary (en+ar, case-insensitive) hits: container, organizer, storage, cable clip, lunch set, علب, منظّم, تخزين. Do **not** drop all `home_kitchen`. Empty after this drop → `agentNothingFits`, **not** Edit onboarding. |
+| **Audience** (if not skipped) | **Boost only**, never drop. myself: beauty_personal_care, fitness_lifestyle, health_wellness_gadgets, phone_tech_accessories + routine/desk/self. gifts: gift/gifting/packaging/monogram/هدية + kids_baby_accessories, fashion_accessories. households: home_kitchen, kids_baby_accessories, pet_accessories, car_accessories + home/apartment/family. creators: phone_tech_accessories, office_desk_gadgets + creator/reel/influencer/demo/content/مبدع. Stable sort: boosted first, keep relative order within each group. |
+| **Differ** (always a chip after this lock) | **Boost only.** demo: demo, reel, before/after, clip, video, فيديو. bundle: bundle, kit, set, pack, included, طقم. niche: Arabic, local, Ramadan, niche, co-brand, عربي. If nothing matches, keep skill order. Card differ line still uses `safeDifferentiateLine` (never sell-as-is). |
+| **Unmapped Other text** and explore **whyNote** | Same boost as keyword-in-name/summary/differentiation inside the current industry set. No match → ignore. Do **not** create a new category. |
+
+Skip audience / skip refuse = no extra rule. `whyExplore === "keep_looking"` does **not** rescore the interview; it only pages unseen ids. `not_convinced` overwrites then retrieve again using these rules.
+
+**Differ Skip:** `AskDifferCard` never renders Skip. Next/select requires demo \| bundle \| niche. Server `applyDifferAnswer` rejects `skipped` **always** (not only when narrowing). First-ask audience + skipRefuse still allow `skipped` when not narrowing.
+
+**Out of this lock:** Shopify. Marketing. Gemini reorder. New ask questions. Vector DB. Edit onboarding dry-run is §14.12.
+
+### 14.12 Edit onboarding dry-run + return to same frame (**LOCKED 2026-08-20**)
+
+Edit onboarding only when the cause is **profile** (0 accept-ready, or visible+remaining < `DISCOVERY_FALLBACK_SHORTLIST_MIN` = 5). Never for don’t-deal, no-scores, or nothing-fits (hide-dump / cheap-storage / exhausted frame). §14.7 / §8 gating in `getDiscoveryView` stays; the agent UI still suppresses the nag for dontDeal / no_scores / `agentNothingFits`. Only `profile_filtered` (and thin) may show the note — and only after a dry-run.
+
+**Dry-run (pure):** for the current frame + onboarding, try **one knob at a time**, smallest step, same 70/35% / demand / oversized / hide-dump. Pick the knob that unlocks the most extra ids (tie = earlier):
+
+1. `maxLandedCost` — minimum value that unlocks ≥1 (clamped; not unbounded)
+2. `hoursPerWeek` — next step toward the `timeNeed` of blocked rows (max 168)
+3. `riskTolerance` — next rank low→medium→high
+4. `experience` — next rank beginner→some→experienced (last resort)
+
+If extra ids === 0 for all knobs → **do not show** Edit onboarding. Show existing nothing-fits / empty-catalog honesty instead (add industry chip / Explore more / Refresh). Do not invent SKUs.
+
+**Forbidden advice:** `monthlyFollowOnBudget` (can worsen after-ads margin), storage free text (Fit does not use it), `categoryLikes` (agent aisle is ask industries, not likes). Never “lower the margin gates.”
+
+**Paragraph (EN+AR templates, not free Gemini):** 0 vs thin count; named field + target value; preview product **names** of the dry-run extras (max ~3); honesty that listing is still ≥70%/≥35% and shippable — may, not will; not a sales guarantee; CTA `/onboarding?edit=1&from=discovery`. Gemini may only narrate those keys; fail-closed to templates.
+
+**After save:** if `from=discovery` and this is **not** first completion, keep the Discovery session and `agentFrameJson` (do not close / do not clear chips), retrieve with the new profile, redirect to the Discovery surface (`/dashboard?unlock=<field>#discovery` or hub/add-SKU equivalent). Banner line: updated because of [field]. Stay-put on `#discovery` — do not jump to ETA / `#finance`. First onboarding completion still lands on `/dashboard`.
+
 ---
 
 ## 13) Related Wave 1 references
@@ -607,6 +651,8 @@ Do not show Edit onboarding for “I typed bakery.”
 - Discovery ladder / edit-onboarding suggestions: `src/lib/discovery/ladder.ts`
 - Empty-shortlist cause — data outage vs profile filtering (§8): `src/lib/discovery/empty-state.ts`
 - §14 hide-dump + Other classifier (fixtures): `src/lib/discovery/agent/`
+- §14.11 frame-aware retrieve: `src/lib/discovery/agent/frame-rank.ts`
+- §14.12 Edit onboarding dry-run: `src/lib/discovery/agent/onboarding-unlock.ts`
 - Score freshness (§7, display only): `src/lib/discovery/freshness.ts`
 - Undo reject (§7): `src/lib/discovery/undo-reject.ts`
 - Measurement loop (§7.1): `src/lib/discovery/metrics/` + `scripts/discovery-metrics.ts`

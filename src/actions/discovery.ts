@@ -12,15 +12,20 @@ import {
 } from "@/lib/discovery/ladder";
 import {
   acceptProduct,
+  applyDiscoveryAgentAskStep,
+  beginAgentExploreMore,
   continueDiscoverySession,
+  markDiscoveryIntroSeen,
   refreshDiscoverySuggestions,
   rejectCandidate,
   resolveTier1,
   showMore,
   startDiscoverySession,
+  submitAgentExploreWhy,
   submitDiscoveryPassFeedback,
   undoRejectCandidate,
   type AcceptResult,
+  type AgentAskStepInput,
   type UndoRejectResult,
 } from "@/lib/discovery/service";
 import {
@@ -52,6 +57,80 @@ export async function startDiscoveryAction() {
 
   await startDiscoverySession(workspace.id, onboarding);
   revalidatePath("/", "layout");
+}
+
+export async function acknowledgeDiscoveryIntroAction() {
+  await ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return;
+  await markDiscoveryIntroSeen(workspace.id);
+  revalidatePath("/", "layout");
+}
+
+export async function submitAgentAskStepAction(
+  input: AgentAskStepInput,
+  keepCandidateIds: readonly string[] = [],
+): Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      error: "no_session" | "empty_sell" | "not_found" | "skip_not_allowed";
+    }
+> {
+  await ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false, error: "not_found" };
+
+  const onboarding = await db
+    .select()
+    .from(schema.onboardingProfiles)
+    .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
+    .then((rows) => rows[0]);
+  if (!onboarding) return { ok: false, error: "not_found" };
+
+  const result = await applyDiscoveryAgentAskStep(
+    workspace.id,
+    onboarding,
+    input,
+    keepCandidateIds,
+  );
+  revalidatePath("/", "layout");
+  return result;
+}
+
+export async function beginAgentExploreMoreAction(): Promise<
+  { ok: true } | { ok: false; error: "no_session" | "not_ready" | "not_found" }
+> {
+  await ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false, error: "not_found" };
+  const result = await beginAgentExploreMore(workspace.id);
+  revalidatePath("/", "layout");
+  return result;
+}
+
+export async function submitAgentExploreWhyAction(input: {
+  why: "not_convinced" | "keep_looking";
+  note?: string;
+  keepCandidateIds?: readonly string[];
+}): Promise<
+  | { ok: true; next: "narrowing" | "grid" }
+  | { ok: false; error: "no_session" | "not_ready" | "not_found" }
+> {
+  await ensureMigrated();
+  const workspace = await workspaceForRequest();
+  if (!workspace) return { ok: false, error: "not_found" };
+
+  const onboarding = await db
+    .select()
+    .from(schema.onboardingProfiles)
+    .where(eq(schema.onboardingProfiles.workspaceId, workspace.id))
+    .then((rows) => rows[0]);
+  if (!onboarding) return { ok: false, error: "not_found" };
+
+  const result = await submitAgentExploreWhy(workspace.id, onboarding, input);
+  revalidatePath("/", "layout");
+  return result;
 }
 
 export async function showMoreAction() {

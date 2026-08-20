@@ -12,7 +12,10 @@ import {
 } from "@/lib/discovery/catalog";
 import type { StorageFootprint } from "@/lib/skills/fit";
 import { isDiscoveryPoolV2Enabled } from "@/lib/discovery/flags";
-import type { NormalizedPath1Candidate } from "@/lib/discovery/normalize";
+import {
+  nextPath1ImageUrl,
+  type NormalizedPath1Candidate,
+} from "@/lib/discovery/normalize";
 
 export type PoolProductRow = typeof schema.discoveryProductPool.$inferSelect;
 
@@ -55,6 +58,7 @@ export function poolRowToCatalogProduct(row: PoolProductRow): CatalogProduct {
     storageFootprint: footprint,
     oversized: row.oversized,
     tier1Marketplaces: tier1,
+    imageUrl: row.imageUrl ?? null,
   };
 }
 
@@ -154,6 +158,7 @@ export async function upsertPath1PoolCandidates(
       .select({
         id: schema.discoveryProductPool.id,
         source: schema.discoveryProductPool.source,
+        imageUrl: schema.discoveryProductPool.imageUrl,
       })
       .from(schema.discoveryProductPool)
       .where(eq(schema.discoveryProductPool.catalogKey, c.catalogKey))
@@ -183,6 +188,7 @@ export async function upsertPath1PoolCandidates(
       sourceUrl: c.sourceUrl,
       moqHint: c.moqHint,
       sampleCostHint: c.sampleCostHint,
+      imageUrl: nextPath1ImageUrl(c.imageUrl, existing?.imageUrl),
       source: c.source,
       active: c.active,
       updatedAt: at,

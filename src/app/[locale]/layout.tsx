@@ -51,7 +51,7 @@ export default async function LocaleLayout({ children, params }: Props) {
       className={`${inter.variable} ${bricolage.variable} ${plexArabic.variable} h-full antialiased`}
     >
       <body className="min-h-full font-sans text-ink">
-        <NextIntlClientProvider messages={messages}>
+        <NextIntlClientProvider locale={locale} messages={messages}>
           {children}
         </NextIntlClientProvider>
       </body>

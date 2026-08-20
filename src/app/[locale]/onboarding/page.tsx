@@ -12,12 +12,18 @@ import { db, ensureMigrated, schema } from "@/db";
 
 type Props = {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ edit?: string }>;
+  searchParams: Promise<{
+    edit?: string;
+    from?: string;
+    unlock?: string;
+    hub?: string;
+    addSku?: string;
+  }>;
 };
 
 export default async function OnboardingPage({ params, searchParams }: Props) {
   const { locale } = await params;
-  const { edit } = await searchParams;
+  const { edit, from, unlock, hub, addSku } = await searchParams;
   setRequestLocale(locale);
 
   const user = await getSessionUser();
@@ -97,6 +103,10 @@ export default async function OnboardingPage({ params, searchParams }: Props) {
           <OnboardingWizard
             initialValues={initialValues}
             isEditing={isEditing}
+            fromDiscovery={from === "discovery"}
+            unlockField={unlock ?? null}
+            returnHub={hub === "1"}
+            returnAddSku={addSku === "1"}
           />
         </div>
       </main>

@@ -33,6 +33,8 @@ export type NormalizedPath1Candidate = {
   sampleCostHint: number | null;
   source: "path1_search";
   active: boolean;
+  /** Sanitized http(s) shopping thumbnail, or null. Never fetched. */
+  imageUrl: string | null;
 };
 
 /** Domains we never ingest (WAVE-2 §9.4 / no Alibaba official path). */
@@ -86,6 +88,43 @@ export function isBlockedIntakeUrl(url: string): boolean {
 
 export function looksLikeBrandDirectory(title: string): boolean {
   return BRAND_DIRECTORY_TITLE.test(title.trim());
+}
+
+/**
+ * Persist a shopping thumbnail URL string only. Reject data:/javascript:/
+ * empty/non-http. Do not fetch the file.
+ */
+export function sanitizeHttpImageUrl(
+  raw: string | null | undefined,
+): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim().slice(0, 2000);
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.startsWith("data:") ||
+    lower.startsWith("javascript:") ||
+    lower.startsWith("vbscript:")
+  ) {
+    return null;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
+
+/** Keep a new valid URL; do not wipe an existing good URL with null. */
+export function nextPath1ImageUrl(
+  incoming: string | null | undefined,
+  existing: string | null | undefined,
+): string | null {
+  return sanitizeHttpImageUrl(incoming) ?? sanitizeHttpImageUrl(existing);
 }
 
 /**
@@ -181,6 +220,7 @@ export function normalizeSearchItemToPoolCandidate(
     sampleCostHint: null,
     source: "path1_search",
     active: true,
+    imageUrl: sanitizeHttpImageUrl(item.imageUrl),
   };
 }
 

@@ -63,11 +63,25 @@ import {
 } from "@/lib/discovery/ladder";
 import { isCompleteSuggestionBody } from "@/lib/discovery/explain/why-pick";
 import { scoreFreshnessNote } from "@/lib/discovery/freshness";
+import { safeDifferentiateLine } from "@/lib/discovery/agent/differ-blocklist";
+import {
+  DiscoveryAgentAsk,
+  DiscoveryAgentDontDeal,
+  DiscoveryAgentExploreMoreButton,
+  DiscoveryAgentFrameChips,
+  DiscoveryAgentIntro,
+  DiscoveryAgentNothingFits,
+  DiscoveryAgentWhyExplore,
+} from "@/components/discovery/DiscoveryAgentAsk";
 import type {
   DiscoveryCandidateView,
   DiscoveryView,
   UndoableReject,
 } from "@/lib/discovery/service";
+import type {
+  OnboardingUnlockAdvice,
+  OnboardingUnlockField,
+} from "@/lib/discovery/agent/onboarding-unlock";
 
 function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
@@ -115,11 +129,17 @@ const getMountedServer = () => false;
 export function DiscoveryBoard({
   view,
   mode = "first",
+  unlockApplied = null,
   children,
 }: {
   view: DiscoveryView;
   /** `addSku` = another product while live SKUs continue (not a shop reset). */
   mode?: "first" | "addSku";
+  /**
+   * WAVE-2 §14.12 — after save from Discovery, name the field that changed.
+   * Stay on this board (`#discovery`); do not jump to ETA.
+   */
+  unlockApplied?: OnboardingUnlockField | null;
   /**
    * Optional content below the board (e.g. empty-shop Coaching) so the Compare
    * tray spacer can clear siblings that would otherwise sit under the fixed tray.
@@ -129,6 +149,9 @@ export function DiscoveryBoard({
   const t = useTranslations("Discovery");
   const locale = useLocale();
   const empty = view.candidates.length === 0;
+  const basketPool = view.agentUiEnabled
+    ? [...view.candidates, ...view.agentHeldCandidates]
+    : view.candidates;
   const isAdd = mode === "addSku";
   const [refreshPending, startRefresh] = useTransition();
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -137,9 +160,11 @@ export function DiscoveryBoard({
   const [worthMaxHint, setWorthMaxHint] = useState(false);
   const [comparePending, startCompare] = useTransition();
   const [compareBrief, setCompareBrief] = useState(EMPTY_COMPARE_BRIEF);
+  const [proceedPending, startProceed] = useTransition();
+  const [proceedError, setProceedError] = useState<string | null>(null);
+  const [proceedAck, setProceedAck] = useState(false);
   const compareTrayRef = useRef<HTMLDivElement>(null);
   const [compareTrayPadPx, setCompareTrayPadPx] = useState(0);
-  const showCompareTray = !empty && view.suggestionExplainEnabled;
 
   // Session-scoped marks: reset on new session; prune rejected/hidden cards.
   if (markSessionId !== view.sessionId) {
@@ -147,10 +172,12 @@ export function DiscoveryBoard({
     setWorthIds([]);
     setWorthMaxHint(false);
     setCompareBrief(clearCompareBrief());
+    setProceedError(null);
+    setProceedAck(false);
   } else {
     const pruned = revalidateWorthConsideringMarks(
       worthIds,
-      view.candidates.map((c) => c.id),
+      basketPool.map((c) => c.id),
     );
     if (pruned.length !== worthIds.length) {
       setWorthIds(pruned);
@@ -159,10 +186,21 @@ export function DiscoveryBoard({
     }
   }
 
-  const selectedCards = view.candidates.filter((c) => worthIds.includes(c.id));
+  const selectedCards = basketPool.filter((c) => worthIds.includes(c.id));
   const canCompare =
     selectedCards.length >= DISCOVERY_COMPARE_MIN &&
     selectedCards.length <= DISCOVERY_COMPARE_MAX;
+  const canProceedOne = selectedCards.length === 1;
+  const showLegacyCompareTray =
+    !empty && !view.agentUiEnabled && view.suggestionExplainEnabled;
+  const showAgentBasketTray =
+    view.agentUiEnabled &&
+    !view.agentDontDeal &&
+    (view.agentPhase === "grid" ||
+      view.agentPhase === "why" ||
+      view.agentPhase === "ask") &&
+    (view.candidates.length > 0 || selectedCards.length > 0);
+  const showCompareTray = showLegacyCompareTray || showAgentBasketTray;
   const compareFingerprint = compareSelectionFingerprint({
     sessionId: view.sessionId,
     candidateIds: worthIds,
@@ -191,11 +229,15 @@ export function DiscoveryBoard({
     worthMaxHint,
     view.geminiConfigured,
     comparePending,
+    proceedPending,
+    proceedAck,
     locale,
   ]);
 
   function toggleWorth(candidateId: string) {
     setWorthMaxHint(false);
+    setProceedError(null);
+    setProceedAck(false);
     // The held brief describes the previous selection — it can never be shown
     // beside a different set of marks.
     setCompareBrief(clearCompareBrief());
@@ -209,6 +251,8 @@ export function DiscoveryBoard({
   function clearWorth() {
     setWorthIds([]);
     setWorthMaxHint(false);
+    setProceedError(null);
+    setProceedAck(false);
     setCompareBrief(clearCompareBrief());
   }
 
@@ -269,6 +313,32 @@ export function DiscoveryBoard({
       setCompareBrief((prev) =>
         applyCompareResponse(prev, { fingerprint: requested, response }),
       );
+    });
+  }
+
+  function proceedErrorCopy(error: string | undefined): string {
+    if (error === "needs_risk_ack") return t("acceptOkayHint");
+    if (
+      error === "needs_system_demand_missing" ||
+      error === "needs_system_demand"
+    ) {
+      return t("acceptNeedsSystemDemandMissing");
+    }
+    if (error === "needs_system_demand_weak") {
+      return t("acceptNeedsSystemDemandWeak");
+    }
+    if (error === "tier1_unresolved") return t("acceptNeedsTier1");
+    if (error === "blocked") return t("acceptBlocked");
+    return t("errorGeneric");
+  }
+
+  function runProceed() {
+    const only = selectedCards[0];
+    if (!only) return;
+    setProceedError(null);
+    startProceed(async () => {
+      const res = await acceptProductAction(only.id, proceedAck);
+      if (!res.ok) setProceedError(proceedErrorCopy(res.error));
     });
   }
 
@@ -337,34 +407,93 @@ export function DiscoveryBoard({
         </div>
       </div>
 
-      {view.editOnboardingBanner ? (
-        <EditOnboardingNote banner={view.editOnboardingBanner} />
+      {unlockApplied ? (
+        <p
+          className="rounded-md border border-sea/30 bg-sea/5 px-4 py-2 text-sm text-ink"
+          data-discovery-unlock-applied=""
+        >
+          {t("editOnboardingUpdated", {
+            field: unlockFieldLabel(unlockApplied, t),
+          })}
+        </p>
+      ) : null}
+
+      {view.editOnboardingBanner && view.editOnboardingUnlock ? (
+        <EditOnboardingNote
+          banner={view.editOnboardingBanner}
+          editOnboardingUnlock={view.editOnboardingUnlock}
+          mode={mode}
+          acceptReadyCount={view.candidates.length}
+        />
       ) : null}
 
       {view.undoableRejects.length > 0 ? (
         <UndoRejectNote rejects={view.undoableRejects} />
       ) : null}
 
-      {empty && view.shortlistEmptyState?.cause === "no_scores" ? (
-        <MarketDataNotReadyNote state={view.shortlistEmptyState} />
-      ) : empty && view.ladder ? (
-        <DiscoveryEmptyLadder ladder={view.ladder} view={view} />
+      {view.agentUiEnabled && view.agentPhase === "intro" ? (
+        <DiscoveryAgentIntro />
+      ) : view.agentUiEnabled && view.agentPhase === "ask" ? (
+        <DiscoveryAgentAsk
+          frame={view.agentFrame}
+          onboardingIndustryLikes={view.onboardingIndustryLikes}
+          skipAllowed={!view.agentFrame.narrowing}
+          keepCandidateIds={worthIds}
+        />
+      ) : view.agentUiEnabled && view.agentPhase === "why" ? (
+        <DiscoveryAgentWhyExplore keepCandidateIds={worthIds} />
+      ) : view.agentUiEnabled && view.agentDontDeal ? (
+        <DiscoveryAgentDontDeal />
       ) : (
-        <div className="columns-1 gap-4 md:columns-2">
-          {view.candidates.map((c) => (
-            <ProductCard
-              key={c.id}
-              c={c}
-              suggestionExplainEnabled={view.suggestionExplainEnabled}
-              geminiConfigured={view.geminiConfigured}
-              worthConsidering={worthIds.includes(c.id)}
-              onToggleWorth={() => toggleWorth(c.id)}
-            />
-          ))}
-        </div>
+        <>
+          {view.agentUiEnabled ? (
+            <DiscoveryAgentFrameChips frame={view.agentFrame} />
+          ) : null}
+          {empty && view.shortlistEmptyState?.cause === "no_scores" ? (
+            <MarketDataNotReadyNote state={view.shortlistEmptyState} />
+          ) : view.agentUiEnabled && view.agentNothingFits ? (
+            <DiscoveryAgentNothingFits />
+          ) : empty && view.ladder && !view.agentUiEnabled ? (
+            <DiscoveryEmptyLadder ladder={view.ladder} view={view} />
+          ) : view.agentUiEnabled ? (
+            <div
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+              data-discovery-agent-grid=""
+            >
+              {view.candidates.map((c) => (
+                <AgentProductTile
+                  key={c.id}
+                  c={c}
+                  inBasket={worthIds.includes(c.id)}
+                  suggestionExplainEnabled={view.suggestionExplainEnabled}
+                  geminiConfigured={view.geminiConfigured}
+                  onToggleBasket={() => toggleWorth(c.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="columns-1 gap-4 md:columns-2">
+              {view.candidates.map((c) => (
+                <ProductCard
+                  key={c.id}
+                  c={c}
+                  suggestionExplainEnabled={view.suggestionExplainEnabled}
+                  geminiConfigured={view.geminiConfigured}
+                  worthConsidering={worthIds.includes(c.id)}
+                  onToggleWorth={() => toggleWorth(c.id)}
+                />
+              ))}
+            </div>
+          )}
+          {view.agentUiEnabled &&
+          view.agentPhase === "grid" &&
+          !view.agentDontDeal ? (
+            <DiscoveryAgentExploreMoreButton />
+          ) : null}
+        </>
       )}
 
-      {!empty && (
+      {!empty && !view.agentUiEnabled ? (
         <div className="flex items-center justify-center gap-3 pt-1">
           {view.canShowMore ? (
             <form action={showMoreAction}>
@@ -384,7 +513,7 @@ export function DiscoveryBoard({
             <p className="text-sm text-stone-dark">{t("noMore")}</p>
           )}
         </div>
-      )}
+      ) : null}
 
       {children}
 
@@ -397,7 +526,7 @@ export function DiscoveryBoard({
         />
       ) : null}
 
-      {showCompareTray ? (
+      {showLegacyCompareTray ? (
         <WorthConsideringCompareBox
           trayRef={compareTrayRef}
           selected={selectedCards}
@@ -407,6 +536,26 @@ export function DiscoveryBoard({
           geminiConfigured={view.geminiConfigured}
           onClear={clearWorth}
           onCompare={runCompare}
+        />
+      ) : null}
+
+      {showAgentBasketTray ? (
+        <AgentBasketTray
+          trayRef={compareTrayRef}
+          selected={selectedCards}
+          maxHint={worthMaxHint}
+          canProceedOne={canProceedOne}
+          canCompare={canCompare}
+          comparePending={comparePending}
+          proceedPending={proceedPending}
+          proceedError={proceedError}
+          proceedAck={proceedAck}
+          onProceedAck={setProceedAck}
+          geminiConfigured={view.geminiConfigured}
+          suggestionExplainEnabled={view.suggestionExplainEnabled}
+          onClear={clearWorth}
+          onCompare={runCompare}
+          onProceed={runProceed}
         />
       ) : null}
 
@@ -426,6 +575,321 @@ export function DiscoveryBoard({
         />
       ) : null}
     </div>
+  );
+}
+
+function AgentBasketTray({
+  trayRef,
+  selected,
+  maxHint,
+  canProceedOne,
+  canCompare,
+  comparePending,
+  proceedPending,
+  proceedError,
+  proceedAck,
+  onProceedAck,
+  geminiConfigured,
+  suggestionExplainEnabled,
+  onClear,
+  onCompare,
+  onProceed,
+}: {
+  trayRef: RefObject<HTMLDivElement | null>;
+  selected: DiscoveryCandidateView[];
+  maxHint: boolean;
+  canProceedOne: boolean;
+  canCompare: boolean;
+  comparePending: boolean;
+  proceedPending: boolean;
+  proceedError: string | null;
+  proceedAck: boolean;
+  onProceedAck: (ack: boolean) => void;
+  geminiConfigured: boolean;
+  suggestionExplainEnabled: boolean;
+  onClear: () => void;
+  onCompare: () => void;
+  onProceed: () => void;
+}) {
+  const t = useTranslations("Discovery");
+  const note = useDiscoveryNote();
+  const mounted = useSyncExternalStore(
+    subscribeNoop,
+    getMountedClient,
+    getMountedServer,
+  );
+  if (!mounted) return null;
+
+  const only = selected[0];
+  const needsOkayAck =
+    canProceedOne && only?.strength === "Okay" && Boolean(only.riskRead);
+  const riskReadCopy =
+    only?.riskRead != null
+      ? note(only.riskRead, { fitScore: only.fitScore })
+      : null;
+
+  return createPortal(
+    <div
+      ref={trayRef}
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-stone bg-surface/95 px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] backdrop-blur"
+      data-discovery-agent-basket=""
+    >
+      <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-stone-dark">
+            {t("agentBasketTitle")}
+          </p>
+          {selected.length === 0 ? (
+            <p className="mt-0.5 text-sm text-stone-dark">
+              {t("agentBasketEmpty")}
+            </p>
+          ) : (
+            <>
+              <p className="mt-0.5 text-sm text-ink">
+                {t("agentBasketCount", { count: selected.length })}
+              </p>
+              <p className="mt-0.5 truncate text-xs text-stone-dark">
+                {selected.map((c) => c.name).join(" · ")}
+              </p>
+            </>
+          )}
+          {maxHint ? (
+            <p className="mt-1 text-xs text-amber-800">{t("worthConsideringMax")}</p>
+          ) : null}
+          {needsOkayAck && riskReadCopy ? (
+            <label className="mt-2 flex items-start gap-2 text-xs text-ink">
+              <input
+                type="checkbox"
+                checked={proceedAck}
+                onChange={(e) => onProceedAck(e.target.checked)}
+                className="mt-0.5 size-4 accent-cedar"
+              />
+              <span>{t("riskAck")}</span>
+            </label>
+          ) : null}
+          {proceedError ? (
+            <p className="mt-1 text-xs text-amber-800">{proceedError}</p>
+          ) : null}
+          {canCompare && !geminiConfigured ? (
+            <p className="mt-1 text-xs text-amber-800">{t("compareMissingKey")}</p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {selected.length > 0 ? (
+            <button
+              type="button"
+              onClick={onClear}
+              className="rounded-md border border-stone px-3 py-1.5 text-sm font-medium text-ink transition hover:bg-sand"
+            >
+              {t("agentBasketClear")}
+            </button>
+          ) : null}
+          {canProceedOne ? (
+            <button
+              type="button"
+              disabled={proceedPending || only?.oversized || !only?.marginsPass}
+              onClick={onProceed}
+              className="rounded-md bg-cedar px-4 py-1.5 text-sm font-semibold text-foam shadow-sm transition hover:bg-cedar-deep disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("agentProceedWithThis")}
+            </button>
+          ) : null}
+          {selected.length >= DISCOVERY_COMPARE_MIN ? (
+            <button
+              type="button"
+              disabled={
+                !canCompare ||
+                comparePending ||
+                !geminiConfigured ||
+                !suggestionExplainEnabled
+              }
+              onClick={onCompare}
+              className="rounded-md bg-cedar px-4 py-1.5 text-sm font-semibold text-foam shadow-sm transition hover:bg-cedar-deep disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {comparePending ? t("compareLoading") : t("compareButton")}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function AgentProductTile({
+  c,
+  inBasket,
+  suggestionExplainEnabled,
+  geminiConfigured,
+  onToggleBasket,
+}: {
+  c: DiscoveryCandidateView;
+  inBasket: boolean;
+  suggestionExplainEnabled: boolean;
+  geminiConfigured: boolean;
+  onToggleBasket: () => void;
+}) {
+  const t = useTranslations("Discovery");
+  const [whyBody, setWhyBody] = useState<string | null>(null);
+  const [whyCacheVersion, setWhyCacheVersion] = useState<string | null>(null);
+  const [whyHonestyKey, setWhyHonestyKey] = useState<
+    | "whySuggestedHonesty"
+    | "whySuggestedHonestyLive"
+    | "whySuggestedHonestyEstimate"
+  >("whySuggestedHonestyEstimate");
+  const [whyOpen, setWhyOpen] = useState(false);
+  const [whyError, setWhyError] = useState<string | null>(null);
+  const [whyPending, setWhyPending] = useState(false);
+  const [whyTransitionPending, startWhyTransition] = useTransition();
+
+  const differ = safeDifferentiateLine(
+    c.differentiation,
+    t("agentDifferFallback"),
+  );
+
+  function whySuggested() {
+    setWhyError(null);
+    setWhyOpen(true);
+    const versionOk = whyCacheVersion === WHY_PICK_CACHE_VERSION;
+    const bodyOk =
+      Boolean(whyBody) && versionOk && isCompleteSuggestionBody(whyBody!);
+    if (bodyOk) return;
+    if (whyBody && !bodyOk) {
+      setWhyBody(null);
+      setWhyCacheVersion(null);
+    }
+    if (!geminiConfigured) {
+      setWhyError(t("whySuggestedMissingKey"));
+      return;
+    }
+    setWhyPending(true);
+    startWhyTransition(async () => {
+      try {
+        const res = await explainWhyThisPickAction(c.id);
+        const complete =
+          Boolean(res.ok && res.body) && isCompleteSuggestionBody(res.body!);
+        if (!res.ok || !res.body || !complete) {
+          setWhyBody(null);
+          setWhyCacheVersion(null);
+          setWhyError(
+            res.error === "missing_key" || res.missingKey
+              ? t("whySuggestedMissingKey")
+              : res.error === "rate_limited"
+                ? t("whyPickRateLimited")
+                : res.error === "feature_off"
+                  ? t("whySuggestedOff")
+                  : res.error === "api_error"
+                    ? t("whySuggestedApiError")
+                    : res.error === "ungrounded" || res.error === "okay_mismatch"
+                      ? t("whySuggestedUnverified")
+                      : res.error === "incomplete" ||
+                          res.error === "empty" ||
+                          (Boolean(res.ok) && !complete)
+                        ? t("whySuggestedIncomplete")
+                        : t("errorGeneric"),
+          );
+        } else {
+          setWhyBody(res.body);
+          setWhyCacheVersion(res.cacheVersion ?? WHY_PICK_CACHE_VERSION);
+          setWhyHonestyKey(
+            res.honestyKey === "whySuggestedHonestyLive"
+              ? "whySuggestedHonestyLive"
+              : res.honestyKey === "whySuggestedHonesty"
+                ? "whySuggestedHonesty"
+                : "whySuggestedHonestyEstimate",
+          );
+        }
+      } finally {
+        setWhyPending(false);
+      }
+    });
+  }
+
+  return (
+    <article
+      className={`surface-card flex flex-col gap-2 p-3 ${
+        inBasket ? "ring-2 ring-cedar" : ""
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onToggleBasket}
+        className="relative overflow-hidden rounded-md bg-sand"
+        aria-pressed={inBasket}
+        aria-label={
+          inBasket ? t("agentRemoveFromBasket") : t("agentAddToBasket")
+        }
+      >
+        {c.imageUrl ? (
+          // Pool URL only — no scrape / next/image remote config for unknown hosts.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={c.imageUrl}
+            alt=""
+            className="aspect-square w-full object-cover"
+          />
+        ) : (
+          <div
+            className="flex aspect-square w-full items-center justify-center text-xs text-stone-dark"
+            data-discovery-agent-photo-placeholder=""
+          >
+            {t("agentPhotoPlaceholder")}
+          </div>
+        )}
+      </button>
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="font-display text-sm text-ink">{c.name}</h3>
+        {suggestionExplainEnabled ? (
+          <button
+            type="button"
+            disabled={whyPending || whyTransitionPending}
+            onClick={whySuggested}
+            aria-label={t("agentWhyAria")}
+            className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-stone text-xs font-semibold text-ink transition hover:bg-sand disabled:opacity-60"
+          >
+            i
+          </button>
+        ) : null}
+      </div>
+      <p className="text-xs text-stone-dark">{differ}</p>
+      <div className="flex flex-col gap-1" data-discovery-agent-receipts="">
+        <div className="flex flex-wrap gap-1">
+          <span className="rounded-md bg-sand px-2 py-0.5 text-[11px] font-medium text-ink">
+            {t("fit")} {c.fitScore}
+          </span>
+          <MarginPill
+            label={t("marginBefore")}
+            value={c.marginBefore}
+            pass={c.marginsPass}
+          />
+          <MarginPill
+            label={t("marginAfter")}
+            value={c.marginAfter}
+            pass={c.marginsPass}
+          />
+        </div>
+        <ScoreFreshnessNote freshness={c.scoreFreshness} />
+        <p className="text-[11px] text-stone-dark">
+          {t(
+            c.scoreFreshness.state === "never" || c.systemDemand?.usedNeutral
+              ? "whySuggestedHonestyEstimate"
+              : "whySuggestedHonestyLive",
+          )}
+        </p>
+      </div>
+      {whyOpen ? (
+        <WhySuggestedModal
+          title={t("whySuggestedTitle")}
+          body={whyBody}
+          honesty={t(whyHonestyKey)}
+          error={whyError}
+          loading={whyPending}
+          loadingLabel={t("whySuggestedLoading")}
+          closeLabel={t("whySuggestedClose")}
+          onClose={() => setWhyOpen(false)}
+        />
+      ) : null}
+    </article>
   );
 }
 
@@ -574,23 +1038,131 @@ function UndoRejectNote({ rejects }: { rejects: UndoableReject[] }) {
   );
 }
 
+function unlockFieldLabel(
+  field: OnboardingUnlockField,
+  t: ReturnType<typeof useTranslations<"Discovery">>,
+): string {
+  switch (field) {
+    case "maxLandedCost":
+      return t("unlockField_maxLandedCost");
+    case "hoursPerWeek":
+      return t("unlockField_hoursPerWeek");
+    case "riskTolerance":
+      return t("unlockField_riskTolerance");
+    case "experience":
+      return t("unlockField_experience");
+  }
+}
+
+function unlockAdviceCopy(
+  field: OnboardingUnlockField,
+  fromLabel: string,
+  toLabel: string,
+  t: ReturnType<typeof useTranslations<"Discovery">>,
+): string {
+  switch (field) {
+    case "maxLandedCost":
+      return t("editOnboardingAdvice_maxLandedCost", {
+        from: fromLabel,
+        to: toLabel,
+      });
+    case "hoursPerWeek":
+      return t("editOnboardingAdvice_hoursPerWeek", {
+        from: fromLabel,
+        to: toLabel,
+      });
+    case "riskTolerance":
+      return t("editOnboardingAdvice_riskTolerance", {
+        from: fromLabel,
+        to: toLabel,
+      });
+    case "experience":
+      return t("editOnboardingAdvice_experience", {
+        from: fromLabel,
+        to: toLabel,
+      });
+  }
+}
+
+function formatUnlockDisplay(
+  field: OnboardingUnlockField,
+  value: string | number,
+  t: ReturnType<typeof useTranslations<"Discovery">>,
+): string {
+  if (field === "riskTolerance") {
+    if (value === "low") return t("unlockRisk_low");
+    if (value === "medium") return t("unlockRisk_medium");
+    if (value === "high") return t("unlockRisk_high");
+  }
+  if (field === "experience") {
+    if (value === "beginner") return t("unlockExperience_beginner");
+    if (value === "some") return t("unlockExperience_some");
+    if (value === "experienced") return t("unlockExperience_experienced");
+  }
+  return String(value);
+}
+
 function EditOnboardingNote({
   banner,
+  editOnboardingUnlock,
+  mode,
+  acceptReadyCount,
 }: {
   banner: NonNullable<DiscoveryView["editOnboardingBanner"]>;
+  editOnboardingUnlock: OnboardingUnlockAdvice;
+  mode: "first" | "addSku";
+  acceptReadyCount: number;
 }) {
   const t = useTranslations("Discovery");
+  const locale = useLocale();
   const isZero = banner === "zero_accept_ready";
+  const isAdd = mode === "addSku";
+  const names = (
+    locale === "ar"
+      ? editOnboardingUnlock.extraNamesAr
+      : editOnboardingUnlock.extraNamesEn
+  ).join(locale === "ar" ? "، " : ", ");
+  const fromLabel = formatUnlockDisplay(
+    editOnboardingUnlock.field,
+    editOnboardingUnlock.fromValue,
+    t,
+  );
+  const toLabel = formatUnlockDisplay(
+    editOnboardingUnlock.field,
+    editOnboardingUnlock.toValue,
+    t,
+  );
+  const href = isAdd
+    ? `/onboarding?edit=1&from=discovery&unlock=${editOnboardingUnlock.field}&hub=1&addSku=1`
+    : `/onboarding?edit=1&from=discovery&unlock=${editOnboardingUnlock.field}`;
   return (
     <div className="rounded-md border border-sea/30 bg-sea/5 px-4 py-3">
       <p className="text-sm font-medium text-ink">
         {isZero ? t("editOnboardingZeroTitle") : t("editOnboardingThinTitle")}
       </p>
       <p className="mt-1 max-w-2xl text-sm text-stone-dark">
-        {isZero ? t("editOnboardingZeroBody") : t("editOnboardingThinBody")}
+        {isZero
+          ? t("editOnboardingCountZero")
+          : t("editOnboardingCountThin", { count: acceptReadyCount })}
+      </p>
+      <p className="mt-1 max-w-2xl text-sm text-stone-dark">
+        {unlockAdviceCopy(
+          editOnboardingUnlock.field,
+          fromLabel,
+          toLabel,
+          t,
+        )}
+      </p>
+      {names ? (
+        <p className="mt-1 max-w-2xl text-sm text-stone-dark">
+          {t("editOnboardingPreview", { names })}
+        </p>
+      ) : null}
+      <p className="mt-1 max-w-2xl text-sm text-stone-dark">
+        {t("editOnboardingHonesty")}
       </p>
       <Link
-        href="/onboarding?edit=1"
+        href={href}
         className="mt-3 inline-flex rounded-md border border-stone bg-surface px-4 py-2 text-sm font-semibold text-ink transition hover:bg-sand"
       >
         {t("editOnboardingCta")}

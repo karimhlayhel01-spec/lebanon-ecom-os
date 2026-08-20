@@ -222,6 +222,9 @@ export const FORBIDDEN_STOCK_PHRASES: RegExp[] = [
   /people in lebanon already seem to look for this kind of product/i,
   /it does well abroad while lebanon still looks less crowded/i,
   /lebanon still looks less crowded for this kind of product/i,
+  /sell\s+as[-\s]is/i,
+  /undercut\s+ishtari/i,
+  /guaranteed\s+sales/i,
 ];
 
 /** Engineer/debug jargon never shown to founders in the paragraph. */

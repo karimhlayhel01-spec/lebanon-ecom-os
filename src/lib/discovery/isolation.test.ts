@@ -66,6 +66,27 @@ describe("Wave 2 Discovery isolation", () => {
     expect(service).not.toContain("buildScoreRefreshQueryPlan");
   });
 
+  it("Path 1 photo persist never fetches image bytes", () => {
+    for (const file of [
+      "lib/discovery/normalize.ts",
+      "lib/discovery/pool.ts",
+      "lib/discovery/jobs/intake.ts",
+    ]) {
+      const src = read(file);
+      expect(src, file).not.toContain("fetch(");
+    }
+    const journal = JSON.parse(
+      readFileSync(
+        path.join(process.cwd(), "drizzle/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: { tag: string; when: number }[] };
+    const row = journal.entries.find(
+      (e) => e.tag === "0017_discovery_pool_image_url",
+    );
+    expect(row?.when).toBeGreaterThanOrEqual(1787600000000);
+  });
+
   it("Why we suggested this explain does not import accept or score writers", () => {
     const explainDir = [
       "lib/discovery/explain/service.ts",
@@ -98,6 +119,8 @@ describe("Wave 2 Discovery isolation", () => {
     expect(board).toContain("worthConsidering");
     expect(board).toContain("compareWorthConsideringAction");
     expect(board).toContain("revalidateWorthConsideringMarks");
+    expect(board).toContain("agentProceedWithThis");
+    expect(board).toContain("data-discovery-agent-grid");
   });
 
   it("Discovery service does not call score refresh / intake jobs", () => {
@@ -238,7 +261,7 @@ describe("Wave 2 Discovery isolation", () => {
     expect(trayFn).toContain("createPortal");
     expect(trayFn).toContain("document.body");
     const page = read("app/[locale]/dashboard/page.tsx");
-    expect(page).toContain("<DiscoveryBoard view={discovery}>");
+    expect(page).toContain("<DiscoveryBoard view={discovery}");
     expect(page).toContain("OrchestratorPanel view={orchestration} coachingOnly");
   });
 });

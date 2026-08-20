@@ -46,6 +46,11 @@ export type SearchResultItem = {
   /** Structured price when provider supplies it (e.g. Google Shopping). */
   price?: number | null;
   merchant?: string;
+  /**
+   * Optional shopping thumbnail URL (SerpAPI google_shopping only).
+   * Organic / Serper / Brave must not invent one.
+   */
+  imageUrl?: string;
 };
 
 export type SearchProviderResponse = {

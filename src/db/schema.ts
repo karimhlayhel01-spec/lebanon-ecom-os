@@ -59,6 +59,11 @@ export const onboardingProfiles = pgTable("onboarding_profiles", {
   sampleClearanceReady: boolean("sample_clearance_ready")
     .notNull()
     .default(false),
+  /**
+   * WAVE-2 §14 — intro card shown once per profile. Survives Refresh / new
+   * Discovery sessions. Ask answers live on the session, not here.
+   */
+  discoveryIntroSeen: boolean("discovery_intro_seen").notNull().default(false),
   completedAt: text("completed_at"),
   updatedAt: text("updated_at").notNull(),
 });
@@ -125,6 +130,21 @@ export const discoverySessions = pgTable("discovery_sessions", {
   status: text("status").notNull().default("active"), // active | closed
   /** True once this session's pool was counted toward discoveryExhaustedRounds. */
   exhaustionCounted: boolean("exhaustion_counted").notNull().default(false),
+  /**
+   * WAVE-2 §14 PR2 — ask answers / frame chips. JSON; null until the agent
+   * ask starts. A new session (Refresh) does not copy this field.
+   */
+  agentFrameJson: text("agent_frame_json"),
+  /**
+   * WAVE-2 §14 PR3 — keep_looking retrieves this session. Refresh / new
+   * session starts at 0. not_convinced does not increment.
+   */
+  exploreMoreCount: integer("explore_more_count").notNull().default(0),
+  /**
+   * WAVE-2 §14 PR3 — catalog keys shown this session (JSON string array).
+   * Explore more excludes these. A new session does not copy this field.
+   */
+  shownCatalogKeysJson: text("shown_catalog_keys_json"),
   createdAt: text("created_at").notNull(),
 });
 
@@ -485,6 +505,11 @@ export const discoveryProductPool = pgTable("discovery_product_pool", {
   /** Missing MOQ/sample → neutral in scoring (WAVE-2 §7). */
   moqHint: integer("moq_hint"),
   sampleCostHint: doublePrecision("sample_cost_hint"),
+  /**
+   * WAVE-2 §14.5 — one shopping thumbnail URL (Path 1), or null.
+   * Persist the URL only; never download bytes. Catalog seed stays null.
+   */
+  imageUrl: text("image_url"),
   /** catalog_seed | path1_search | dropship_backup */
   source: text("source").notNull().default("catalog_seed"),
   active: boolean("active").notNull().default(true),

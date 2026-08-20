@@ -88,7 +88,7 @@ npm run dev -- -p 3005      # shortlist ranks from score cache; system demand ga
 
 With a large Path 1 pool, prefer `npm run discovery:score -- --limit=50` (or cron batches) so SerpAPI caps stay manageable. Discovery **GET** still never live-searches.
 
-Each card states how fresh its market read is (`DISCOVERY_SCORE_STALE_AFTER_DAYS`, default 7). A product with no successful read yet says **estimate only**. Freshness is display only — it never changes rank, strength, or an accept gate.
+Each card states how fresh its market read is (`DISCOVERY_SCORE_STALE_AFTER_DAYS`, default 30). A product with no successful read yet says **estimate only**. Freshness is display only — it never changes rank, strength, or an accept gate.
 
 ### Measuring the funnel (WAVE-2 §7)
 

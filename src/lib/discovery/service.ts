@@ -1,7 +1,8 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import { db, ensureMigrated, schema } from "@/db";
 import { newId, nowIso } from "@/lib/ids";
 import {
+  DISCOVERY_COMPARE_MAX,
   DISCOVERY_INITIAL_COUNT,
   DISCOVERY_SESSION_CAP,
   DISCOVERY_SHOW_MORE_MAX,
@@ -22,10 +23,53 @@ import {
   loadPoolProductsByCatalogKeys,
 } from "@/lib/discovery/pool";
 import {
+  isDiscoveryAgentUiEnabled,
   isDiscoveryLiveSearchEnabled,
   isDiscoveryPoolV2Enabled,
   isSoftCompetitionBudgetEnabled,
 } from "@/lib/discovery/flags";
+import { applyHideDumpToRanked } from "@/lib/discovery/agent/hide-dump";
+import { applyAgentFrameRank, isCheapStorageDrop } from "@/lib/discovery/agent/frame-rank";
+import {
+  pickOnboardingUnlock,
+  type OnboardingUnlockAdvice,
+} from "@/lib/discovery/agent/onboarding-unlock";
+import {
+  applyAudienceAnswer,
+  applyDifferAnswer,
+  applySellAnswer,
+  applySkipRefuseAnswer,
+  applyWhyExploreAnswer,
+  beginNarrowing,
+  beginWhyExplore,
+  filterCatalogByIndustries,
+  finishNarrowing,
+  isAgentAskComplete,
+  isNarrowingFieldsWritten,
+  parseAgentFrame,
+  parseOnboardingIndustryLikes,
+  resolveAgentBoardPhase,
+  resolveAgentRetrievePlan,
+  serializeAgentFrame,
+  type AgentAudienceChip,
+  type AgentDifferChip,
+  type AgentFrame,
+  type AgentSkipRefuseChip,
+  type AgentWhyChip,
+} from "@/lib/discovery/agent/frame";
+import {
+  AGENT_HELD_RANK_BASE,
+  agentWindowRange,
+  excludeShownFromRanked,
+  isInAgentVisibleGrid,
+  keepLookingRequiresNarrowing,
+  parseShownCatalogKeys,
+  serializeShownCatalogKeys,
+  sessionHasAgentTail,
+  takeExploreBatch,
+  unionCatalogKeys,
+  wasCandidatePresented,
+} from "@/lib/discovery/agent/explore";
 import { loadScoresByCatalogKey, type ScoreRow } from "@/lib/discovery/scores";
 import {
   resolveScoreFreshness,
@@ -250,18 +294,33 @@ function catalogKeyFromCandidate(row: {
   }
 }
 
-/** Catalog keys already shown/rejected/accepted in this workspace. */
+/**
+ * Catalog keys the founder actually saw or decided on.
+ * Unrevealed freeze-tail rows (rank >= productsShown) are not seen — Keep
+ * looking must still be able to show the rest of an 11-product session.
+ */
 export async function getSeenCatalogKeys(
   workspaceId: string,
 ): Promise<Set<string>> {
   await ensureMigrated();
   const rows = await db
-    .select({ fitBreakdown: schema.productCandidates.fitBreakdown })
+    .select({
+      fitBreakdown: schema.productCandidates.fitBreakdown,
+      status: schema.productCandidates.status,
+      rank: schema.productCandidates.rank,
+      productsShown: schema.discoverySessions.productsShown,
+    })
     .from(schema.productCandidates)
-    .where(eq(schema.productCandidates.workspaceId, workspaceId))
-    ;
+    .innerJoin(
+      schema.discoverySessions,
+      eq(schema.productCandidates.sessionId, schema.discoverySessions.id),
+    )
+    .where(eq(schema.productCandidates.workspaceId, workspaceId));
   const keys = new Set<string>();
   for (const row of rows) {
+    if (!wasCandidatePresented(row.status, row.rank, row.productsShown)) {
+      continue;
+    }
     const key = catalogKeyFromCandidate(row);
     if (key) keys.add(key);
   }
@@ -297,12 +356,19 @@ export function scoreRankCatalog(
   onboarding: OnboardingRow,
   excludeKeys: ReadonlySet<string> = new Set(),
   catalog: readonly CatalogProduct[] = CATALOG,
+  restrictCategories?: readonly string[],
 ): ScoredProduct[] {
   const profile = toFitProfile(onboarding);
-  const sourceCatalog = selectLandedCostPool(
+  let sourceCatalog = selectLandedCostPool(
     catalog,
     onboarding.maxLandedCost,
   ).filter((p) => !excludeKeys.has(p.key));
+  if (restrictCategories && restrictCategories.length > 0) {
+    sourceCatalog = filterCatalogByIndustries(
+      sourceCatalog,
+      restrictCategories as AgentFrame["industryIds"],
+    );
+  }
 
   const scored = sourceCatalog
     .map((p) => {
@@ -349,8 +415,9 @@ export function scoreRankCatalog(
 export async function scoreRankForDiscovery(
   onboarding: OnboardingRow,
   excludeKeys: ReadonlySet<string> = new Set(),
+  opts: { restrictCategories?: readonly string[] } = {},
 ): Promise<ScoredProduct[]> {
-  return (await scoreRankWithBlockers(onboarding, excludeKeys)).scored;
+  return (await scoreRankWithBlockers(onboarding, excludeKeys, opts)).scored;
 }
 
 /**
@@ -360,16 +427,32 @@ export async function scoreRankForDiscovery(
 async function scoreRankWithBlockers(
   onboarding: OnboardingRow,
   excludeKeys: ReadonlySet<string> = new Set(),
-): Promise<{ scored: ScoredProduct[]; blockers: ShortlistBlockerTally }> {
+  opts: { restrictCategories?: readonly string[] } = {},
+): Promise<{
+  scored: ScoredProduct[];
+  blockers: ShortlistBlockerTally;
+  hideDumpDropped: number;
+}> {
   const catalog = await resolveDiscoveryCatalogSource();
 
-  const sourceCatalog = selectLandedCostPool(
+  let sourceCatalog = selectLandedCostPool(
     catalog,
     onboarding.maxLandedCost,
   ).filter((p) => !excludeKeys.has(p.key));
+  if (opts.restrictCategories && opts.restrictCategories.length > 0) {
+    sourceCatalog = filterCatalogByIndustries(
+      sourceCatalog,
+      opts.restrictCategories as AgentFrame["industryIds"],
+    );
+  }
 
   if (!isDiscoveryPoolV2Enabled()) {
-    const scored = scoreRankCatalog(onboarding, excludeKeys, catalog);
+    const scored = scoreRankCatalog(
+      onboarding,
+      excludeKeys,
+      catalog,
+      opts.restrictCategories,
+    );
     // Wave 1 runs no score cache, so nothing here can be blocked by one.
     return {
       scored,
@@ -377,6 +460,7 @@ async function scoreRankWithBlockers(
         ...emptyBlockerTally(),
         profile: Math.max(0, sourceCatalog.length - scored.length),
       },
+      hideDumpDropped: 0,
     };
   }
 
@@ -401,7 +485,15 @@ async function scoreRankWithBlockers(
     },
   );
 
-  const scored = ranked.map((r) => ({
+  // §14 hide-dump: drop high+Tier-1 from retrieve when agent UI + pool + scores.
+  // Remaining stay in existing composite order (whitespace is already in demand).
+  const listed = applyHideDumpToRanked(ranked, scoresByKey, {
+    poolV2: true,
+    agentUi: isDiscoveryAgentUiEnabled(),
+  });
+  const dumped = ranked.length - listed.length;
+  // Hide-dump is not a Fit/budget profile blocker (§14.7 nothing-fits).
+  const scored = listed.map((r) => ({
     p: r.p,
     landedCost: r.landedCost,
     fit: {
@@ -423,13 +515,15 @@ async function scoreRankWithBlockers(
     },
   }));
 
-  return { scored, blockers };
+  return { scored, blockers, hideDumpDropped: dumped };
 }
 
 export type RemainingEligible = {
   count: number;
   /** Why the unlisted remainder is unlisted (WAVE-2 §8) — display/metrics only. */
   blockers: ShortlistBlockerTally;
+  /** §14 hide-dump drops — not a Fit/budget Edit-onboarding cause. */
+  hideDumpDropped: number;
 };
 
 /**
@@ -441,10 +535,19 @@ export type RemainingEligible = {
 export async function resolveRemainingEligible(
   workspaceId: string,
   onboarding: OnboardingRow,
+  opts: {
+    restrictCategories?: readonly string[];
+    extraExcludeKeys?: readonly string[];
+  } = {},
 ): Promise<RemainingEligible> {
   const seen = await getSeenCatalogKeys(workspaceId);
-  const { scored, blockers } = await scoreRankWithBlockers(onboarding, seen);
-  return { count: scored.length, blockers };
+  for (const key of opts.extraExcludeKeys ?? []) seen.add(key);
+  const { scored, blockers, hideDumpDropped } = await scoreRankWithBlockers(
+    onboarding,
+    seen,
+    opts,
+  );
+  return { count: scored.length, blockers, hideDumpDropped };
 }
 
 export async function countRemainingEligible(
@@ -554,6 +657,9 @@ async function insertSessionPool(
     productsShown: Math.min(DISCOVERY_INITIAL_COUNT, pool.length),
     status: "active",
     exhaustionCounted: false,
+    agentFrameJson: null,
+    exploreMoreCount: 0,
+    shownCatalogKeysJson: null,
     createdAt,
   });
 
@@ -612,6 +718,273 @@ async function insertSessionPool(
   return getActiveSession(workspaceId);
 }
 
+function candidateRowsFromScored(
+  workspaceId: string,
+  sessionId: string,
+  scored: ScoredProduct[],
+  createdAt: string,
+  limit: number = DISCOVERY_SESSION_CAP,
+  rankOffset: number = 0,
+) {
+  const pool = scored.slice(0, limit);
+  return pool.map(
+    (
+      { p, fit, margin, strength, riskRead, okayReason, notRecommended, wave2 },
+      i,
+    ) => ({
+      id: newId(),
+      workspaceId,
+      sessionId,
+      name: p.en.name,
+      category: p.category,
+      summary: p.en.summary,
+      sellPrice: p.sellPrice,
+      productCost: p.productCost,
+      intlShip: p.intlShip,
+      clearanceTaxes: p.clearanceTaxes,
+      localCourier: p.localCourier,
+      marginBefore: margin.marginBefore,
+      marginAfter: margin.marginAfter,
+      marginsPass: margin.pass,
+      marginBlockReason: margin.blockReason,
+      fitScore: fit.score,
+      fitBreakdown: JSON.stringify({
+        dims: fit.breakdown,
+        catalogKey: p.key,
+        ...(wave2
+          ? {
+              wave2: {
+                compositeScore: wave2.compositeScore,
+                fallbackUsed: wave2.fallbackUsed,
+                explain: wave2.explain,
+                okayReason: wave2.okayReason ?? okayReason ?? null,
+              },
+            }
+          : okayReason
+            ? { okayReason }
+            : {}),
+      }),
+      strength: strength ?? fit.strength,
+      riskRead: riskRead !== undefined ? riskRead : fit.riskRead,
+      differentiation: p.en.differentiation,
+      tier1Conflict: p.tier1Marketplaces.length > 0,
+      tier1Marketplaces: JSON.stringify(p.tier1Marketplaces),
+      oversizedHardBlock: p.oversized,
+      notRecommended:
+        notRecommended !== undefined ? notRecommended : fit.notRecommended,
+      demandConfirmed: false,
+      status: "shown" as const,
+      rank: rankOffset + i,
+      createdAt,
+    }),
+  );
+}
+
+/**
+ * Replace the visible grid on THIS session. Basket rows (keepCandidateIds)
+ * stay; rejected/accepted rows stay. Not a new session.
+ */
+async function replaceSessionCandidates(
+  workspaceId: string,
+  sessionId: string,
+  scored: ScoredProduct[],
+  opts: {
+    keepCandidateIds?: readonly string[];
+    limit?: number;
+    /** Persist a longer ranked tail but only reveal the first window. */
+    revealOnly?: boolean;
+  } = {},
+): Promise<{ insertedKeys: string[] }> {
+  const createdAt = nowIso();
+  const limit = opts.limit ?? DISCOVERY_SESSION_CAP;
+  const keepIds = [
+    ...new Set((opts.keepCandidateIds ?? []).filter(Boolean)),
+  ].slice(0, DISCOVERY_COMPARE_MAX);
+
+  const keepRows =
+    keepIds.length > 0
+      ? await db
+          .select()
+          .from(schema.productCandidates)
+          .where(
+            and(
+              eq(schema.productCandidates.sessionId, sessionId),
+              eq(schema.productCandidates.status, "shown"),
+              inArray(schema.productCandidates.id, keepIds),
+            ),
+          )
+      : [];
+  const keepIdSet = new Set(keepRows.map((r) => r.id));
+  const keepKeys = new Set(
+    keepRows
+      .map((r) => catalogKeyFromCandidate(r))
+      .filter((k): k is string => Boolean(k)),
+  );
+
+  if (keepIdSet.size > 0) {
+    await db
+      .delete(schema.productCandidates)
+      .where(
+        and(
+          eq(schema.productCandidates.sessionId, sessionId),
+          eq(schema.productCandidates.status, "shown"),
+          notInArray(schema.productCandidates.id, [...keepIdSet]),
+        ),
+      );
+  } else {
+    await db
+      .delete(schema.productCandidates)
+      .where(
+        and(
+          eq(schema.productCandidates.sessionId, sessionId),
+          eq(schema.productCandidates.status, "shown"),
+        ),
+      );
+  }
+
+  for (let i = 0; i < keepRows.length; i += 1) {
+    const row = keepRows[i];
+    if (!row) continue;
+    await db
+      .update(schema.productCandidates)
+      .set({ rank: AGENT_HELD_RANK_BASE + i })
+      .where(eq(schema.productCandidates.id, row.id));
+  }
+
+  const fresh = scored.filter((s) => !keepKeys.has(s.p.key));
+  const rows = candidateRowsFromScored(
+    workspaceId,
+    sessionId,
+    fresh,
+    createdAt,
+    limit,
+  );
+  if (rows.length > 0) {
+    await db.insert(schema.productCandidates).values(rows);
+  }
+  await db
+    .update(schema.discoverySessions)
+    .set({
+      productsShown: opts.revealOnly
+        ? Math.min(DISCOVERY_INITIAL_COUNT, rows.length)
+        : rows.length,
+      showMoreUsed: 0,
+      exhaustionCounted: false,
+    })
+    .where(eq(schema.discoverySessions.id, sessionId));
+
+  return {
+    insertedKeys: rows
+      .map((r) => catalogKeyFromCandidate(r))
+      .filter((k): k is string => Boolean(k)),
+  };
+}
+
+async function mergeShownCatalogKeys(
+  sessionId: string,
+  existingJson: string | null | undefined,
+  added: readonly string[],
+): Promise<string[]> {
+  const next = unionCatalogKeys(parseShownCatalogKeys(existingJson), added);
+  await db
+    .update(schema.discoverySessions)
+    .set({ shownCatalogKeysJson: serializeShownCatalogKeys(next) })
+    .where(eq(schema.discoverySessions.id, sessionId));
+  return next;
+}
+
+async function loadSessionGridRows(sessionId: string): Promise<
+  { fitBreakdown: string; rank: number }[]
+> {
+  return db
+    .select({
+      fitBreakdown: schema.productCandidates.fitBreakdown,
+      rank: schema.productCandidates.rank,
+    })
+    .from(schema.productCandidates)
+    .where(
+      and(
+        eq(schema.productCandidates.sessionId, sessionId),
+        eq(schema.productCandidates.status, "shown"),
+      ),
+    );
+}
+
+async function scoreUnseenAgentBatch(input: {
+  workspaceId: string;
+  onboarding: OnboardingRow;
+  session: typeof schema.discoverySessions.$inferSelect;
+  frame: AgentFrame;
+}): Promise<ScoredProduct[]> {
+  const plan = resolveAgentRetrievePlan(input.frame);
+  if (plan.dontDeal) return [];
+  const shown = parseShownCatalogKeys(input.session.shownCatalogKeysJson);
+  const seen = await getSeenCatalogKeys(input.workspaceId);
+  for (const key of shown) seen.add(key);
+  const scored = applyAgentFrameRank(
+    await scoreRankForDiscovery(input.onboarding, seen, {
+      restrictCategories: plan.industryIds,
+    }),
+    input.frame,
+  );
+  const unseen = excludeShownFromRanked(
+    scored.map((s) => ({ ...s, key: s.p.key })),
+    seen,
+  );
+  return takeExploreBatch(unseen, DISCOVERY_INITIAL_COUNT);
+}
+
+async function retrieveAgentGrid(input: {
+  workspaceId: string;
+  onboarding: OnboardingRow;
+  session: typeof schema.discoverySessions.$inferSelect;
+  frame: AgentFrame;
+  keepCandidateIds?: readonly string[];
+}): Promise<{ insertedKeys: string[] }> {
+  const plan = resolveAgentRetrievePlan(input.frame);
+  const shown = parseShownCatalogKeys(input.session.shownCatalogKeysJson);
+  const seen = await getSeenCatalogKeys(input.workspaceId);
+  for (const key of shown) seen.add(key);
+
+  if (plan.dontDeal) {
+    return replaceSessionCandidates(
+      input.workspaceId,
+      input.session.id,
+      [],
+      {
+        keepCandidateIds: input.keepCandidateIds,
+        limit: DISCOVERY_INITIAL_COUNT,
+      },
+    );
+  }
+
+  const scored = applyAgentFrameRank(
+    await scoreRankForDiscovery(input.onboarding, seen, {
+      restrictCategories: plan.industryIds,
+    }),
+    input.frame,
+  );
+  const unseen = excludeShownFromRanked(
+    scored.map((s) => ({ ...s, key: s.p.key })),
+    seen,
+  );
+  // Persist the full ranked aisle (up to session cap). The agent grid reveals
+  // a growing prefix of DISCOVERY_INITIAL_COUNT; Keep looking pages the tail
+  // instead of re-scoring and wiping. not_convinced still replaces after
+  // narrowing.
+  const batch = takeExploreBatch(unseen, DISCOVERY_SESSION_CAP);
+  return replaceSessionCandidates(
+    input.workspaceId,
+    input.session.id,
+    batch,
+    {
+      keepCandidateIds: input.keepCandidateIds,
+      limit: DISCOVERY_SESSION_CAP,
+      revealOnly: true,
+    },
+  );
+}
+
 /**
  * Start a discovery session: score against the founder's profile + hard
  * margin / demand gates, shortlist accept-ready products only, reveal first 5.
@@ -628,8 +1001,331 @@ export async function startDiscoverySession(
     return existing;
   }
 
+  // Agent UI: delay retrieve until ask completes (PR2). Empty session is OK.
+  if (isDiscoveryAgentUiEnabled()) {
+    return insertSessionPool(workspaceId, []);
+  }
+
   const scored = await scoreRankForDiscovery(onboarding, new Set());
   return insertSessionPool(workspaceId, scored);
+}
+
+/**
+ * WAVE-2 §14.12 — after an onboarding *edit* from Discovery, re-retrieve on
+ * the same session. Keep `agentFrameJson` (same chips). Do not close the
+ * session. Wipe this session's shown rows first so they can reappear if the
+ * new profile now lists them.
+ */
+export async function retrieveAfterOnboardingEdit(
+  workspaceId: string,
+  onboarding: OnboardingRow,
+): Promise<void> {
+  await ensureMigrated();
+  const session = await getActiveSession(workspaceId);
+  if (!session) return;
+
+  const frame = parseAgentFrame(session.agentFrameJson);
+
+  await replaceSessionCandidates(workspaceId, session.id, [], {
+    limit: DISCOVERY_INITIAL_COUNT,
+  });
+  await db
+    .update(schema.discoverySessions)
+    .set({
+      shownCatalogKeysJson: serializeShownCatalogKeys([]),
+      exploreMoreCount: 0,
+    })
+    .where(eq(schema.discoverySessions.id, session.id));
+
+  const refreshed = (await getActiveSession(workspaceId)) ?? session;
+
+  if (isDiscoveryAgentUiEnabled()) {
+    if (
+      isAgentAskComplete(frame) &&
+      !resolveAgentRetrievePlan(frame).dontDeal
+    ) {
+      await retrieveAgentGrid({
+        workspaceId,
+        onboarding,
+        session: refreshed,
+        frame,
+      });
+    }
+    return;
+  }
+
+  const seen = await getSeenCatalogKeys(workspaceId);
+  const scored = await scoreRankForDiscovery(onboarding, seen);
+  await replaceSessionCandidates(workspaceId, session.id, scored, {
+    limit: DISCOVERY_SESSION_CAP,
+  });
+}
+
+export async function markDiscoveryIntroSeen(workspaceId: string): Promise<void> {
+  await ensureMigrated();
+  await db
+    .update(schema.onboardingProfiles)
+    .set({ discoveryIntroSeen: true, updatedAt: nowIso() })
+    .where(eq(schema.onboardingProfiles.workspaceId, workspaceId));
+}
+
+/**
+ * Persist ask answers on the active session. When the ask is complete, retrieve
+ * (or leave empty for don’t-deal). Same session id — Refresh is what clears chips.
+ */
+export async function saveDiscoveryAgentAsk(
+  workspaceId: string,
+  onboarding: OnboardingRow,
+  frame: AgentFrame,
+  keepCandidateIds: readonly string[] = [],
+): Promise<{ ok: true } | { ok: false; error: "no_session" }> {
+  await ensureMigrated();
+  if (!isDiscoveryAgentUiEnabled()) {
+    return { ok: false, error: "no_session" };
+  }
+  const session = await getActiveSession(workspaceId);
+  if (!session) return { ok: false, error: "no_session" };
+
+  let stored = frame;
+  if (stored.narrowing && isAgentAskComplete(stored)) {
+    if (!isNarrowingFieldsWritten(stored) && !resolveAgentRetrievePlan(stored).dontDeal) {
+      stored = { ...stored, askStep: Math.min(stored.askStep, 3) };
+      await db
+        .update(schema.discoverySessions)
+        .set({ agentFrameJson: serializeAgentFrame(stored) })
+        .where(eq(schema.discoverySessions.id, session.id));
+      return { ok: true };
+    }
+    stored = finishNarrowing(stored);
+  }
+
+  await db
+    .update(schema.discoverySessions)
+    .set({ agentFrameJson: serializeAgentFrame(stored) })
+    .where(eq(schema.discoverySessions.id, session.id));
+
+  if (!isAgentAskComplete(stored)) {
+    return { ok: true };
+  }
+
+  const { insertedKeys } = await retrieveAgentGrid({
+    workspaceId,
+    onboarding,
+    session,
+    frame: stored,
+    keepCandidateIds,
+  });
+  await mergeShownCatalogKeys(
+    session.id,
+    session.shownCatalogKeysJson,
+    insertedKeys.slice(0, DISCOVERY_INITIAL_COUNT),
+  );
+  if (frame.narrowing) {
+    await db
+      .update(schema.discoverySessions)
+      .set({ exploreMoreCount: 0 })
+      .where(eq(schema.discoverySessions.id, session.id));
+  }
+  return { ok: true };
+}
+
+export type AgentAskStepInput =
+  | { step: "sell"; industryIds: readonly string[]; otherText: string }
+  | { step: "skipRefuse"; value: AgentSkipRefuseChip | "skipped" }
+  | { step: "audience"; value: AgentAudienceChip | "skipped" }
+  | { step: "differ"; value: AgentDifferChip | "skipped" };
+
+export async function applyDiscoveryAgentAskStep(
+  workspaceId: string,
+  onboarding: OnboardingRow,
+  input: AgentAskStepInput,
+  keepCandidateIds: readonly string[] = [],
+): Promise<
+  | { ok: true }
+  | { ok: false; error: "no_session" | "empty_sell" | "skip_not_allowed" }
+> {
+  await ensureMigrated();
+  const session = await getActiveSession(workspaceId);
+  if (!session) return { ok: false, error: "no_session" };
+  const current = parseAgentFrame(session.agentFrameJson);
+
+  let next: AgentFrame;
+  if (input.step === "sell") {
+    const applied = applySellAnswer(
+      current,
+      input.industryIds as AgentFrame["industryIds"],
+      input.otherText,
+    );
+    if ("error" in applied) return { ok: false, error: applied.error };
+    next = applied;
+  } else if (input.step === "skipRefuse") {
+    const applied = applySkipRefuseAnswer(current, input.value);
+    if ("error" in applied) return { ok: false, error: applied.error };
+    next = applied;
+  } else if (input.step === "audience") {
+    const applied = applyAudienceAnswer(current, input.value);
+    if ("error" in applied) return { ok: false, error: applied.error };
+    next = applied;
+  } else {
+    const applied = applyDifferAnswer(current, input.value);
+    if ("error" in applied) return { ok: false, error: applied.error };
+    next = applied;
+  }
+
+  return saveDiscoveryAgentAsk(
+    workspaceId,
+    onboarding,
+    next,
+    keepCandidateIds,
+  );
+}
+
+export async function beginAgentExploreMore(
+  workspaceId: string,
+): Promise<{ ok: true } | { ok: false; error: "no_session" | "not_ready" }> {
+  await ensureMigrated();
+  if (!isDiscoveryAgentUiEnabled()) {
+    return { ok: false, error: "no_session" };
+  }
+  const session = await getActiveSession(workspaceId);
+  if (!session) return { ok: false, error: "no_session" };
+  const frame = parseAgentFrame(session.agentFrameJson);
+  if (!isAgentAskComplete(frame) || frame.whyPending) {
+    return { ok: false, error: "not_ready" };
+  }
+  if (resolveAgentRetrievePlan(frame).dontDeal) {
+    return { ok: false, error: "not_ready" };
+  }
+  const next = beginWhyExplore(frame);
+  await db
+    .update(schema.discoverySessions)
+    .set({ agentFrameJson: serializeAgentFrame(next) })
+    .where(eq(schema.discoverySessions.id, session.id));
+  return { ok: true };
+}
+
+export async function submitAgentExploreWhy(
+  workspaceId: string,
+  onboarding: OnboardingRow,
+  input: {
+    why: AgentWhyChip;
+    note?: string;
+    keepCandidateIds?: readonly string[];
+  },
+): Promise<
+  | { ok: true; next: "narrowing" | "grid" }
+  | { ok: false; error: "no_session" | "not_ready" }
+> {
+  await ensureMigrated();
+  if (!isDiscoveryAgentUiEnabled()) {
+    return { ok: false, error: "no_session" };
+  }
+  const session = await getActiveSession(workspaceId);
+  if (!session) return { ok: false, error: "no_session" };
+  const frame = parseAgentFrame(session.agentFrameJson);
+  if (!frame.whyPending || !isAgentAskComplete(frame)) {
+    return { ok: false, error: "not_ready" };
+  }
+
+  const answered = applyWhyExploreAnswer(frame, input.why, input.note ?? "");
+  const requireNarrowing =
+    input.why === "not_convinced" ||
+    keepLookingRequiresNarrowing(session.exploreMoreCount);
+
+  if (requireNarrowing) {
+    const narrowed = beginNarrowing(answered);
+    await db
+      .update(schema.discoverySessions)
+      .set({ agentFrameJson: serializeAgentFrame(narrowed) })
+      .where(eq(schema.discoverySessions.id, session.id));
+    return { ok: true, next: "narrowing" };
+  }
+
+  // keep_looking and count < 5 — page the persisted aisle first (5 of 11).
+  // APPEND: bump the visible prefix; do not replace/wipe when the tail exists.
+  const gridRows = await loadSessionGridRows(session.id);
+  const gridCount = gridRows.filter((r) => r.rank < AGENT_HELD_RANK_BASE).length;
+
+  if (sessionHasAgentTail(gridCount, session.exploreMoreCount)) {
+    const nextCount = session.exploreMoreCount + 1;
+    const { start, end } = agentWindowRange(nextCount);
+    const revealed = gridRows
+      .filter(
+        (r) =>
+          r.rank >= start &&
+          r.rank < end &&
+          r.rank < AGENT_HELD_RANK_BASE,
+      )
+      .map((r) => catalogKeyFromCandidate(r))
+      .filter((k): k is string => Boolean(k));
+    await mergeShownCatalogKeys(
+      session.id,
+      session.shownCatalogKeysJson,
+      revealed,
+    );
+    await db
+      .update(schema.discoverySessions)
+      .set({
+        agentFrameJson: serializeAgentFrame(answered),
+        exploreMoreCount: nextCount,
+        productsShown: Math.max(
+          session.productsShown,
+          Math.min(end, gridCount),
+        ),
+      })
+      .where(eq(schema.discoverySessions.id, session.id));
+    return { ok: true, next: "grid" };
+  }
+
+  const batch = await scoreUnseenAgentBatch({
+    workspaceId,
+    onboarding,
+    session,
+    frame: answered,
+  });
+  if (batch.length === 0) {
+    const narrowed = beginNarrowing(answered);
+    await db
+      .update(schema.discoverySessions)
+      .set({ agentFrameJson: serializeAgentFrame(narrowed) })
+      .where(eq(schema.discoverySessions.id, session.id));
+    return { ok: true, next: "narrowing" };
+  }
+
+  const createdAt = nowIso();
+  const rows = candidateRowsFromScored(
+    workspaceId,
+    session.id,
+    batch,
+    createdAt,
+    DISCOVERY_INITIAL_COUNT,
+    gridCount,
+  );
+  await db.insert(schema.productCandidates).values(rows);
+  const insertedKeys = rows
+    .map((r) => catalogKeyFromCandidate(r))
+    .filter((k): k is string => Boolean(k));
+  await mergeShownCatalogKeys(
+    session.id,
+    session.shownCatalogKeysJson,
+    insertedKeys,
+  );
+  const nextCount =
+    gridCount === 0
+      ? session.exploreMoreCount
+      : session.exploreMoreCount + 1;
+  const { end } = agentWindowRange(
+    gridCount === 0 ? session.exploreMoreCount : nextCount,
+  );
+  await db
+    .update(schema.discoverySessions)
+    .set({
+      agentFrameJson: serializeAgentFrame(answered),
+      exploreMoreCount: nextCount,
+      productsShown: Math.max(session.productsShown, end),
+    })
+    .where(eq(schema.discoverySessions.id, session.id));
+  return { ok: true, next: "grid" };
 }
 
 /**
@@ -706,6 +1402,18 @@ async function closeAndOpenScoredSession(
   // Score next pool before closing. Empty accept-ready → still open empty
   // session so the UI can show Edit onboarding (not keep soft-listed leftovers).
   void runId;
+
+  // Agent UI Refresh = start over: new session, no frame copy, no retrieve yet.
+  if (isDiscoveryAgentUiEnabled()) {
+    await db
+      .update(schema.discoverySessions)
+      .set({ status: "closed" })
+      .where(eq(schema.discoverySessions.id, existingSessionId));
+    const session = await insertSessionPool(workspaceId, []);
+    if (!session) return { ok: false, error: "catalog_exhausted" };
+    return { ok: true, sessionId: session.id };
+  }
+
   const seen = await getSeenCatalogKeys(workspaceId);
   const scored = await scoreRankForDiscovery(onboarding, seen);
 
@@ -1236,6 +1944,8 @@ export type DiscoveryCandidateView = {
   name: string;
   summary: string;
   differentiation: string;
+  /** Pool photo URL when stored; agent grid uses a placeholder if missing. */
+  imageUrl: string | null;
   category: string;
   sellPrice: number;
   landedCost: number;
@@ -1310,6 +2020,11 @@ export type DiscoveryView = {
    */
   editOnboardingBanner: EditOnboardingBanner | null;
   /**
+   * WAVE-2 §14.12 — named knob + preview names when a dry-run proves ≥1 extra
+   * accept-ready id in this frame. Null means the banner must not render.
+   */
+  editOnboardingUnlock: OnboardingUnlockAdvice | null;
+  /**
    * WAVE-2 §8 — why the board is empty. `no_scores` means missing / failed
    * score rows, which the founder cannot fix by editing onboarding, so that
    * state replaces the nag instead of joining it.
@@ -1331,6 +2046,21 @@ export type DiscoveryView = {
    * Session-scoped, so a refresh / new session empties it.
    */
   undoableRejects: UndoableReject[];
+  /**
+   * WAVE-2 §14 — when true, REPLACE the 5-card board with the agent grid.
+   * Default off. Never render both on one page.
+   */
+  agentUiEnabled: boolean;
+  /** intro | ask | why | grid — intro/ask/why hide the result list. */
+  agentPhase: "intro" | "ask" | "why" | "grid";
+  agentIntroSeen: boolean;
+  agentFrame: AgentFrame;
+  agentDontDeal: boolean;
+  /** §14.7 empty retrieve / hide-dump aisle — not Continue discovery. */
+  agentNothingFits: boolean;
+  agentHeldCandidates: DiscoveryCandidateView[];
+  agentExploreMoreCount: number;
+  onboardingIndustryLikes: string[];
 };
 
 export async function getDiscoveryView(
@@ -1341,7 +2071,11 @@ export async function getDiscoveryView(
   const session = await getActiveSession(workspaceId);
   if (!session) return null;
 
-  await maybeCountExhaustion(workspaceId);
+  const agentUiEnabled = isDiscoveryAgentUiEnabled();
+  // Agent intro/ask (and don’t-deal) are not exhausted shortlists.
+  if (!agentUiEnabled) {
+    await maybeCountExhaustion(workspaceId);
+  }
   // Re-read session after possible exhaustion_counted write (rounds may bump).
   const freshSession = (await getActiveSession(workspaceId)) ?? session;
 
@@ -1357,7 +2091,16 @@ export async function getDiscoveryView(
     .orderBy(asc(schema.productCandidates.rank))
     ;
 
-  const visible = rows.filter((r) => r.rank < freshSession.productsShown);
+  const visible = agentUiEnabled
+    ? rows.filter((r) =>
+        isInAgentVisibleGrid(r.rank, freshSession.exploreMoreCount),
+      )
+    : rows.filter((r) => r.rank < freshSession.productsShown);
+  const heldRows = agentUiEnabled
+    ? rows.filter((r) => r.rank >= AGENT_HELD_RANK_BASE)
+    : [];
+  const rowsForView = [...visible, ...heldRows];
+  const gridRowCount = visible.length;
   const cap = Math.min(DISCOVERY_SESSION_CAP, await poolSize(freshSession.id));
   const canShowMore =
     freshSession.productsShown < cap &&
@@ -1368,9 +2111,28 @@ export async function getDiscoveryView(
     .from(schema.onboardingProfiles)
     .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
     .then((rows) => rows[0]);
+  const agentIntroSeen = onboarding?.discoveryIntroSeen === true;
+  const agentFrame = parseAgentFrame(freshSession.agentFrameJson);
+  const agentPhase = resolveAgentBoardPhase({
+    agentUi: agentUiEnabled,
+    introSeen: agentIntroSeen,
+    frame: agentFrame,
+  });
+  const retrievePlan = resolveAgentRetrievePlan(agentFrame);
+  const agentDontDeal =
+    agentUiEnabled && isAgentAskComplete(agentFrame) && retrievePlan.dontDeal;
+  const restrictCategories =
+    agentUiEnabled && isAgentAskComplete(agentFrame) && !retrievePlan.dontDeal
+      ? retrievePlan.industryIds
+      : undefined;
   const remaining: RemainingEligible = onboarding
-    ? await resolveRemainingEligible(workspaceId, onboarding)
-    : { count: 0, blockers: emptyBlockerTally() };
+    ? await resolveRemainingEligible(workspaceId, onboarding, {
+        restrictCategories,
+        extraExcludeKeys: parseShownCatalogKeys(
+          freshSession.shownCatalogKeysJson,
+        ),
+      })
+    : { count: 0, blockers: emptyBlockerTally(), hideDumpDropped: 0 };
   const remainingEligible = remaining.count;
   const exhaustedRounds = await getExhaustedRounds(workspaceId);
 
@@ -1388,7 +2150,7 @@ export async function getDiscoveryView(
   // Path 1 keys missing from catalog.ts: resolve text for visible cards only
   // (keyed batch — O(visible), not a full active-pool scan on the view path).
   const visibleCatalogKeys: string[] = [];
-  for (const r of visible) {
+  for (const r of rowsForView) {
     try {
       const breakdown = JSON.parse(r.fitBreakdown);
       const key = breakdown.catalogKey;
@@ -1401,7 +2163,7 @@ export async function getDiscoveryView(
     ? await loadPoolProductsByCatalogKeys(visibleCatalogKeys)
     : new Map<string, CatalogProduct>();
 
-  const mapped = visible.map((r) => {
+  const mapped = rowsForView.map((r) => {
     let catalogKey = "";
     let storedOkayReason: string | null = null;
     let snapshotCompetitionLevel: string | null = null;
@@ -1479,6 +2241,7 @@ export async function getDiscoveryView(
       name: text.name,
       summary: text.summary,
       differentiation: text.differentiation,
+      imageUrl: product?.imageUrl ?? null,
       category: r.category,
       sellPrice: r.sellPrice,
       landedCost:
@@ -1520,27 +2283,108 @@ export async function getDiscoveryView(
   });
 
   // Accept-ready only on the page — hide legacy soft-listed / blocked leftovers.
-  const candidates = mapped.filter((m) => m.acceptReady).map((m) => m.view);
+  const mappedGrid = mapped.slice(0, gridRowCount);
+  const mappedHeld = mapped.slice(gridRowCount);
+  const candidates = mappedGrid.filter((m) => m.acceptReady).map((m) => m.view);
+  const agentHeldCandidates = mappedHeld
+    .filter((m) => m.acceptReady)
+    .map((m) => m.view);
 
   const acceptReadyVisible = candidates.length;
-  const ladder = classifyDiscoveryLadder({
-    visibleCount: acceptReadyVisible,
-    canShowMore: acceptReadyVisible > 0 ? canShowMore : false,
-    remainingEligible,
-    exhaustedRounds,
-  });
+  const showMoreOnThisSurface = !agentUiEnabled && acceptReadyVisible > 0 && canShowMore;
+  const suppressAgentEmpty = agentPhase !== "grid" || agentDontDeal;
+  const ladder =
+    agentUiEnabled || suppressAgentEmpty
+      ? null
+      : classifyDiscoveryLadder({
+        visibleCount: acceptReadyVisible,
+        canShowMore: showMoreOnThisSurface,
+        remainingEligible,
+        exhaustedRounds,
+      });
 
   // §8 — an empty board is only an onboarding problem when the profile is what
   // filtered it. Cards this session already dropped and the rest of the pool
   // are judged together, since either set can be the one holding the evidence.
-  const { emptyState, editOnboardingBanner } = resolveShortlistEmptyDecision({
-    acceptReadyVisible,
-    remainingEligible,
-    blockers: mergeBlockerTallies(
-      tallyShortlistBlockers(mapped.map((m) => m.blocker)),
-      remaining.blockers,
-    ),
-  });
+  // Don’t-deal / intro / ask must not use Edit onboarding (WAVE-2 §14.7).
+  const decided = suppressAgentEmpty
+    ? { emptyState: null, editOnboardingBanner: null }
+    : resolveShortlistEmptyDecision({
+        acceptReadyVisible,
+        remainingEligible,
+        blockers: mergeBlockerTallies(
+          tallyShortlistBlockers(mappedGrid.map((m) => m.blocker)),
+          remaining.blockers,
+        ),
+      });
+  let emptyState = decided.emptyState;
+  let editOnboardingBanner = decided.editOnboardingBanner;
+  // §14.7: hide-dump / seen-key empty aisle is nothing-fits, not Continue /
+  // Edit onboarding, unless Fit/budget is the traced profile blocker.
+  let agentNothingFits = false;
+  if (
+    agentUiEnabled &&
+    agentPhase === "grid" &&
+    !agentDontDeal &&
+    acceptReadyVisible === 0
+  ) {
+    if (emptyState?.cause === "no_scores") {
+      editOnboardingBanner = null;
+    } else if (
+      emptyState?.cause === "profile_filtered" &&
+      remaining.blockers.profile > 0 &&
+      remaining.hideDumpDropped === 0
+    ) {
+      agentNothingFits = false;
+    } else {
+      agentNothingFits = true;
+      emptyState = null;
+      editOnboardingBanner = null;
+    }
+  }
+
+  let editOnboardingUnlock: OnboardingUnlockAdvice | null = null;
+  if (editOnboardingBanner && onboarding) {
+    let unlockCatalog = await resolveDiscoveryCatalogSource();
+    if (restrictCategories && restrictCategories.length > 0) {
+      unlockCatalog = filterCatalogByIndustries(
+        unlockCatalog,
+        restrictCategories as AgentFrame["industryIds"],
+      );
+    }
+    if (agentUiEnabled && agentFrame.skipRefuse === "cheap_storage") {
+      unlockCatalog = unlockCatalog.filter((p) => !isCheapStorageDrop(p));
+    }
+    const advice = pickOnboardingUnlock({
+      profile: {
+        ...toFitProfile(onboarding),
+        monthlyFollowOnBudget: onboarding.monthlyFollowOnBudget,
+      },
+      catalog: unlockCatalog,
+      systemGateEnabled,
+      liveSearchEnabled: isDiscoveryLiveSearchEnabled(),
+      scoresByKey,
+      hideDump: {
+        poolV2: isDiscoveryPoolV2Enabled(),
+        agentUi: agentUiEnabled,
+      },
+    });
+    if (advice) {
+      editOnboardingUnlock = advice;
+    } else {
+      editOnboardingBanner = null;
+      if (
+        agentUiEnabled &&
+        agentPhase === "grid" &&
+        !agentDontDeal &&
+        acceptReadyVisible === 0 &&
+        emptyState?.cause !== "no_scores"
+      ) {
+        agentNothingFits = true;
+        emptyState = null;
+      }
+    }
+  }
 
   const undoableRejects = selectUndoableRejects(
     await loadSessionRejects(freshSession.id),
@@ -1549,35 +2393,37 @@ export async function getDiscoveryView(
 
   // §7 measurement loop. Deduped per session, so the counters survive the
   // re-renders and revalidates a single visit produces.
-  await recordDiscoveryMetric({
-    workspaceId,
-    kind: acceptReadyVisible > 0 ? "shortlist_shown" : "shortlist_empty",
-    sessionId: freshSession.id,
-    dedupeKey: shortlistOutcomeDedupeKey(freshSession.id),
-  });
-  // A data outage is counted as its own empty kind so the edit-onboarding rate
-  // keeps measuring profile-driven nags only (§7.1).
-  if (emptyState?.cause === "no_scores") {
+  if (agentPhase === "grid" && !agentDontDeal) {
     await recordDiscoveryMetric({
       workspaceId,
-      kind: "shortlist_empty_no_scores",
+      kind: acceptReadyVisible > 0 ? "shortlist_shown" : "shortlist_empty",
       sessionId: freshSession.id,
-      dedupeKey: sessionMetricDedupeKey(
-        freshSession.id,
-        "shortlist_empty_no_scores",
-      ),
+      dedupeKey: shortlistOutcomeDedupeKey(freshSession.id),
     });
-  }
-  if (editOnboardingBanner) {
-    await recordDiscoveryMetric({
-      workspaceId,
-      kind: "edit_onboarding_shown",
-      sessionId: freshSession.id,
-      dedupeKey: sessionMetricDedupeKey(
-        freshSession.id,
-        "edit_onboarding_shown",
-      ),
-    });
+    // A data outage is counted as its own empty kind so the edit-onboarding rate
+    // keeps measuring profile-driven nags only (§7.1).
+    if (emptyState?.cause === "no_scores") {
+      await recordDiscoveryMetric({
+        workspaceId,
+        kind: "shortlist_empty_no_scores",
+        sessionId: freshSession.id,
+        dedupeKey: sessionMetricDedupeKey(
+          freshSession.id,
+          "shortlist_empty_no_scores",
+        ),
+      });
+    }
+    if (editOnboardingBanner) {
+      await recordDiscoveryMetric({
+        workspaceId,
+        kind: "edit_onboarding_shown",
+        sessionId: freshSession.id,
+        dedupeKey: sessionMetricDedupeKey(
+          freshSession.id,
+          "edit_onboarding_shown",
+        ),
+      });
+    }
   }
 
   return {
@@ -1587,18 +2433,30 @@ export async function getDiscoveryView(
       freshSession.productsShown,
       cap,
     ),
-    canShowMore: acceptReadyVisible > 0 ? canShowMore : false,
+    canShowMore: showMoreOnThisSurface,
     sessionCap: cap,
     candidates,
     ladder,
     exhaustedRounds,
     remainingEligible,
     editOnboardingBanner,
+    editOnboardingUnlock,
     shortlistEmptyState: emptyState,
     suggestionExplainEnabled: suggestionEnabled,
     geminiConfigured,
     whyPickEnabled: suggestionEnabled,
     canRefreshSuggestions,
     undoableRejects,
+    agentUiEnabled,
+    agentPhase,
+    agentIntroSeen,
+    agentFrame,
+    agentDontDeal,
+    agentNothingFits,
+    agentHeldCandidates,
+    agentExploreMoreCount: freshSession.exploreMoreCount,
+    onboardingIndustryLikes: onboarding
+      ? parseOnboardingIndustryLikes(onboarding.categoryLikes)
+      : [],
   };
 }

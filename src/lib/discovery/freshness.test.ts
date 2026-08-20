@@ -85,6 +85,38 @@ describe("resolveScoreFreshness", () => {
     expect(f).toMatchObject({ state: "fresh", ageDays: 0 });
   });
 
+  it("16-day read is fresh at the default 30-day window; 30 days is stale", () => {
+    const sixteen = resolveScoreFreshness({
+      lastScoredAt: daysAgo(16),
+      now: NOW,
+      staleAfterDays: 30,
+    });
+    expect(sixteen).toMatchObject({
+      state: "fresh",
+      ageDays: 16,
+      staleAfterDays: 30,
+    });
+    expect(scoreFreshnessNote(sixteen)).toEqual({
+      key: "scoreFreshnessDays",
+      values: { days: 16, window: 30 },
+    });
+
+    const thirty = resolveScoreFreshness({
+      lastScoredAt: daysAgo(30),
+      now: NOW,
+      staleAfterDays: 30,
+    });
+    expect(thirty).toMatchObject({
+      state: "stale",
+      ageDays: 30,
+      staleAfterDays: 30,
+    });
+    expect(scoreFreshnessNote(thirty)).toEqual({
+      key: "scoreFreshnessStale",
+      values: { days: 30, window: 30 },
+    });
+  });
+
   it("keeps the age of the last successful read after a failed refresh", () => {
     // applyFailedScoreRefresh leaves lastScoredAt alone (last-known scores are
     // still on screen), so the card must report the age of that data.
@@ -98,7 +130,8 @@ describe("resolveScoreFreshness", () => {
 });
 
 describe("resolveScoreStaleAfterDays", () => {
-  it("defaults when unset", () => {
+  it("defaults to 30 when unset", () => {
+    expect(DISCOVERY_SCORE_STALE_AFTER_DAYS_DEFAULT).toBe(30);
     expect(resolveScoreStaleAfterDays({})).toBe(
       DISCOVERY_SCORE_STALE_AFTER_DAYS_DEFAULT,
     );
@@ -122,21 +155,21 @@ describe("resolveScoreStaleAfterDays", () => {
 describe("scoreFreshnessNote", () => {
   it("renders fresh / stale / never with distinct founder copy keys", () => {
     const today = scoreFreshnessNote(
-      resolveScoreFreshness({ lastScoredAt: daysAgo(0), now: NOW, staleAfterDays: 7 }),
+      resolveScoreFreshness({ lastScoredAt: daysAgo(0), now: NOW, staleAfterDays: 30 }),
     );
     const dated = scoreFreshnessNote(
-      resolveScoreFreshness({ lastScoredAt: daysAgo(3), now: NOW, staleAfterDays: 7 }),
+      resolveScoreFreshness({ lastScoredAt: daysAgo(3), now: NOW, staleAfterDays: 30 }),
     );
     const stale = scoreFreshnessNote(
-      resolveScoreFreshness({ lastScoredAt: daysAgo(30), now: NOW, staleAfterDays: 7 }),
+      resolveScoreFreshness({ lastScoredAt: daysAgo(30), now: NOW, staleAfterDays: 30 }),
     );
     const never = scoreFreshnessNote(
-      resolveScoreFreshness({ lastScoredAt: null, now: NOW, staleAfterDays: 7 }),
+      resolveScoreFreshness({ lastScoredAt: null, now: NOW, staleAfterDays: 30 }),
     );
 
     expect(today.key).toBe("scoreFreshnessToday");
-    expect(dated).toEqual({ key: "scoreFreshnessDays", values: { days: 3, window: 7 } });
-    expect(stale).toEqual({ key: "scoreFreshnessStale", values: { days: 30, window: 7 } });
+    expect(dated).toEqual({ key: "scoreFreshnessDays", values: { days: 3, window: 30 } });
+    expect(stale).toEqual({ key: "scoreFreshnessStale", values: { days: 30, window: 30 } });
     expect(never.key).toBe("scoreFreshnessNever");
     expect(new Set([today.key, dated.key, stale.key, never.key]).size).toBe(4);
   });
@@ -193,9 +226,9 @@ describe("freshness copy", () => {
         const stale = new IntlMessageFormat(
           messages[locale].scoreFreshnessStale,
           locale,
-        ).format({ days, window: 7 });
+        ).format({ days, window: 30 });
         expect(String(dated).length).toBeGreaterThan(3);
-        expect(String(stale)).toContain("7");
+        expect(String(stale)).toContain("30");
       }
     }
   });

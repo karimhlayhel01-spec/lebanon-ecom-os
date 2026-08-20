@@ -3,6 +3,7 @@ import { redirect } from "@/i18n/navigation";
 import { Link } from "@/i18n/navigation";
 import { requireOnboardedContext } from "@/lib/workspace";
 import { getDiscoveryView } from "@/lib/discovery/service";
+import { parseUnlockField } from "@/lib/discovery/agent/onboarding-unlock";
 import { getFinancePanel } from "@/lib/finance/service";
 import {
   computeRunwayForSkuWithImportBatch,
@@ -161,8 +162,22 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const sp = await searchParams;
   setRequestLocale(locale);
 
-  const forceHub = sp.hub === "1" || sp.hub === "true";
-  const addSkuFlag = sp.addSku === "1" || sp.addSku === "true";
+  const unlockApplied = parseUnlockField(
+    typeof sp.unlock === "string"
+      ? sp.unlock
+      : Array.isArray(sp.unlock)
+        ? sp.unlock[0]
+        : undefined,
+  );
+  // Stay on the Discovery surface after an onboarding edit — do not dump a
+  // live-SKU shop onto the SKU spine / ETA / #finance.
+  const returningFromDiscoveryUnlock = Boolean(unlockApplied);
+  const forceHub =
+    sp.hub === "1" || sp.hub === "true" || returningFromDiscoveryUnlock;
+  const addSkuFlag =
+    sp.addSku === "1" ||
+    sp.addSku === "true" ||
+    returningFromDiscoveryUnlock;
 
   const ctx = await requireOnboardedContext(locale);
   const t = await getTranslations("Dashboard");
@@ -482,7 +497,11 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 {shopT("addSkuDiscoveryCancel")}
               </Link>
             </div>
-            <DiscoveryBoard view={addSkuDiscovery} mode="addSku" />
+            <DiscoveryBoard
+              view={addSkuDiscovery}
+              mode="addSku"
+              unlockApplied={unlockApplied}
+            />
           </div>
         )}
       </div>
@@ -501,7 +520,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         {inDiscovery ? (
           discovery ? (
             <div id="discovery">
-              <DiscoveryBoard view={discovery}>
+              <DiscoveryBoard view={discovery} unlockApplied={unlockApplied}>
                 {/* Nest Coaching under the board so the Compare tray spacer
                     clears it (avoid a bare sibling under the fixed tray). */}
                 {orchestration && !isPaused ? (

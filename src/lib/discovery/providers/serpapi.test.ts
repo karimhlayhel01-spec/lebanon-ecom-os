@@ -44,6 +44,7 @@ describe("SerpAPI provider (mocked fetch — no network)", () => {
           link: "https://shop.example/w",
           extracted_price: 19.5,
           source: "ExampleMart",
+          thumbnail: "https://cdn.example/w.jpg",
         },
       ]),
     ).toEqual([
@@ -53,8 +54,19 @@ describe("SerpAPI provider (mocked fetch — no network)", () => {
         snippet: "ExampleMart",
         price: 19.5,
         merchant: "ExampleMart",
+        imageUrl: "https://cdn.example/w.jpg",
       },
     ]);
+    expect(
+      mapSerpShoppingResults([
+        {
+          title: "Kit",
+          link: "https://shop.example/k",
+          extracted_price: 8,
+          thumbnails: ["https://cdn.example/k.webp"],
+        },
+      ])[0]?.imageUrl,
+    ).toBe("https://cdn.example/k.webp");
     expect(
       mapSerpOrganicResults([
         { title: "Review", link: "https://blog.example/r", snippet: "hi" },
@@ -62,6 +74,11 @@ describe("SerpAPI provider (mocked fetch — no network)", () => {
     ).toEqual([
       { title: "Review", url: "https://blog.example/r", snippet: "hi" },
     ]);
+    expect(
+      mapSerpOrganicResults([
+        { title: "Review", link: "https://blog.example/r", snippet: "hi" },
+      ])[0],
+    ).not.toHaveProperty("imageUrl");
   });
 
   it("createSerpApiProvider uses injected fetch (no real HTTP)", async () => {

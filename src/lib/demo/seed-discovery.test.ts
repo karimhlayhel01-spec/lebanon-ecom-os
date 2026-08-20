@@ -35,6 +35,7 @@ function demoOnboarding(
     maxLandedCost: 25,
     deliveryBandDays: "7-10",
     sampleClearanceReady: false,
+    discoveryIntroSeen: false,
     completedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,
