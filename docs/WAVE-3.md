@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 3**.
 **Wave 1** (multi-SKU hub, sample-first Supplier 3+2, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery Approach A) remains locked — see `docs/WAVE-2.md`. Do not reopen Discovery locks here.
 
-**Status:** Wave 3 **Supplier live leads + outbound email** — **LOCKED in intent** (founder discussion 2026-08-09). **LBP→USD + max-landed gate** — **LOCKED 2026-08-22**. **AliExpress-first keep** — **LOCKED 2026-08-22** in **§3.4**. Implementation is **additive** on the existing Supplier panel / FSM.
+**Status:** Wave 3 **Supplier live leads + outbound email** — **LOCKED in intent** (founder discussion 2026-08-09). **LBP→USD + max-landed gate** — **LOCKED 2026-08-22**. **AliExpress-first keep** — **LOCKED 2026-08-22** in **§3.4**. **Lebanon agent + broker example notes** — **LOCKED 2026-08-22** in **§3.5**. Implementation is **additive** on the existing Supplier panel / FSM.
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -96,6 +96,19 @@ Founder `maxLandedCost` is USD. A listing priced in LBP must never be stored as 
 | **Over-cap live Import** | A live Import seat must not render when the USD unit is over the cap, or when Alibaba is unknown / unparseable / invent leftover on a live URL. Re-gate persisted Import live rows on ensure/refresh. |
 | **Out** | Discovery retrieve, 70/35%, Shopify, Gmail, Local invent-as-truth. |
 
+### 3.5 Lebanon agent + broker example notes (**LOCKED 2026-08-22**)
+
+Static coaching copy only. Not supplier cards. Not Discovery.
+
+| Rule | Detail |
+| --- | --- |
+| **Import sourcing note** | Always on the Supplier **Import** tab and **Both** when Import is in view. Hide on Local-only. Place under the Import shortlist / empty Import body (not inside a card). Bold. If listings are too expensive or MOQ is too high to work the factory yourself, a Lebanon sourcing agent can buy, inspect, and ship — founder pays their fee. Many also clear door-to-door; ask them; founder still pays **duties**. Examples (not OS partners; check yourself): Nour Express (nourexpress.me), China to Lebanon (chinatolebanon.com), Pick N Ship (picknship.net), China Gate (chinagatelb.com). Optional `https` links to those four hosts only. |
+| **Clearance brokers** | Extend Import `clearancePartnerPlaceholder` and Import `costQuotesGuideClearance` only. If the founder already bought direct and only needs Beirut release, a customs broker can clear — not a China buying agent. Examples (not OS partners): ASL (asl.com.lb), Ocean Link (oceanlink-lb.com), Chami (chami.co). Do **not** name the four sourcing agents on clearance surfaces. |
+| **Local / Both clearance** | `clearanceLocalSoft` / `clearanceLocalVsDeliveryNote` / `clearanceBothNote` unchanged. Do not dump broker names on Local. Onboarding `sampleClearance` unchanged. |
+| **Out** | No phones, WhatsApp, Gemini, Serper for agents, invent pad, Discovery expensive-aisle, MIN_BUDGET. |
+
+---
+
 ## 4) Outbound email — Gmail (**LOCKED**)
 
 ### 4.1 Phases
@@ -149,6 +162,7 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-22 | **Lebanon agent + broker example notes LOCKED** — static Import sourcing-agent note (Nour Express / China to Lebanon / Pick N Ship / China Gate) on Import + Both; clearance-broker examples (ASL / Ocean Link / Chami) on Import footer + Import quotes only. Not cards. Not Discovery. No phones. |
 | 2026-08-22 | **Over-cap live Import must not render** — `$320-340` / invent leftover on an Alibaba URL cannot sit under a $100 cap. Re-gate persisted Import live seats on ensure/refresh. AliExpress-first keep of cheap/unknown AE is unchanged. |
 | 2026-08-22 | **AliExpress-first keep LOCKED** — supersedes “null Serper hint = hide.” Drop only **known** over-cap USD. Keep unknown AliExpress. Hide unknown Alibaba until priced-and-fit. Query + scrape AE before Alibaba. Refresh **unions** prior keepable live Import seats with new leads (do not wipe cheap AE). Still no invent unit on a live URL. |
 | 2026-08-22 | **Live Import price fill** — ensure/refresh may scrape up to 5 listings to `extractUnitPriceUsd`, then gate. Never invent unitPrice onto a live URL. Assess over-cap extract hides the available seat. AliExpress + Alibaba stay. |

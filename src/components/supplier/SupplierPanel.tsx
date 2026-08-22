@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useEffect,
   useId,
   useState,
@@ -41,6 +42,12 @@ import {
   supplierEmailSubject,
 } from "@/lib/supplier/email/gmail-compose";
 import { buildWhatsAppChatUrl } from "@/lib/supplier/contacts";
+import {
+  CLEARANCE_BROKER_EXAMPLE_HOSTS,
+  IMPORT_SOURCING_EXAMPLE_HOSTS,
+  shouldShowImportSourcingAgentNote,
+  splitExampleHostLinks,
+} from "@/lib/supplier/lebanon-agent-notes";
 import { canAssessListingUrl } from "@/lib/supplier/diligence/listing-url";
 import type {
   AssessListingSuccess,
@@ -368,6 +375,46 @@ function LocalEmptyBanner() {
   );
 }
 
+function ExampleLinkedText({
+  text,
+  hosts,
+}: {
+  text: string;
+  hosts: readonly string[];
+}) {
+  return (
+    <>
+      {splitExampleHostLinks(text, hosts).map((part, i) =>
+        part.kind === "link" ? (
+          <a
+            key={i}
+            href={part.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2"
+          >
+            {part.value}
+          </a>
+        ) : (
+          <Fragment key={i}>{part.value}</Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
+function ImportSourcingAgentNote() {
+  const t = useTranslations("Supplier");
+  return (
+    <p className="text-xs font-semibold leading-snug text-ink" role="note">
+      <ExampleLinkedText
+        text={t("importSourcingAgentNote")}
+        hosts={IMPORT_SOURCING_EXAMPLE_HOSTS}
+      />
+    </p>
+  );
+}
+
 function ImportEmptyBanner() {
   const t = useTranslations("Supplier");
   return (
@@ -687,9 +734,14 @@ export function SupplierPanel({ view }: { view: SupplierPanelView }) {
           <p className="mt-4 text-xs text-stone-dark">
             {t("clearance")}:{" "}
             <span className="font-medium">
-              {view.clearancePartner === CLEARANCE_PARTNER_TBD
-                ? t("clearancePartnerPlaceholder")
-                : view.clearancePartner}
+              {view.clearancePartner === CLEARANCE_PARTNER_TBD ? (
+                <ExampleLinkedText
+                  text={t("clearancePartnerPlaceholder")}
+                  hosts={CLEARANCE_BROKER_EXAMPLE_HOSTS}
+                />
+              ) : (
+                view.clearancePartner
+              )}
             </span>
           </p>
           <p className="mt-1.5 text-xs text-stone-dark/80">
@@ -743,6 +795,39 @@ function SupplierShortlistSection({
   const unavailable = view.reorder.unavailable;
   const hasLocalGroups = view.groups.some((g) => g.source === "local");
   const hasImportGroups = view.groups.some((g) => g.source === "import");
+
+  function renderShortlistGroup(g: (typeof visibleGroups)[number]) {
+    return (
+      <div key={`${g.source}-${g.rank}`}>
+        <h3 className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-stone-dark">
+          <SourceBadge source={g.source} />
+          <span>
+            {t("group", { n: g.rank + 1 })} —{" "}
+            {g.source === "local" ? t("poolLocal") : t("poolImport")}
+          </span>
+        </h3>
+        <div className="mt-2 grid items-start gap-3 md:grid-cols-3">
+          {g.primary && (
+            <SupplierCard
+              s={g.primary}
+              sampleCta={ctaFor(g.primary)}
+              softLimit={view.softLimitUsd}
+              skuName={view.skuName}
+            />
+          )}
+          {g.backups.map((b) => (
+            <SupplierCard
+              key={b.id}
+              s={b}
+              sampleCta={ctaFor(b)}
+              softLimit={view.softLimitUsd}
+              skuName={view.skuName}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   function ctaFor(s: SupplierView): SupplierCardSampleCta {
     return supplierCardSampleCta({
@@ -845,36 +930,17 @@ function SupplierShortlistSection({
         <ImportEmptyBanner />
       ) : null}
 
-      {visibleGroups.map((g) => (
-        <div key={`${g.source}-${g.rank}`}>
-          <h3 className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-stone-dark">
-            <SourceBadge source={g.source} />
-            <span>
-              {t("group", { n: g.rank + 1 })} —{" "}
-              {g.source === "local" ? t("poolLocal") : t("poolImport")}
-            </span>
-          </h3>
-          <div className="mt-2 grid items-start gap-3 md:grid-cols-3">
-            {g.primary && (
-              <SupplierCard
-                s={g.primary}
-                sampleCta={ctaFor(g.primary)}
-                softLimit={view.softLimitUsd}
-                skuName={view.skuName}
-              />
-            )}
-            {g.backups.map((b) => (
-              <SupplierCard
-                key={b.id}
-                s={b}
-                sampleCta={ctaFor(b)}
-                softLimit={view.softLimitUsd}
-                skuName={view.skuName}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
+      {visibleGroups
+        .filter((g) => g.source === "import")
+        .map((g) => renderShortlistGroup(g))}
+
+      {shouldShowImportSourcingAgentNote(effectiveTab) ? (
+        <ImportSourcingAgentNote />
+      ) : null}
+
+      {visibleGroups
+        .filter((g) => g.source === "local")
+        .map((g) => renderShortlistGroup(g))}
     </div>
   );
 }
@@ -1930,7 +1996,12 @@ function CostQuotesBlock({
           ) : (
             <>
               <li>{t("costQuotesGuideFreight")}</li>
-              <li>{t("costQuotesGuideClearance")}</li>
+              <li>
+                <ExampleLinkedText
+                  text={t("costQuotesGuideClearance")}
+                  hosts={CLEARANCE_BROKER_EXAMPLE_HOSTS}
+                />
+              </li>
               <li>{t("costQuotesGuideCourier")}</li>
             </>
           )}
