@@ -12,6 +12,7 @@ import {
 } from "@/lib/discovery/catalog";
 import type { StorageFootprint } from "@/lib/skills/fit";
 import { isDiscoveryPoolV2Enabled } from "@/lib/discovery/flags";
+import { listingHrefFromStoredSourceUrl } from "@/lib/discovery/listing-href";
 import {
   nextPath1ImageUrl,
   type NormalizedPath1Candidate,
@@ -59,6 +60,7 @@ export function poolRowToCatalogProduct(row: PoolProductRow): CatalogProduct {
     oversized: row.oversized,
     tier1Marketplaces: tier1,
     imageUrl: row.imageUrl ?? null,
+    sourceUrl: listingHrefFromStoredSourceUrl(row.sourceUrl),
   };
 }
 

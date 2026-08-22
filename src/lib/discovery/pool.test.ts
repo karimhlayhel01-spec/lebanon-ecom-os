@@ -54,6 +54,7 @@ describe("poolRowToCatalogProduct", () => {
     expect(mapped.sellPrice).toBe(sample.sellPrice);
     expect(mapped.tier1Marketplaces).toEqual(sample.tier1Marketplaces);
     expect(mapped.imageUrl).toBeNull();
+    expect(mapped.sourceUrl).toBeNull();
   });
 
   it("reads imageUrl from the pool column instead of hardcoding null", () => {
@@ -91,6 +92,44 @@ describe("poolRowToCatalogProduct", () => {
     } satisfies PoolProductRow;
     expect(poolRowToCatalogProduct(row).imageUrl).toBe(
       "https://cdn.example/p.jpg",
+    );
+  });
+
+  it("reads a sanitised Path 1 sourceUrl for View listing", () => {
+    const sample = CATALOG[0];
+    const row = {
+      id: "p1",
+      catalogKey: sample.key,
+      nameEn: sample.en.name,
+      nameAr: sample.ar.name,
+      category: sample.category,
+      summaryEn: sample.en.summary,
+      summaryAr: sample.ar.summary,
+      differentiationEn: sample.en.differentiation,
+      differentiationAr: sample.ar.differentiation,
+      sellPrice: sample.sellPrice,
+      productCost: sample.productCost,
+      intlShip: sample.intlShip,
+      clearanceTaxes: sample.clearanceTaxes,
+      localCourier: sample.localCourier,
+      difficulty: sample.difficulty,
+      risk: sample.risk,
+      timeNeed: sample.timeNeed,
+      workload: sample.workload,
+      storageFootprint: sample.storageFootprint,
+      oversized: sample.oversized,
+      tier1Marketplaces: JSON.stringify(sample.tier1Marketplaces),
+      sourceUrl: "https://www.amazon.com/dp/B0EXAMPLE",
+      moqHint: null,
+      sampleCostHint: null,
+      source: "path1_search",
+      active: true,
+      createdAt: "t",
+      updatedAt: "t",
+      imageUrl: null,
+    } satisfies PoolProductRow;
+    expect(poolRowToCatalogProduct(row).sourceUrl).toBe(
+      "https://www.amazon.com/dp/B0EXAMPLE",
     );
   });
 });

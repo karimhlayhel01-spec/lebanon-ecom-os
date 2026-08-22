@@ -17,6 +17,7 @@ import {
   localizedProduct,
   type CatalogProduct,
 } from "@/lib/discovery/catalog";
+import { listingHrefFromStoredSourceUrl } from "@/lib/discovery/listing-href";
 import {
   resolveDiscoveryCatalogSource,
   loadPoolHintsByCatalogKey,
@@ -1946,6 +1947,11 @@ export type DiscoveryCandidateView = {
   differentiation: string;
   /** Pool photo URL when stored; agent grid uses a placeholder if missing. */
   imageUrl: string | null;
+  /**
+   * WAVE-2 §14.13 — stored pool listing URL after http(s) sanitise.
+   * Null hides View listing. Never a live-search or invented Google href.
+   */
+  sourceUrl: string | null;
   category: string;
   sellPrice: number;
   landedCost: number;
@@ -2242,6 +2248,7 @@ export async function getDiscoveryView(
       summary: text.summary,
       differentiation: text.differentiation,
       imageUrl: product?.imageUrl ?? null,
+      sourceUrl: listingHrefFromStoredSourceUrl(product?.sourceUrl),
       category: r.category,
       sellPrice: r.sellPrice,
       landedCost:

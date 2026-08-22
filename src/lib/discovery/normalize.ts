@@ -91,10 +91,11 @@ export function looksLikeBrandDirectory(title: string): boolean {
 }
 
 /**
- * Persist a shopping thumbnail URL string only. Reject data:/javascript:/
- * empty/non-http. Do not fetch the file.
+ * Persist an http(s) URL string only. Reject data:/javascript:/vbscript:/
+ * empty/non-http. Do not fetch the file. Shared allow-list for pool photos
+ * and §14.13 listing hrefs.
  */
-export function sanitizeHttpImageUrl(
+export function sanitizeHttpUrl(
   raw: string | null | undefined,
 ): string | null {
   if (typeof raw !== "string") return null;
@@ -117,6 +118,13 @@ export function sanitizeHttpImageUrl(
   } catch {
     return null;
   }
+}
+
+/** Shopping thumbnail — same allow-list as `sanitizeHttpUrl`. */
+export function sanitizeHttpImageUrl(
+  raw: string | null | undefined,
+): string | null {
+  return sanitizeHttpUrl(raw);
 }
 
 /** Keep a new valid URL; do not wipe an existing good URL with null. */

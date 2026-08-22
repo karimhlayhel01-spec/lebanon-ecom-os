@@ -9,6 +9,7 @@ import {
   nextPath1ImageUrl,
   normalizeSearchItemToPoolCandidate,
   sanitizeHttpImageUrl,
+  sanitizeHttpUrl,
 } from "@/lib/discovery/normalize";
 import { DISCOVERY_INTAKE_QUERIES_PER_RUN_MAX } from "@/lib/constants";
 
@@ -60,6 +61,7 @@ describe("Path 1 normalize mapping", () => {
     expect(
       sanitizeHttpImageUrl("data:image/png;base64,abc"),
     ).toBeNull();
+    expect(sanitizeHttpUrl("javascript:alert(1)")).toBeNull();
     expect(sanitizeHttpImageUrl("javascript:alert(1)")).toBeNull();
     expect(sanitizeHttpImageUrl("")).toBeNull();
     expect(sanitizeHttpImageUrl("/relative.jpg")).toBeNull();

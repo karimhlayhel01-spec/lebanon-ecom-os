@@ -32,6 +32,8 @@ export type CatalogProduct = {
   tier1Marketplaces: string[];
   /** Pool photo URL when stored; agent UI uses a placeholder if missing. */
   imageUrl?: string | null;
+  /** Path 1 ingested listing URL; catalog seed leaves this unset / null. */
+  sourceUrl?: string | null;
 };
 
 type Row = [

@@ -46,6 +46,7 @@ const AGENT_I18N_KEYS = [
   "agentPhotoPlaceholder",
   "agentDifferFallback",
   "agentWhyAria",
+  "viewListing",
 ] as const;
 
 describe("§14 PR1 agent UI strings", () => {

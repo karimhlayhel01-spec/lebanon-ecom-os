@@ -388,6 +388,8 @@
     "agentPhotoPlaceholder": "No photo yet",
     "agentDifferFallback": "Lead with a bundle, demo, or niche angle — not a cheaper copy of local marketplace listings.",
     "agentWhyAria": "Why we suggested this",
+    "viewListing": "View listing",
+    "viewListingPriceNote": "Shop price ≠ your cost. Your unit cost is about the landed cost on this card (estimate).",
     "agentIntroTitle": "What Discovery can help with",
     "agentIntroBody": "We shortlist products in these 10 industries. If you type Other, it must map to one of them — otherwise we cannot help. Used cars or a bakery are examples we cannot take on. Paintings map to Home & kitchen.",
     "agentIntroNext": "Next",

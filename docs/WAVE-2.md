@@ -5,7 +5,7 @@ Product and engineering locks for Wave 2.
 
 This document starts with the **Discovery agent** slice (winning product pick). Other Wave 2 surfaces (Founder Consultant, Shopify sync, ads, supplier email MCP, etc.) are out of scope here until locked separately.
 
-**Status:** Path 1 intake + Approach A scores + accept-ready gates + Why/Compare engines remain **LOCKED**. **Discovery agent UI** — **LOCKED 2026-08-19** in **§14**. **Frame-aware retrieve + differ required + tile receipts** — **LOCKED 2026-08-20** in **§14.11**. **Edit onboarding dry-run + return to same frame** — **LOCKED 2026-08-20** in **§14.12**. Flag `DISCOVERY_AGENT_UI` default **off**. Build only via §14.8 (three PRs) then §14.11 / §14.12. Do not ship chat, live-search on click, or a second Accept/Compare.
+**Status:** Path 1 intake + Approach A scores + accept-ready gates + Why/Compare engines remain **LOCKED**. **Discovery agent UI** — **LOCKED 2026-08-19** in **§14**. **Frame-aware retrieve + differ required + tile receipts** — **LOCKED 2026-08-20** in **§14.11**. **Edit onboarding dry-run + return to same frame** — **LOCKED 2026-08-20** in **§14.12**. **View listing on cards** — **LOCKED 2026-08-22** in **§14.13**. Flag `DISCOVERY_AGENT_UI` default **off**. Build only via §14.8 (three PRs) then §14.11 / §14.12 / §14.13. Do not ship chat, live-search on click, or a second Accept/Compare.
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -476,6 +476,8 @@ Approach A jobs update the **global** pool/score tables. They still **must not**
 
 | Date | Change |
 | --- | --- |
+| 2026-08-22 | **§14.13 View listing price note** — when the listing link shows, a short EN/AR template under it: shop retail is not the founder's unit cost; unit cost is about the card landed cost (estimate). No Gemini, no interpolated prices, no `سعر المتجر`. Hides with the link. |
+| 2026-08-22 | **§14.13 View listing on Discovery cards LOCKED** — show an outbound **View listing** control only when the pool row has a sanitised `http(s)` `sourceUrl` (Path 1 Shopping/merchant link). Catalog seed / missing / non-http → hide (never invent a Google search). New tab, `rel="noopener noreferrer"`. Click is not Accept, not live-search, not scrape. Same on agent tiles and the 5-card board. Does not change retrieve, rank, or gates. |
 | 2026-08-20 | **§14.12 Edit onboarding dry-run + min delta + preview names + return to same frame LOCKED** — name a field only when a one-knob dry-run proves ≥1 extra accept-ready id in **this** agent frame; never advise `monthlyFollowOnBudget`, `storageDescription`/`storageLimits`, or `categoryLikes`; extra ids === 0 hides the banner (nothing-fits / empty-catalog honesty instead); after save from Discovery keep the session chips / `agentFrameJson` and retrieve again, do not dump on `/dashboard`. |
 | 2026-08-20 | **Score freshness default window 7 → 30 days** (§7 / §10.2) — **DISPLAY ONLY**; out-of-date note when age **≥ 30**. Env `DISCOVERY_SCORE_STALE_AFTER_DAYS` still overrides; malformed / ≤0 fall back to 30. Does not change rank, strength, accept gates, or score-job cadence. |
 | 2026-08-20 | **§14.11 Frame-aware retrieve + differ required + tile receipts LOCKED** — retrieve uses the session frame (not industry-only) inside the same accept-ready set; cheap storage is a hard drop; audience / differ / unmapped Other / explore whyNote are boost-only and never empty the list; differ has no Skip on first ask (must pick demo \| bundle \| niche); Skip remains on skip/refuse and audience unless narrowing; agent tiles show compact receipts (live vs estimate, score age, Fit + margins) with Why (i) and chips above the grid; Gemini id-reorder still optional / not required; Edit onboarding dry-run is **not** this lock. Skills/jobs still own 70/35%, demand, Fit, and compare winner. |
@@ -561,7 +563,7 @@ First visit only. Lists the **10** `INDUSTRY_OPTIONS` labels. Other must map to 
 ### 14.5 Grid, (i), differentiate, photos
 
 - Each suggestion: **one** photo (pool URL or placeholder — **no** scrape/gen), **name**, **(i)** → existing §6.1 Why popup, **one differentiate line** (never “sell as-is” / undercut Ishtari on price). Blocklist those phrases on Why + differ + any Gemini id-pick copy.
-- **Receipts (compact, on the tile):** Fit score, margin before/after (existing candidate fields), score age (`ScoreFreshnessNote`), live vs estimate (existing honesty keys). Why (i) stays. Chips stay above the grid. No scrape, no generate-all.
+- **Receipts (compact, on the tile):** Fit score, margin before/after (existing candidate fields), score age (`ScoreFreshnessNote`), live vs estimate (existing honesty keys). Why (i) stays. Chips stay above the grid. No scrape, no generate-all. **View listing** when a stored listing URL exists — §14.13.
 - Gemini **optional** reorder of retrieved ids; every id must be in the retrieve set or **drop**. Gemini miss → **skill order** of the retrieve set. Empty retrieve → honesty (don’t-deal / Edit onboarding / market-data-not-ready per existing cause rules — **one** banner, §14.7). Gemini id-reorder is still optional / **not required** for §14.11.
 
 ### 14.6 Basket / Compare / Proceed
@@ -641,6 +643,25 @@ If extra ids === 0 for all knobs → **do not show** Edit onboarding. Show exist
 
 **After save:** if `from=discovery` and this is **not** first completion, keep the Discovery session and `agentFrameJson` (do not close / do not clear chips), retrieve with the new profile, redirect to the Discovery surface (`/dashboard?unlock=<field>#discovery` or hub/add-SKU equivalent). Banner line: updated because of [field]. Stay-put on `#discovery` — do not jump to ETA / `#finance`. First onboarding completion still lands on `/dashboard`.
 
+### 14.13 View listing on cards (**LOCKED 2026-08-22**)
+
+Founders who see Path 1 (Shopping) cards must be able to open the **ingested listing** and check the product. This is an outbound href to a **stored** URL — not a new search.
+
+**Data**
+
+- Pool column `discovery_product_pool.source_url` is already written by Path 1 intake (`normalize` → `sourceUrl`).
+- Catalog seed sync keeps `sourceUrl: null`. Do not invent URLs for `catalog.ts`.
+- Plumb a sanitised URL onto `DiscoveryCandidateView` (and `CatalogProduct` / `poolRowToCatalogProduct` if that is the read path). Reuse the same `http`/`https` allow-list already used for `imageUrl` (`sanitizeHttpImageUrl` or a shared sibling). Reject `javascript:`, `data:`, `vbscript:`, non-http(s).
+
+**UI (agent `AgentProductTile` and 5-card `ProductCard`)**
+
+- If sanitised URL present: **View listing** (`<a href=… target="_blank" rel="noopener noreferrer">`). EN+AR i18n. Does not Accept, reject, or add to basket.
+- If missing / unsanitary: **hide** the control. No “search Google for this name” fallback.
+- Click must not call SerpAPI, Serper, Gemini, or any scrape.
+- **Note:** immediately under the `<a>` (inside `ViewListingLink`, both tiles): shop price is not the founder's unit cost — unit cost is about the landed cost on the card (estimate). Templates only (`viewListingPriceNote`). No Gemini, no `${sellPrice}` / `${landedCost}`. AR uses **الرابط**, never **سعر المتجر**. Hide with the link.
+
+**Out of this lock:** hide-seed / Path 1-only retrieve. Shopify. Score jobs. New ask questions. Changing 70/35% or compare.
+
 ---
 
 ## 13) Related Wave 1 references
@@ -653,6 +674,7 @@ If extra ids === 0 for all knobs → **do not show** Edit onboarding. Show exist
 - §14 hide-dump + Other classifier (fixtures): `src/lib/discovery/agent/`
 - §14.11 frame-aware retrieve: `src/lib/discovery/agent/frame-rank.ts`
 - §14.12 Edit onboarding dry-run: `src/lib/discovery/agent/onboarding-unlock.ts`
+- §14.13 View listing URL: pool `sourceUrl` + `DiscoveryCandidateView` (sanitize with image URL allow-list)
 - Score freshness (§7, display only): `src/lib/discovery/freshness.ts`
 - Undo reject (§7): `src/lib/discovery/undo-reject.ts`
 - Measurement loop (§7.1): `src/lib/discovery/metrics/` + `scripts/discovery-metrics.ts`

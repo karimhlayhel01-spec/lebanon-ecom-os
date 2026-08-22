@@ -120,6 +120,32 @@ function translateMarginBlock(
     .join(" ");
 }
 
+/** WAVE-2 §14.13 — stored listing only. Not Accept / reject / basket. */
+function ViewListingLink({ href }: { href: string | null }) {
+  const t = useTranslations("Discovery");
+  if (!href) return null;
+  return (
+    <div>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-discovery-view-listing=""
+        className="text-xs font-medium text-cedar underline-offset-2 hover:underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {t("viewListing")}
+      </a>
+      <p
+        className="mt-0.5 text-[11px] text-stone-dark"
+        data-discovery-view-listing-price-note=""
+      >
+        {t("viewListingPriceNote")}
+      </p>
+    </div>
+  );
+}
+
 const passFeedbackInitial: PassFeedbackState = {};
 
 const subscribeNoop = () => () => {};
@@ -876,6 +902,7 @@ function AgentProductTile({
               : "whySuggestedHonestyLive",
           )}
         </p>
+        <ViewListingLink href={c.sourceUrl} />
       </div>
       {whyOpen ? (
         <WhySuggestedModal
@@ -1584,6 +1611,7 @@ function ProductCard({
       ) : null}
 
       <p className="text-sm text-stone-dark">{c.summary}</p>
+      <ViewListingLink href={c.sourceUrl} />
 
       <div className="flex flex-wrap gap-2 text-xs">
         <span className="rounded-md bg-sand px-2 py-1 font-medium text-ink">
