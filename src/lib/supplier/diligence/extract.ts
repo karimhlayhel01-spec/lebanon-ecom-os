@@ -5,6 +5,7 @@
  */
 
 import { isPlatformListingFallbackName } from "@/lib/supplier/live/company-name";
+import { extractUnitPriceUsd } from "@/lib/supplier/live/unit-price";
 import type {
   DiligenceFacts,
   DiligencePlatform,
@@ -241,18 +242,7 @@ function extractMoq(text: string): number | null {
 }
 
 function extractUnitPrice(text: string): number | null {
-  const patterns = [
-    /US\s*\$\s*([\d]+(?:\.\d{1,2})?)\s*(?:\/|per)\s*(?:piece|unit|pc|pcs)?/i,
-    /\$\s*([\d]+(?:\.\d{1,2})?)\s*(?:\/|per)\s*(?:piece|unit|pc)/i,
-    /unit\s*price[:\s]*US?\s*\$?\s*([\d]+(?:\.\d{1,2})?)/i,
-  ];
-  for (const re of patterns) {
-    const m = text.match(re);
-    if (!m) continue;
-    const n = Number(m[1]);
-    if (Number.isFinite(n) && n > 0 && n < 100_000) return n;
-  }
-  return null;
+  return extractUnitPriceUsd(text);
 }
 
 function extractVerifiedSignals(text: string): { signals: string[]; excerpts: string[] } {

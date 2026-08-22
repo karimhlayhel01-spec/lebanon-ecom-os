@@ -68,6 +68,7 @@ describe("extract + recommend", () => {
     expect(f.verifiedSignals).toContain("Verified Supplier");
     expect(f.rating).toBe(4.7);
     expect(f.skuRelevance).not.toBe("none");
+    expect(f.unitPriceHint).toBe(1.85);
   });
 
   it("worth_sampling without page companyName when relevance + credibility OK", () => {
@@ -283,7 +284,7 @@ describe("merge live seats", () => {
         platform: "alibaba",
         sourceUrl: "https://www.alibaba.com/product-detail/x.html",
         externalTitle: "Live",
-        unitPriceHint: null,
+        unitPriceHint: 8,
         leadSource: "live_search",
       },
     ];

@@ -24,6 +24,7 @@ import type {
   SupplierLead,
   SupplierLeadPlatform,
 } from "@/lib/supplier/live/types";
+import { extractUnitPriceUsd } from "@/lib/supplier/live/unit-price";
 
 export type SerperOrganic = {
   title?: string;
@@ -69,7 +70,9 @@ export function mapOrganicHitToImportLead(
     platform,
     sourceUrl: url,
     externalTitle: externalTitle.slice(0, 240),
-    unitPriceHint: null,
+    unitPriceHint: extractUnitPriceUsd(
+      `${externalTitle} ${row.snippet ?? ""}`,
+    ),
     leadSource: "live_search",
   };
 }
@@ -104,7 +107,9 @@ export function mapOrganicHitToLocalLead(
     platform: "local_web",
     sourceUrl: url,
     externalTitle: externalTitle.slice(0, 240),
-    unitPriceHint: null,
+    unitPriceHint: extractUnitPriceUsd(
+      `${externalTitle} ${row.snippet ?? ""}`,
+    ),
     leadSource: "live_search",
   };
 }
@@ -179,8 +184,8 @@ export async function gatherImportLeadsWithSerper(
   const perSite = Math.max(3, Math.ceil(input.limit / 2));
   // Bias organic toward product/listing paths (still ≤2 Serper calls).
   const queries = [
-    `site:alibaba.com/product-detail ${product}`,
     `site:aliexpress.com/item ${product}`,
+    `site:alibaba.com/product-detail ${product}`,
   ];
 
   const leads: SupplierLead[] = [];

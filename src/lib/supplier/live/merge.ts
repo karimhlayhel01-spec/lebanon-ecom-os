@@ -6,6 +6,10 @@
 
 import type { SupplierSource } from "@/lib/supplier/source";
 import type { SupplierLead } from "@/lib/supplier/live/types";
+import {
+  gateLiveLeadsByMaxLanded,
+  type MaxLandedGate,
+} from "@/lib/supplier/live/max-landed";
 
 export type MergeableSupplier = {
   name: string;
@@ -40,10 +44,16 @@ export function mergeLiveLeadsIntoShortlist(input: {
   heuristic: MergeableSupplier[];
   /** Default true for Import. Local live must pass false. */
   padHeuristic?: boolean;
+  /** When set, drop live leads whose USD unit cannot fit the founder cap. */
+  maxLandedGate?: MaxLandedGate | null;
 }): MergeableSupplier[] {
   const padHeuristic = input.padHeuristic ?? true;
+  const liveLeads =
+    input.source === "import"
+      ? gateLiveLeadsByMaxLanded(input.liveLeads, input.maxLandedGate).kept
+      : input.liveLeads;
 
-  if (input.liveLeads.length === 0) {
+  if (liveLeads.length === 0) {
     if (!padHeuristic) return [];
     return input.heuristic.map((h) => ({
       ...h,
@@ -59,7 +69,7 @@ export function mergeLiveLeadsIntoShortlist(input: {
   let liveIdx = 0;
 
   for (const seat of seats) {
-    const lead = input.liveLeads[liveIdx];
+    const lead = liveLeads[liveIdx];
     if (!lead) {
       if (padHeuristic) {
         out.push({
@@ -74,10 +84,15 @@ export function mergeLiveLeadsIntoShortlist(input: {
     }
     liveIdx += 1;
     const moq = seat.moq || MOQ_LADDER[2]!;
+    // Import live: never stamp invent unitPrice onto a live URL (0 = unknown).
     const unitPrice =
-      lead.unitPriceHint != null && lead.unitPriceHint > 0
-        ? lead.unitPriceHint
-        : seat.unitPrice;
+      input.source === "import"
+        ? lead.unitPriceHint != null && lead.unitPriceHint > 0
+          ? lead.unitPriceHint
+          : 0
+        : lead.unitPriceHint != null && lead.unitPriceHint > 0
+          ? lead.unitPriceHint
+          : seat.unitPrice;
     out.push({
       ...seat,
       name: lead.name.slice(0, 160),

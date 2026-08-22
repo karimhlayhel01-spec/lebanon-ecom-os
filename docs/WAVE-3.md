@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 3**.
 **Wave 1** (multi-SKU hub, sample-first Supplier 3+2, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery Approach A) remains locked — see `docs/WAVE-2.md`. Do not reopen Discovery locks here.
 
-**Status:** Wave 3 **Supplier live leads + outbound email** — **LOCKED in intent** (founder discussion 2026-08-09). Implementation is **additive** on the existing Supplier panel / FSM.
+**Status:** Wave 3 **Supplier live leads + outbound email** — **LOCKED in intent** (founder discussion 2026-08-09). **LBP→USD + max-landed gate** — **LOCKED 2026-08-22**. **AliExpress-first keep** — **LOCKED 2026-08-22** in **§3.4**. Implementation is **additive** on the existing Supplier panel / FSM.
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -77,7 +77,24 @@ Nullable / default-safe fields on `supplier_options` (names may vary in migratio
 
 Ownership: always `workspaceId` + `skuId` fail-closed.
 
----
+### 3.4 LBP→USD + max-landed gate (**LOCKED 2026-08-22**)
+
+Founder `maxLandedCost` is USD. A listing priced in LBP must never be stored as dollars. A lead whose **USD** unit cannot fit the cap must not appear.
+
+| Rule | Detail |
+| --- | --- |
+| **USD only** | `unitPrice` / `unitPriceHint` are USD. Parse `$` / `US$` / `USD` as dollars. |
+| **LBP markers** | `LBP` / `LL` / `L.L.` / `ل.ل` / `ليرة` convert via `USD_LBP_RATE` (LBP per 1 USD). Missing or invalid rate → hint **null** (do not write LBP digits as dollars). |
+| **No Gemini FX** | Rate is env only. No live Sayrafa API in this lock. |
+| **Gate** | Drop only when the **USD unit is known** and it cannot fit (`unit > cap`, or unit + SKU intlShip + clearance + localCourier > cap × 1.2). Never merge invent `unitPrice` onto a live URL (unknown live unit stores `0`, not the heuristic seat price). |
+| **Unknown price** | Do **not** hide AliExpress because Serper had no dollar (LBP often missing from the snippet). **Do** hide unknown **Alibaba** until a scrape yields a unit that fits — that is how $320 retail leaked. |
+| **Import surfaces** | Alibaba **and** AliExpress. **Query and scrape AliExpress first**, then Alibaba, so the 5-scrape budget prices cheap LBP listings before expensive US retail. |
+| **Holes** | No invent pad to cover dropped seats. Optional honesty: N hidden over cap. |
+| **Price fill (ensure/refresh only)** | After `mapOrganicHitToImportLead`, if hint is null, scrape the listing once and `extractUnitPriceUsd` (max **5** scrapes per run, AE-first order). Then gate. |
+| **Refresh keep** | Refresh must **not** replace a good AliExpress shortlist with one survivor. Union new passing leads with **prior live Import seats that still keep** (cheap/unknown AE; known-fit Alibaba). Dedupe by URL. Incoming scrape wins when it has a unit; else keep the prior unit. |
+| **Assess** | If a later extract is over the cap, hide/remove that available Import live seat (no sample). Do not leave it displayed. |
+| **Over-cap live Import** | A live Import seat must not render when the USD unit is over the cap, or when Alibaba is unknown / unparseable / invent leftover on a live URL. Re-gate persisted Import live rows on ensure/refresh. |
+| **Out** | Discovery retrieve, 70/35%, Shopify, Gmail, Local invent-as-truth. |
 
 ## 4) Outbound email — Gmail (**LOCKED**)
 
@@ -109,6 +126,7 @@ SUPPLIER_LIVE_LEADS=0          # default off — invent shortlist
 SUPPLIER_LIVE_LEADS=1          # allow one-shot live fill on ensure / refresh
 # Reuse SERPER_API_KEY and/or SERPAPI_API_KEY when live is on
 # Optional later: SUPPLIER_GMAIL_SEND=1 when Zapier/Gmail send is wired
+# USD_LBP_RATE=            # LBP per 1 USD (e.g. 89500). Missing → LBP hints stay null
 ```
 
 Never commit secrets.
@@ -131,6 +149,10 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-22 | **Over-cap live Import must not render** — `$320-340` / invent leftover on an Alibaba URL cannot sit under a $100 cap. Re-gate persisted Import live seats on ensure/refresh. AliExpress-first keep of cheap/unknown AE is unchanged. |
+| 2026-08-22 | **AliExpress-first keep LOCKED** — supersedes “null Serper hint = hide.” Drop only **known** over-cap USD. Keep unknown AliExpress. Hide unknown Alibaba until priced-and-fit. Query + scrape AE before Alibaba. Refresh **unions** prior keepable live Import seats with new leads (do not wipe cheap AE). Still no invent unit on a live URL. |
+| 2026-08-22 | **Live Import price fill** — ensure/refresh may scrape up to 5 listings to `extractUnitPriceUsd`, then gate. Never invent unitPrice onto a live URL. Assess over-cap extract hides the available seat. AliExpress + Alibaba stay. |
+| 2026-08-22 | **LBP→USD + max-landed gate LOCKED** — `unitPrice` / `unitPriceHint` stay USD. LBP (`LBP` / `LL` / `L.L.` / `ل.ل` / `ليرة`) converts via `USD_LBP_RATE` (LBP per 1 USD); missing rate → hint null, never LBP-as-dollars. Drop live leads when unit > onboarding `maxLandedCost` or unit + money-snapshot legs > cap × 1.2. Import still Alibaba **and** AliExpress. No invent pad, no Gemini FX, no Discovery change. |
 | 2026-08-09 | Wave 3 **Supplier live leads + Gmail outbound** **LOCKED in intent** — additive on Wave 1 Supplier; Approach A persist; Alibaba/AliExpress via public search SaaS (not official partner API); heuristic fallback; Gmail compose (3a) then confirmed Zapier/Gmail send (3b); Discovery photos parked |
 | 2026-08-09 | Provider seam + schema columns + Gmail compose URL shipped as **foundation** (live fill behind `SUPPLIER_LIVE_LEADS`, default off) |
 | 2026-08-09 | **Refresh Import leads** **LOCKED** — explicit founder/action (or scoped script) may replace invent Import for an **owned** SKU with Serper Alibaba/AliExpress leads; page load still does **not** re-query (Approach A). Local stays heuristic. Chosen/sample progress requires confirm. Zero live → honest heuristic refill. Shared monthly search ledger bounds spend (2 queries). |
@@ -174,3 +196,4 @@ Thin scrapes prefer `caution`/`skip` — never invent a green light. Gemini must
 - Wave 2 Discovery (do not reopen): `docs/WAVE-2.md`
 - Wave 4 Marketing AI (do not reopen here): `docs/WAVE-4.md`
 - Search vendors already in tree: `src/lib/discovery/providers/serper.ts`, `serpapi.ts`
+- LBP→USD + max-landed + AliExpress-first keep: `src/lib/supplier/live/unit-price.ts`, `src/lib/supplier/live/max-landed.ts`, `src/lib/supplier/live/fill-import-price.ts`, `unionImportRefreshLeads` in `src/lib/supplier/live/refresh.ts`

@@ -675,7 +675,7 @@
     "refreshImportPending": "Refreshing…",
     "refreshImportHint": "Optional — get new live Alibaba/AliExpress leads for this SKU. First shortlist fills automatically when live search is on.",
     "refreshImportLive": "Updated with {live} live Import leads.",
-    "refreshImportPartial": "Updated with {live} live Import leads (partial shortlist — no invent fill).",
+    "refreshImportPartial": "Updated with {live} live Import leads (partial — we only show listings that fit your max landed).",
     "refreshImportEmpty": "No live Import leads returned — Import shortlist left empty. Try Refresh again later, or check your search quota.",
     "refreshImportFallbackHeuristic": "No live leads returned — Import was refilled with Planning estimate names. Badges stay honest.",
     "refreshImportConfirm": "This resets the Import shortlist and can remove sample / warm-spare progress for these suppliers. Continue?",

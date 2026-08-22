@@ -11,10 +11,12 @@ import {
   classifyLocalRefreshConflict,
   classifyLocalRefreshFallback,
   classifyRefreshFallback,
+  countVisibleImportLiveSeats,
   importRefreshNeedsConfirm,
   localRefreshNeedsConfirm,
   planImportRefreshDeletes,
   planLocalRefreshDeletes,
+  refreshImportToastKey,
 } from "@/lib/supplier/live/refresh";
 import type { SupplierLead } from "@/lib/supplier/live/types";
 import { readFileSync } from "fs";
@@ -120,9 +122,15 @@ describe("mergeLiveLeadsIntoShortlist", () => {
     });
     expect(merged).toHaveLength(9);
     expect(merged[0]?.leadSource).toBe("live_search");
-    expect(merged[0]?.name).toBe("Shenzhen Live Co");
-    expect(merged[0]?.sourceUrl).toContain("alibaba.com");
-    expect(merged[1]?.unitPrice).toBe(8);
+    expect(merged[0]?.name).toBe("AE Seller");
+    expect(merged[0]?.sourceUrl).toContain("aliexpress.com");
+    expect(merged[0]?.unitPrice).toBe(8);
+    expect(
+      merged.some(
+        (m) =>
+          m.sourceUrl?.includes("alibaba.com") && m.unitPrice === 10,
+      ),
+    ).toBe(false);
     expect(merged.slice(2).every((m) => m.leadSource === "heuristic")).toBe(
       true,
     );
@@ -423,7 +431,7 @@ describe("Approach A wiring smoke", () => {
         platform: "alibaba",
         sourceUrl: "https://www.alibaba.com/product-detail/a.html",
         externalTitle: "A",
-        unitPriceHint: null,
+        unitPriceHint: 8,
         leadSource: "live_search",
       },
       {
@@ -431,7 +439,7 @@ describe("Approach A wiring smoke", () => {
         platform: "aliexpress",
         sourceUrl: "https://www.aliexpress.com/item/1.html",
         externalTitle: "B",
-        unitPriceHint: null,
+        unitPriceHint: 9,
         leadSource: "live_search",
       },
     ];
@@ -479,6 +487,68 @@ describe("Approach A wiring smoke", () => {
     expect(classifyRefreshFallback(0, merged.length)).toBe("empty");
   });
 
+  it("toast liveCount uses Alibaba-distrust keep, not pre-filter merge length", () => {
+    const gate100 = {
+      maxLandedCost: 100,
+      intlShip: 0,
+      clearanceTaxes: 0,
+      localCourier: 0,
+    };
+    const ae = (i: number) => ({
+      name: `AE ${i}`,
+      source: "import" as const,
+      status: "available",
+      leadSource: "live_search" as const,
+      platform: "aliexpress",
+      sourceUrl: `https://www.aliexpress.com/item/${i}.html`,
+      externalTitle: `AE ${i}`,
+      unitPrice: 8 + i,
+    });
+    const merged4 = [
+      ae(1),
+      ae(2),
+      ae(3),
+      {
+        name: "Alibaba listing · RingConn Gen 3",
+        source: "import" as const,
+        status: "available",
+        leadSource: "live_search" as const,
+        platform: "alibaba",
+        sourceUrl:
+          "https://www.alibaba.com/product-detail/RingConn-Gen-3_1.html",
+        externalTitle: "RingConn Gen 3",
+        unitPrice: 12,
+      },
+    ];
+    expect(merged4).toHaveLength(4);
+    expect(countVisibleImportLiveSeats(merged4, gate100)).toBe(3);
+    expect(
+      refreshImportToastKey({
+        visibleLiveCount: countVisibleImportLiveSeats(merged4, gate100),
+        seatCount: 5,
+      }),
+    ).toBe("refreshImportPartial");
+
+    const emptyAfter = [
+      {
+        name: "Alibaba listing · RingConn Gen 3",
+        source: "import" as const,
+        status: "available",
+        leadSource: "live_search" as const,
+        platform: "alibaba",
+        sourceUrl:
+          "https://www.alibaba.com/product-detail/RingConn-Gen-3_1.html",
+        externalTitle: "RingConn Gen 3",
+        unitPrice: 12,
+      },
+    ];
+    expect(countVisibleImportLiveSeats(emptyAfter, gate100)).toBe(0);
+    expect(classifyRefreshFallback(0, 5)).toBe("empty");
+    expect(
+      refreshImportToastKey({ visibleLiveCount: 0, seatCount: 5 }),
+    ).toBe("refreshImportEmpty");
+  });
+
   it("wires refresh action + Import-tab and Local-tab controls (Approach A)", () => {
     const service = readFileSync(
       path.join(process.cwd(), "src/lib/supplier/service.ts"),
@@ -490,6 +560,28 @@ describe("Approach A wiring smoke", () => {
     expect(service).toContain("sample_in_flight");
     expect(service).toContain('emptyReason: liveCount === 0 ? "no_local_leads"');
     expect(service).toContain("padHeuristic: false");
+    expect(service).toContain("maxLandedGate");
+    expect(service).toContain("loadMaxLandedGateForWorkspace");
+    expect(service).toContain("fillImportLiveLeadPrices");
+    expect(service).toContain("unionImportRefreshLeads");
+    expect(service).toContain("shouldKeepPersistedImportLiveSeat");
+    expect(service).toContain("dropPersistedImportLiveThatFailGate");
+    expect(service).toContain("distrustPersistedAlibabaUnit");
+    expect(service).toContain("combineImportLeadsForPriceFill");
+    expect(service).toContain("countVisibleImportLiveSeats");
+    expect(service).toContain("visibleImportRefreshSeats");
+    const en = JSON.parse(
+      readFileSync(path.join(process.cwd(), "messages/en.json"), "utf8"),
+    ) as { Supplier: { refreshImportPartial: string } };
+    const ar = JSON.parse(
+      readFileSync(path.join(process.cwd(), "messages/ar.json"), "utf8"),
+    ) as { Supplier: { refreshImportPartial: string } };
+    expect(en.Supplier.refreshImportPartial).toContain("{live}");
+    expect(en.Supplier.refreshImportPartial).toContain("max landed");
+    expect(en.Supplier.refreshImportPartial).not.toContain("no invent fill");
+    expect(ar.Supplier.refreshImportPartial).toContain("{live}");
+    expect(ar.Supplier.refreshImportPartial).toContain("سقف تكلفة الوصول");
+    expect(ar.Supplier.refreshImportPartial).not.toContain("بلا تعبئة مخترعة");
     const discovery = readFileSync(
       path.join(process.cwd(), "src/lib/discovery/service.ts"),
       "utf8",

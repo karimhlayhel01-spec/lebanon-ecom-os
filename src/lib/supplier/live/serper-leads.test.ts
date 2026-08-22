@@ -233,6 +233,29 @@ describe("mapOrganicHitToImportLead", () => {
     expect(lead!.externalTitle).toContain("3 Pcs Set");
   });
 
+  it("maps snippet USD to unitPriceHint and leaves LBP null without a rate", () => {
+    const usd = mapOrganicHitToImportLead(
+      {
+        title: "Widget",
+        link: "https://www.aliexpress.com/item/100500888.html",
+        snippet: "$8.50 / piece wholesale",
+      },
+      product,
+    );
+    expect(usd?.unitPriceHint).toBe(8.5);
+    const lbp = mapOrganicHitToImportLead(
+      {
+        title: "Widget",
+        link: "https://www.aliexpress.com/item/100500777.html",
+        snippet: "LBP 300000 / piece",
+      },
+      product,
+    );
+    expect(lbp).not.toBeNull();
+    expect(lbp?.platform).toBe("aliexpress");
+    expect(lbp?.unitPriceHint).toBeNull();
+  });
+
   it("merge still tags live_search + sourceUrl", () => {
     const lead = mapOrganicHitToImportLead(
       {
@@ -262,9 +285,10 @@ describe("mapOrganicHitToImportLead", () => {
         externalTitle: null,
       },
     ];
+    const priced: SupplierLead = { ...lead, unitPriceHint: 8 };
     const merged = mergeLiveLeadsIntoShortlist({
       source: "import",
-      liveLeads: [lead] as SupplierLead[],
+      liveLeads: [priced],
       heuristic,
     });
     expect(merged[0]?.leadSource).toBe("live_search");

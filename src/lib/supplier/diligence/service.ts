@@ -33,6 +33,11 @@ import type {
   ScrapeListingResult,
 } from "@/lib/supplier/diligence/types";
 import { isPlatformListingFallbackName } from "@/lib/supplier/live/company-name";
+import {
+  importSeatShouldHideForMaxLanded,
+  maxLandedGateFromOnboarding,
+} from "@/lib/supplier/live/max-landed";
+import { normalizeSupplierSource } from "@/lib/supplier/source";
 
 export type AssessListingDeps = {
   env?: Record<string, string | undefined>;
@@ -190,7 +195,7 @@ export async function assessSupplierListing(
     await recordMonthlySearchQueries({ queries: 1 });
   }
 
-  return assessFromPageText({
+  const assessed = await assessFromPageText({
     pageText: scrape.text,
     sourceUrl,
     skuName: sku.name,
@@ -204,4 +209,75 @@ export async function assessSupplierListing(
     env,
     narrateFn: deps.narrateFn,
   });
+
+  const hidden = await hideImportSeatIfAssessedOverCap({
+    workspaceId,
+    supplier,
+    skuMoneySnapshot: sku.moneySnapshot,
+    unitUsd: assessed.facts.unitPriceHint,
+  });
+  return hidden ? { ...assessed, seatHiddenOverCap: true } : assessed;
+}
+
+async function hideImportSeatIfAssessedOverCap(input: {
+  workspaceId: string;
+  supplier: typeof schema.supplierOptions.$inferSelect;
+  skuMoneySnapshot: string;
+  unitUsd: number | null;
+}): Promise<boolean> {
+  let money = {
+    intlShip: 0,
+    clearanceTaxes: 0,
+    localCourier: 0,
+  };
+  try {
+    const parsed = JSON.parse(input.skuMoneySnapshot) as {
+      intlShip?: number;
+      clearanceTaxes?: number;
+      localCourier?: number;
+    };
+    money = {
+      intlShip: Number(parsed.intlShip) || 0,
+      clearanceTaxes: Number(parsed.clearanceTaxes) || 0,
+      localCourier: Number(parsed.localCourier) || 0,
+    };
+  } catch {
+    /* keep zeros */
+  }
+
+  const onboarding = await db
+    .select({ maxLandedCost: schema.onboardingProfiles.maxLandedCost })
+    .from(schema.onboardingProfiles)
+    .where(eq(schema.onboardingProfiles.workspaceId, input.workspaceId))
+    .then((rows) => rows[0]);
+  const gate = maxLandedGateFromOnboarding(onboarding?.maxLandedCost, money);
+  const hasSample = await db
+    .select({ id: schema.sampleRecords.id })
+    .from(schema.sampleRecords)
+    .where(eq(schema.sampleRecords.supplierId, input.supplier.id))
+    .then((rows) => rows.length > 0);
+
+  if (
+    !importSeatShouldHideForMaxLanded({
+      source: normalizeSupplierSource(input.supplier.source),
+      leadSource: input.supplier.leadSource,
+      status: input.supplier.status,
+      hasSample,
+      unitUsd: input.unitUsd,
+      gate,
+    })
+  ) {
+    return false;
+  }
+
+  await db
+    .delete(schema.supplierOptions)
+    .where(
+      and(
+        eq(schema.supplierOptions.id, input.supplier.id),
+        eq(schema.supplierOptions.workspaceId, input.workspaceId),
+        eq(schema.supplierOptions.status, "available"),
+      ),
+    );
+  return true;
 }

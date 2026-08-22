@@ -44,6 +44,8 @@ export type AssessListingSuccess = {
   facts: DiligenceFacts;
   honestyKey: DiligenceHonestyKey;
   narrationSource: "llm" | "skills_only";
+  /** Import live seat removed because Assess extracted a unit over max landed. */
+  seatHiddenOverCap?: boolean;
 };
 
 export type AssessListingErrorCode =

@@ -14,6 +14,8 @@ import {
   type QuotedCostsSection,
 } from "@/lib/sku/service";
 import { generateKit } from "@/lib/marketing/service";
+import { maxLandedGateFromOnboarding } from "@/lib/supplier/live/max-landed";
+import { shouldKeepPersistedImportLiveSeat } from "@/lib/supplier/live/refresh";
 import { getSkuJourney, listLiveSkus, patchSkuJourneyFlags } from "@/lib/sku/journey";
 import { assertSkuOwned } from "@/lib/sku/ownership";
 import { parseRequiredSkuId } from "@/lib/sku/require-sku-id";
@@ -407,6 +409,66 @@ function generateSuppliers(
   );
 }
 
+async function loadMaxLandedGateForWorkspace(
+  workspaceId: string,
+  money: MoneySnapshotSection,
+) {
+  const row = await db
+    .select({ maxLandedCost: schema.onboardingProfiles.maxLandedCost })
+    .from(schema.onboardingProfiles)
+    .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
+    .then((rows) => rows[0]);
+  return maxLandedGateFromOnboarding(row?.maxLandedCost, money);
+}
+
+/** Approach A: Serper hint, else bounded listing scrape, then gate. Import only. */
+async function fillImportLiveLeadPrices(
+  leads: import("@/lib/supplier/live/types").SupplierLead[],
+  env: Record<string, string | undefined> = process.env,
+) {
+  const { fillImportLeadUnitPrices, IMPORT_LEAD_PRICE_SCRAPE_MAX } = await import(
+    "@/lib/supplier/live/fill-import-price"
+  );
+  const { scrapeListingPage, resolveSerperApiKey } = await import(
+    "@/lib/supplier/diligence/scrape"
+  );
+  const { resolveUsdLbpRate } = await import("@/lib/supplier/live/unit-price");
+  const {
+    loadMonthlySearchUsage,
+    resolveMonthlySearchQueryCap,
+    allowanceForBatch,
+    recordMonthlySearchQueries,
+  } = await import("@/lib/discovery/search-usage");
+
+  const key = resolveSerperApiKey(env);
+  if (!key) return leads;
+  const need = leads.filter(
+    (l) => l.unitPriceHint == null || !(l.unitPriceHint > 0),
+  ).length;
+  if (need === 0) return leads;
+
+  const usage = await loadMonthlySearchUsage();
+  const cap = resolveMonthlySearchQueryCap(env);
+  const allowed = allowanceForBatch({
+    cap,
+    used: usage.queriesUsed,
+    requested: Math.min(need, IMPORT_LEAD_PRICE_SCRAPE_MAX),
+  });
+  const filled = await fillImportLeadUnitPrices({
+    leads,
+    maxScrapes: Math.min(IMPORT_LEAD_PRICE_SCRAPE_MAX, allowed),
+    usdLbpRate: resolveUsdLbpRate(env),
+    scrapeFn: async (url) => {
+      const r = await scrapeListingPage({ url, apiKey: key });
+      return r.ok ? { ok: true, text: r.text } : { ok: false };
+    },
+  });
+  if (filled.scrapesUsed > 0) {
+    await recordMonthlySearchQueries({ queries: filled.scrapesUsed });
+  }
+  return filled.leads;
+}
+
 // ---------------------------------------------------------------------------
 // Persistence + read model
 // ---------------------------------------------------------------------------
@@ -425,6 +487,71 @@ function freshChecklist() {
   return JSON.stringify(
     Object.fromEntries(QUALITY_CHECKLIST_KEYS.map((k) => [k, false])),
   );
+}
+
+/**
+ * Ensure/refresh re-gate: drop persisted over-cap + invent-unit Alibaba live
+ * seats. Leaves rows in place when every Import seat would vanish so Approach A
+ * does not re-query on the next load (panel still hides them).
+ */
+async function dropPersistedImportLiveThatFailGate(input: {
+  workspaceId: string;
+  skuId: string;
+  money: MoneySnapshotSection;
+  existing: (typeof schema.supplierOptions.$inferSelect)[];
+}): Promise<(typeof schema.supplierOptions.$inferSelect)[]> {
+  const importRows = input.existing.filter(
+    (r) =>
+      normalizeSupplierSource((r as { source?: string | null }).source) ===
+      "import",
+  );
+  if (importRows.length === 0) return input.existing;
+
+  const gate = await loadMaxLandedGateForWorkspace(
+    input.workspaceId,
+    input.money,
+  );
+  const sampleIds = new Set(
+    (
+      await db
+        .select({ supplierId: schema.sampleRecords.supplierId })
+        .from(schema.sampleRecords)
+        .where(eq(schema.sampleRecords.skuId, input.skuId))
+    ).map((s) => s.supplierId),
+  );
+  const dropIds = importRows
+    .filter(
+      (r) =>
+        !shouldKeepPersistedImportLiveSeat(
+          {
+            source: r.source,
+            status: r.status,
+            leadSource: r.leadSource,
+            platform: r.platform,
+            sourceUrl: r.sourceUrl,
+            name: r.name,
+            externalTitle: r.externalTitle,
+            unitPrice: r.unitPrice,
+          },
+          gate,
+          sampleIds.has(r.id),
+        ),
+    )
+    .map((r) => r.id);
+  if (dropIds.length === 0) return input.existing;
+  if (dropIds.length === importRows.length) return input.existing;
+
+  await db
+    .delete(schema.supplierOptions)
+    .where(
+      and(
+        eq(schema.supplierOptions.workspaceId, input.workspaceId),
+        eq(schema.supplierOptions.status, "available"),
+        inArray(schema.supplierOptions.id, dropIds),
+      ),
+    );
+  const dropSet = new Set(dropIds);
+  return input.existing.filter((r) => !dropSet.has(r.id));
 }
 
 function supplierInsertValues(
@@ -494,9 +621,16 @@ export async function ensureSuppliers(
     .where(eq(schema.supplierOptions.skuId, sku.id))
     ;
 
+  const remaining = await dropPersistedImportLiveThatFailGate({
+    workspaceId,
+    skuId: sku.id,
+    money: sku.moneySnapshot,
+    existing,
+  });
+
   const sourcesPresent = [
     ...new Set(
-      existing.map((r) =>
+      remaining.map((r) =>
         normalizeSupplierSource(
           (r as { source?: string | null }).source,
         ),
@@ -538,6 +672,10 @@ export async function ensureSuppliers(
     recordMonthlySearchQueries,
   } = await import("@/lib/discovery/search-usage");
   const provider = getSupplierLeadProvider();
+  const maxLandedGate = await loadMaxLandedGateForWorkspace(
+    workspaceId,
+    sku.moneySnapshot,
+  );
 
   // Wave 3: one-shot Import live leads (Approach A). When live is ON: no invent
   // pad — real seats or honest empty (Refresh / retry). When live OFF: invent
@@ -561,6 +699,7 @@ export async function ensureSuppliers(
         await recordMonthlySearchQueries({ queries: gathered.queriesUsed });
       }
       if (gathered.leads.length > 0) {
+        const pricedLeads = await fillImportLiveLeadPrices(gathered.leads);
         const importHeuristic = generateSuppliers(
           sku.id,
           sku.name,
@@ -569,9 +708,10 @@ export async function ensureSuppliers(
         );
         const mergedImport = mergeLiveLeadsIntoShortlist({
           source: "import",
-          liveLeads: gathered.leads,
+          liveLeads: pricedLeads,
           heuristic: importHeuristic,
           padHeuristic: false,
+          maxLandedGate,
         });
         generated = [...mergedImport, ...withoutImport];
       } else {
@@ -612,6 +752,7 @@ export async function ensureSuppliers(
           liveLeads: gathered.leads,
           heuristic: localHeuristic,
           padHeuristic: false,
+          maxLandedGate,
         });
         generated = [...withoutLocal, ...mergedLocal];
       } else {
@@ -718,6 +859,11 @@ export async function refreshImportLeads(
     classifyImportRefreshConflict,
     planImportRefreshDeletes,
     classifyRefreshFallback,
+    priorRowToImportLead,
+    unionImportRefreshLeads,
+    distrustPersistedAlibabaUnit,
+    visibleImportRefreshSeats,
+    countVisibleImportLiveSeats,
   } = await import("@/lib/supplier/live/refresh");
 
   const conflict = classifyImportRefreshConflict({
@@ -790,20 +936,52 @@ export async function refreshImportLeads(
   }
 
   // Live on: no invent pad — empty Import is honest.
+  const maxLandedGate = await loadMaxLandedGateForWorkspace(
+    workspaceId,
+    sku.moneySnapshot,
+  );
+  const { combineImportLeadsForPriceFill } = await import(
+    "@/lib/supplier/live/fill-import-price"
+  );
+  const priorLeads = importRows
+    .map((r) =>
+      priorRowToImportLead({
+        leadSource: r.leadSource,
+        platform: r.platform,
+        sourceUrl: r.sourceUrl,
+        name: r.name,
+        externalTitle: r.externalTitle,
+        unitPrice: r.unitPrice,
+      }),
+    )
+    .filter((l): l is NonNullable<typeof l> => l != null)
+    .map(distrustPersistedAlibabaUnit);
+  const pricedLeads = await fillImportLiveLeadPrices(
+    combineImportLeadsForPriceFill(gathered.leads, priorLeads),
+    env,
+  );
+  const unioned = unionImportRefreshLeads({
+    incoming: pricedLeads,
+    prior: priorLeads,
+    gate: maxLandedGate,
+    maxSeats: heuristicImport.length,
+  });
   const merged = mergeLiveLeadsIntoShortlist({
     source: "import",
-    liveLeads: gathered.leads,
+    liveLeads: unioned,
     heuristic: heuristicImport,
     padHeuristic: false,
+    maxLandedGate,
   });
-  if (merged.length > 0) {
+  const visible = visibleImportRefreshSeats(merged, maxLandedGate);
+  if (visible.length > 0) {
     const now = nowIso();
     await db.insert(schema.supplierOptions).values(
-      merged.map((g) => supplierInsertValues(workspaceId, sku.id, g, now)),
+      visible.map((g) => supplierInsertValues(workspaceId, sku.id, g, now)),
     );
   }
 
-  const liveCount = merged.filter((m) => m.leadSource === "live_search").length;
+  const liveCount = countVisibleImportLiveSeats(merged, maxLandedGate);
   return {
     ok: true,
     liveCount,
@@ -975,11 +1153,16 @@ export async function refreshLocalLeads(
   }
 
   // Zero live → leave Local empty (honest — never invent pad when live is on).
+  const maxLandedGate = await loadMaxLandedGateForWorkspace(
+    workspaceId,
+    sku.moneySnapshot,
+  );
   const merged = mergeLiveLeadsIntoShortlist({
     source: "local",
     liveLeads: gathered.leads,
     heuristic: heuristicLocal,
     padHeuristic: false,
+    maxLandedGate,
   });
   if (merged.length > 0) {
     const now = nowIso();
@@ -1305,6 +1488,7 @@ export async function getSupplierPanel(
         .select({
           monthlyFollowOnBudget: schema.onboardingProfiles.monthlyFollowOnBudget,
           experience: schema.onboardingProfiles.experience,
+          maxLandedCost: schema.onboardingProfiles.maxLandedCost,
         })
         .from(schema.onboardingProfiles)
         .where(eq(schema.onboardingProfiles.workspaceId, workspaceId))
@@ -1355,9 +1539,29 @@ export async function getSupplierPanel(
   });
 
   const quoted = sku.quotedCosts;
-  const views = rows.map((r) =>
-    toSupplierView(r, sku.moneySnapshot, quoted),
+  const maxLandedGate = maxLandedGateFromOnboarding(
+    onboarding?.maxLandedCost,
+    sku.moneySnapshot,
   );
+  const sampleSupplierIds = new Set(sampleRows.map((s) => s.supplierId));
+  const views = rows
+    .filter((r) =>
+      shouldKeepPersistedImportLiveSeat(
+        {
+          source: r.source,
+          status: r.status,
+          leadSource: r.leadSource,
+          platform: r.platform,
+          sourceUrl: r.sourceUrl,
+          name: r.name,
+          externalTitle: r.externalTitle,
+          unitPrice: r.unitPrice,
+        },
+        maxLandedGate,
+        sampleSupplierIds.has(r.id),
+      ),
+    )
+    .map((r) => toSupplierView(r, sku.moneySnapshot, quoted));
   const groups = groupSuppliersBySourceAndRank(views);
 
   // In-flight sample = requested | received only (approved is NOT in flight).
