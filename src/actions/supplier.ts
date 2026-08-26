@@ -20,6 +20,8 @@ import {
   setBatchArrivalEta,
   setReorderArrivalEta,
   switchReorderBackup,
+  undoLebanonSourcingAgent,
+  useLebanonSourcingAgent,
   type CostQuoteInput,
   type MarkReorderArrivedResult,
   type OrderBatchResult,
@@ -34,6 +36,8 @@ import {
   type SetBatchArrivalEtaResult,
   type SetReorderArrivalEtaResult,
   type SwitchReorderBackupResult,
+  type UndoLebanonSourcingAgentResult,
+  type UseLebanonSourcingAgentResult,
 } from "@/lib/supplier/service";
 import type { SetBatchArrivalEtaInput } from "@/lib/supplier/batch-eta";
 import { assertSkuOwned } from "@/lib/sku/ownership";
@@ -106,6 +110,43 @@ export async function requestSampleAction(supplierId: string) {
   if (!ctx.ok) return { ok: false, error: ctx.error };
   const res = await requestSample(ctx.workspace.id, supplierId);
   revalidatePath("/", "layout");
+  return res;
+}
+
+export async function useLebanonSourcingAgentAction(
+  skuId: string,
+  hostOrUrl: string,
+): Promise<UseLebanonSourcingAgentResult> {
+  await ensureMigrated();
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await useLebanonSourcingAgent(
+    ctx.workspace.id,
+    skuId,
+    hostOrUrl,
+  );
+  if (res.ok) {
+    revalidatePath("/", "layout");
+  }
+  return res;
+}
+
+export async function undoLebanonSourcingAgentAction(
+  skuId: string,
+): Promise<UndoLebanonSourcingAgentResult> {
+  await ensureMigrated();
+  const ctx = await workspaceForRequest();
+  if (!ctx.ok) return { ok: false, error: "not_found" };
+  if (!(await requireOwnedSku(ctx.workspace.id, skuId))) {
+    return { ok: false, error: "not_found" };
+  }
+  const res = await undoLebanonSourcingAgent(ctx.workspace.id, skuId);
+  if (res.ok) {
+    revalidatePath("/", "layout");
+  }
   return res;
 }
 

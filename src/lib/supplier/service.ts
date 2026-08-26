@@ -16,6 +16,16 @@ import {
 import { generateKit } from "@/lib/marketing/service";
 import { maxLandedGateFromOnboarding } from "@/lib/supplier/live/max-landed";
 import { shouldKeepPersistedImportLiveSeat } from "@/lib/supplier/live/refresh";
+import {
+  agentNameForHost,
+  buildLebanonAgentSeatValues,
+  hostFromAgentSourceUrl,
+  isLebanonAgentPlatform,
+  planUndoLebanonAgentSeat,
+  planUseLebanonAgentSeat,
+  sanitiseAllowListedAgentHttpsUrl,
+  undoLebanonAgentDeleteIds,
+} from "@/lib/supplier/lebanon-agent-seat";
 import { getSkuJourney, listLiveSkus, patchSkuJourneyFlags } from "@/lib/sku/journey";
 import { assertSkuOwned } from "@/lib/sku/ownership";
 import { parseRequiredSkuId } from "@/lib/sku/require-sku-id";
@@ -848,7 +858,6 @@ export async function refreshImportLeads(
       normalizeSupplierSource((r as { source?: string | null }).source) ===
       "import",
   );
-  const importIds = importRows.map((r) => r.id);
 
   const samples = await db
     .select()
@@ -867,7 +876,11 @@ export async function refreshImportLeads(
   } = await import("@/lib/supplier/live/refresh");
 
   const conflict = classifyImportRefreshConflict({
-    importSuppliers: importRows.map((r) => ({ id: r.id, status: r.status })),
+    importSuppliers: importRows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      platform: r.platform,
+    })),
     samples: samples.map((s) => ({
       supplierId: s.supplierId,
       status: s.status,
@@ -884,6 +897,7 @@ export async function refreshImportLeads(
     suppliers: allSuppliers.map((r) => ({
       id: r.id,
       source: normalizeSupplierSource((r as { source?: string | null }).source),
+      platform: r.platform,
     })),
     samples: samples.map((s) => ({ id: s.id, supplierId: s.supplierId })),
   });
@@ -902,8 +916,10 @@ export async function refreshImportLeads(
 
   if (conflict.kind === "needs_confirm" && opts?.confirmResetProgress) {
     const pathId = owned.journey.reorderPathSupplierId;
-    const pathWasImport = Boolean(pathId && importIds.includes(pathId));
-    if (pathWasImport || conflict.kind === "needs_confirm") {
+    const pathWasMarketplaceImport = Boolean(
+      pathId && deletePlan.importSupplierIds.includes(pathId),
+    );
+    if (pathWasMarketplaceImport) {
       await patchSkuSideFlags(workspaceId, skuId, {
         sampleStatus: "none",
         batchOrdered: false,
@@ -1253,6 +1269,8 @@ export type CostQuotesView = {
   needsRefresh: boolean;
   /** Quote form follows approved sample supplier source — not the tab. */
   quoteSource: SupplierSource;
+  /** Working/path platform — lebanon_agent swaps Import quote guide copy. */
+  pathPlatform: string | null;
   prefill: {
     productCost: number;
     intlShip: number;
@@ -1312,6 +1330,8 @@ export type SupplierPanelView = {
   skuId: string;
   skuName: string;
   groups: SupplierGroup[];
+  /** Directory Import seat (at most one). Not part of 3+2 grouping. */
+  lebanonAgentSeat: SupplierView | null;
   /**
    * Newest in-flight sample (`requested` | `received`) for compat.
    * Prefer `samples` when rendering trackers.
@@ -1562,7 +1582,12 @@ export async function getSupplierPanel(
       ),
     )
     .map((r) => toSupplierView(r, sku.moneySnapshot, quoted));
-  const groups = groupSuppliersBySourceAndRank(views);
+  const marketplaceViews = views.filter(
+    (v) => !isLebanonAgentPlatform(v.platform),
+  );
+  const groups = groupSuppliersBySourceAndRank(marketplaceViews);
+  const lebanonAgentSeat =
+    views.find((v) => isLebanonAgentPlatform(v.platform)) ?? null;
 
   // In-flight sample = requested | received only (approved is NOT in flight).
   const inFlightRows = listInFlightSamples(sampleRows);
@@ -1788,6 +1813,7 @@ export async function getSupplierPanel(
     skuId: sku.id,
     skuName: sku.name,
     groups,
+    lebanonAgentSeat,
     sample,
     samples,
     spareInFlightCount,
@@ -1810,6 +1836,8 @@ export async function getSupplierPanel(
       saved: flags.costQuotesSaved,
       needsRefresh: needsQuotesRefresh,
       quoteSource,
+      pathPlatform:
+        pathSupplier?.platform ?? lockedPathSupplier?.platform ?? null,
       prefill: savedPrefill,
       quoted,
       planningMarginBefore: sku.moneySnapshot.marginBefore,
@@ -1974,9 +2002,206 @@ export async function saveSupplierContacts(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Sample-first flow
-// ---------------------------------------------------------------------------
+export type UseLebanonSourcingAgentResult =
+  | { ok: true; supplierId: string; replaced: boolean }
+  | {
+      ok: false;
+      error: "not_found" | "invalid_host" | "sample_on_seat" | "error";
+    };
+
+/**
+ * WAVE-3 §3.6 — seat one allow-listed Lebanon sourcing agent on this SKU.
+ * Directory lead, not live_search. At most one seat; replace only when
+ * that seat has no sample_records row.
+ */
+export async function useLebanonSourcingAgent(
+  workspaceId: string,
+  skuId: string,
+  hostOrUrl: string,
+): Promise<UseLebanonSourcingAgentResult> {
+  await ensureMigrated();
+  const owned = await assertSkuOwned(workspaceId, skuId);
+  if (!owned.ok) return { ok: false, error: "not_found" };
+
+  const canonicalUrl = sanitiseAllowListedAgentHttpsUrl(hostOrUrl);
+  const host = hostFromAgentSourceUrl(canonicalUrl);
+  const agentName = host ? agentNameForHost(host) : null;
+  if (!canonicalUrl || !host || !agentName) {
+    return { ok: false, error: "invalid_host" };
+  }
+
+  const sku = await getSkuViewById(workspaceId, skuId);
+  if (!sku) return { ok: false, error: "not_found" };
+
+  return withTxResult<UseLebanonSourcingAgentResult>(
+    async (tx) => {
+      const card = await tx
+        .select({ id: schema.skuCards.id })
+        .from(schema.skuCards)
+        .where(
+          and(
+            eq(schema.skuCards.id, skuId),
+            eq(schema.skuCards.workspaceId, workspaceId),
+          ),
+        )
+        .for("update")
+        .then((rows) => rows[0]);
+      if (!card) {
+        throw new TxRollback({ ok: false as const, error: "not_found" });
+      }
+
+      const importRows = await tx
+        .select()
+        .from(schema.supplierOptions)
+        .where(eq(schema.supplierOptions.skuId, skuId));
+      const existingAgents = importRows.filter((r) =>
+        isLebanonAgentPlatform(r.platform),
+      );
+      const existing = existingAgents[0] ?? null;
+
+      const sampleRows = existing
+        ? await tx
+            .select({ id: schema.sampleRecords.id })
+            .from(schema.sampleRecords)
+            .where(eq(schema.sampleRecords.supplierId, existing.id))
+        : [];
+      const plan = planUseLebanonAgentSeat({
+        canonicalUrl,
+        existing: existing
+          ? { id: existing.id, sourceUrl: existing.sourceUrl }
+          : null,
+        hasSample: sampleRows.length > 0,
+      });
+      if (plan.kind === "blocked") {
+        throw new TxRollback({
+          ok: false as const,
+          error: "sample_on_seat",
+        });
+      }
+      if (plan.kind === "keep") {
+        return { ok: true as const, supplierId: plan.existingId, replaced: false };
+      }
+
+      const extras = existingAgents.slice(1).map((r) => r.id);
+      const deleteIds =
+        plan.kind === "replace" ? [plan.existingId, ...extras] : extras;
+      if (deleteIds.length > 0) {
+        await tx
+          .delete(schema.supplierOptions)
+          .where(inArray(schema.supplierOptions.id, deleteIds));
+      }
+
+      const values = buildLebanonAgentSeatValues({
+        name: agentName,
+        sourceUrl: canonicalUrl,
+        productName: sku.name,
+      });
+      const id = newId();
+      const now = nowIso();
+      await tx.insert(schema.supplierOptions).values({
+        id,
+        workspaceId,
+        skuId,
+        name: values.name,
+        role: values.role,
+        rank: values.rank,
+        source: values.source,
+        years: values.years,
+        rating: values.rating,
+        verified: values.verified,
+        moq: values.moq,
+        unitPrice: values.unitPrice,
+        sampleReplies: values.sampleReplies,
+        negotiationDraft: values.negotiationDraft,
+        paymentMapEstimate: values.paymentMapEstimate,
+        redFlags: JSON.stringify(values.redFlags),
+        status: "available",
+        leadSource: values.leadSource,
+        platform: values.platform,
+        sourceUrl: values.sourceUrl,
+        externalTitle: values.externalTitle,
+        createdAt: now,
+      });
+      return {
+        ok: true as const,
+        supplierId: id,
+        replaced: plan.kind === "replace",
+      };
+    },
+    () => ({ ok: false, error: "error" }),
+  );
+}
+
+export type UndoLebanonSourcingAgentResult =
+  | { ok: true }
+  | { ok: false; error: "not_found" | "sample_on_seat" | "error" };
+
+/**
+ * WAVE-3 §3.6 — remove this SKU’s lebanon_agent directory seat.
+ * Does not touch live Import listings. Blocks if a sample exists on the seat.
+ */
+export async function undoLebanonSourcingAgent(
+  workspaceId: string,
+  skuId: string,
+): Promise<UndoLebanonSourcingAgentResult> {
+  await ensureMigrated();
+  const owned = await assertSkuOwned(workspaceId, skuId);
+  if (!owned.ok) return { ok: false, error: "not_found" };
+
+  return withTxResult<UndoLebanonSourcingAgentResult>(
+    async (tx) => {
+      const card = await tx
+        .select({ id: schema.skuCards.id })
+        .from(schema.skuCards)
+        .where(
+          and(
+            eq(schema.skuCards.id, skuId),
+            eq(schema.skuCards.workspaceId, workspaceId),
+          ),
+        )
+        .for("update")
+        .then((rows) => rows[0]);
+      if (!card) {
+        throw new TxRollback({ ok: false as const, error: "not_found" });
+      }
+
+      const rows = await tx
+        .select()
+        .from(schema.supplierOptions)
+        .where(eq(schema.supplierOptions.skuId, skuId));
+      const agents = rows.filter((r) => isLebanonAgentPlatform(r.platform));
+      const existing = agents[0] ?? null;
+      const sampleRows = existing
+        ? await tx
+            .select({ id: schema.sampleRecords.id })
+            .from(schema.sampleRecords)
+            .where(eq(schema.sampleRecords.supplierId, existing.id))
+        : [];
+      const plan = planUndoLebanonAgentSeat({
+        existing: existing ? { id: existing.id } : null,
+        hasSample: sampleRows.length > 0,
+      });
+      if (plan.kind === "blocked") {
+        throw new TxRollback({
+          ok: false as const,
+          error: "sample_on_seat",
+        });
+      }
+      if (plan.kind === "noop") {
+        return { ok: true as const };
+      }
+
+      const deleteIds = undoLebanonAgentDeleteIds(rows);
+      if (deleteIds.length > 0) {
+        await tx
+          .delete(schema.supplierOptions)
+          .where(inArray(schema.supplierOptions.id, deleteIds));
+      }
+      return { ok: true as const };
+    },
+    () => ({ ok: false, error: "error" }),
+  );
+}
 
 export async function requestSample(
   workspaceId: string,

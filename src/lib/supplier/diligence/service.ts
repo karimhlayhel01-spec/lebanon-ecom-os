@@ -22,6 +22,7 @@ import { extractDiligenceFacts } from "@/lib/supplier/diligence/extract";
 import { narrateDiligenceWithGemini } from "@/lib/supplier/diligence/gemini";
 import { pickSupplierDiligenceRecommendation } from "@/lib/supplier/diligence/recommend";
 import { isHttpListingUrl } from "@/lib/supplier/diligence/listing-url";
+import { isLebanonAgentPlatform } from "@/lib/supplier/lebanon-agent-seat";
 import {
   resolveSerperApiKey,
   scrapeListingPage,
@@ -158,6 +159,10 @@ export async function assessSupplierListing(
     )
     .then((rows) => rows[0]);
   if (!sku) return { ok: false, error: "not_found" };
+
+  if (isLebanonAgentPlatform(supplier.platform)) {
+    return { ok: false, error: "no_url" };
+  }
 
   const sourceUrl = supplier.sourceUrl?.trim() ?? "";
   if (!isHttpListingUrl(sourceUrl)) {

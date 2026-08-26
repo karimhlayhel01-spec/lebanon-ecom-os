@@ -14,6 +14,7 @@ import {
   type MaxLandedGate,
 } from "@/lib/supplier/live/max-landed";
 import type { SupplierLead } from "@/lib/supplier/live/types";
+import { isLebanonAgentPlatform } from "@/lib/supplier/lebanon-agent-seat";
 import { isSampleInFlight } from "@/lib/supplier/sample-flight";
 
 export type RefreshImportLeadsFallback =
@@ -44,15 +45,22 @@ export type RefreshConflict =
  * Post-approve warm / chosen → confirm before wipe.
  */
 export function classifyImportRefreshConflict(input: {
-  importSuppliers: { id: string; status: string }[];
+  importSuppliers: {
+    id: string;
+    status: string;
+    platform?: string | null;
+  }[];
   samples: { supplierId: string; status: string }[];
 }): RefreshConflict {
-  const importIds = new Set(input.importSuppliers.map((s) => s.id));
+  const marketplace = input.importSuppliers.filter(
+    (s) => !isLebanonAgentPlatform(s.platform),
+  );
+  const importIds = new Set(marketplace.map((s) => s.id));
   const tied = input.samples.filter((s) => importIds.has(s.supplierId));
   if (tied.some((s) => isSampleInFlight(s.status))) {
     return { kind: "sample_in_flight" };
   }
-  if (input.importSuppliers.some((s) => s.status === "chosen")) {
+  if (marketplace.some((s) => s.status === "chosen")) {
     return { kind: "needs_confirm" };
   }
   if (tied.some((s) => s.status === "approved")) {
@@ -106,7 +114,7 @@ export function localRefreshNeedsConfirm(input: {
 
 /** Split delete targets — Local rows must never appear in importSupplierIds. */
 export function planImportRefreshDeletes(input: {
-  suppliers: { id: string; source: string }[];
+  suppliers: { id: string; source: string; platform?: string | null }[];
   samples: { id: string; supplierId: string }[];
 }): {
   importSupplierIds: string[];
@@ -114,7 +122,9 @@ export function planImportRefreshDeletes(input: {
   sampleIdsToDelete: string[];
 } {
   const importSupplierIds = input.suppliers
-    .filter((s) => s.source === "import")
+    .filter(
+      (s) => s.source === "import" && !isLebanonAgentPlatform(s.platform),
+    )
     .map((s) => s.id);
   const localSupplierIds = input.suppliers
     .filter((s) => s.source === "local")
@@ -176,6 +186,7 @@ export function priorRowToImportLead(row: {
   externalTitle?: string | null;
   unitPrice: number;
 }): SupplierLead | null {
+  if (isLebanonAgentPlatform(row.platform)) return null;
   if (row.leadSource !== "live_search") return null;
   const url = row.sourceUrl?.trim() ?? "";
   if (!url) return null;
@@ -227,6 +238,7 @@ export function shouldKeepPersistedImportLiveSeat(
   gate: MaxLandedGate | null,
   hasSample = false,
 ): boolean {
+  if (isLebanonAgentPlatform(row.platform)) return true;
   if (hasSample) return true;
   if (row.status != null && row.status !== "available") return true;
   if (row.source === "local") return true;
@@ -283,11 +295,13 @@ export function unionImportRefreshLeads(input: {
 }): SupplierLead[] {
   const byUrl = new Map<string, SupplierLead>();
   for (const lead of input.prior) {
+    if (isLebanonAgentPlatform(lead.platform)) continue;
     const trusted = distrustPersistedAlibabaUnit(lead);
     if (!keepImportLiveLead(trusted, input.gate)) continue;
     byUrl.set(trusted.sourceUrl.toLowerCase(), trusted);
   }
   for (const lead of input.incoming) {
+    if (isLebanonAgentPlatform(lead.platform)) continue;
     if (!keepImportLiveLead(lead, input.gate)) continue;
     const key = lead.sourceUrl.toLowerCase();
     const prev = byUrl.get(key);

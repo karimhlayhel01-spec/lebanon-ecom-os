@@ -26,6 +26,8 @@ import {
   setBatchArrivalEtaAction,
   setReorderArrivalEtaAction,
   switchReorderBackupAction,
+  useLebanonSourcingAgentAction,
+  undoLebanonSourcingAgentAction,
 } from "@/actions/supplier";
 import { UnitsLeftGlanceBlock } from "@/components/shop/UnitsLeftGlance";
 import { SupplierDisplayNameEditor } from "@/components/supplier/SupplierDisplayNameEditor";
@@ -48,7 +50,13 @@ import {
   shouldShowImportSourcingAgentNote,
   splitExampleHostLinks,
 } from "@/lib/supplier/lebanon-agent-notes";
-import { canAssessListingUrl } from "@/lib/supplier/diligence/listing-url";
+import {
+  IMPORT_SOURCING_AGENT_DIRECTORY,
+  hostFromAgentSourceUrl,
+  importCostQuoteCopyKeys,
+  isLebanonAgentPlatform,
+} from "@/lib/supplier/lebanon-agent-seat";
+import { shouldShowAssessListing } from "@/lib/supplier/diligence/listing-url";
 import type {
   AssessListingSuccess,
   DiligenceRecommendation,
@@ -100,6 +108,7 @@ function platformLabel(platform: string | null): string {
   if (platform === "aliexpress") return "AliExpress";
   if (platform === "alibaba") return "Alibaba";
   if (platform === "local_web") return "Local web";
+  if (isLebanonAgentPlatform(platform)) return "agent site";
   return "Web";
 }
 
@@ -109,6 +118,9 @@ function indexSuppliersById(view: SupplierPanelView): Map<string, SupplierView> 
   for (const g of view.groups) {
     if (g.primary) map.set(g.primary.id, g.primary);
     for (const b of g.backups) map.set(b.id, b);
+  }
+  if (view.lebanonAgentSeat) {
+    map.set(view.lebanonAgentSeat.id, view.lebanonAgentSeat);
   }
   return map;
 }
@@ -403,15 +415,114 @@ function ExampleLinkedText({
   );
 }
 
-function ImportSourcingAgentNote() {
+function ImportSourcingAgentNote({
+  skuId,
+  seatedHost,
+}: {
+  skuId: string;
+  seatedHost: string | null;
+}) {
   const t = useTranslations("Supplier");
+  const [pendingHost, setPendingHost] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
   return (
-    <p className="text-xs font-semibold leading-snug text-ink" role="note">
-      <ExampleLinkedText
-        text={t("importSourcingAgentNote")}
-        hosts={IMPORT_SOURCING_EXAMPLE_HOSTS}
-      />
-    </p>
+    <div className="space-y-2">
+      <p className="text-xs font-semibold leading-snug text-ink" role="note">
+        <ExampleLinkedText
+          text={t("importSourcingAgentNote")}
+          hosts={IMPORT_SOURCING_EXAMPLE_HOSTS}
+        />
+      </p>
+      <ul className="space-y-1.5">
+        {IMPORT_SOURCING_AGENT_DIRECTORY.map((agent) => {
+          const href = `https://${agent.host}`;
+          const inUse = seatedHost === agent.host;
+          return (
+            <li
+              key={agent.host}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
+            >
+              <span className="font-medium text-ink">{agent.name}</span>
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-sea underline-offset-2 hover:underline"
+              >
+                {t("openAgentSite")}
+              </a>
+              {inUse ? (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    setError(null);
+                    setPendingHost(agent.host);
+                    startTransition(async () => {
+                      const res = await undoLebanonSourcingAgentAction(skuId);
+                      setPendingHost(null);
+                      if (!res.ok) {
+                        setError(
+                          res.error === "sample_on_seat"
+                            ? "sample_on_seat"
+                            : "generic",
+                        );
+                      }
+                    });
+                  }}
+                  className="font-semibold text-cedar-deep underline-offset-2 hover:underline disabled:opacity-60"
+                >
+                  {pending && pendingHost === agent.host
+                    ? t("useAgentPending")
+                    : t("undoUseAgentOnSku")}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    setError(null);
+                    setPendingHost(agent.host);
+                    startTransition(async () => {
+                      const res = await useLebanonSourcingAgentAction(
+                        skuId,
+                        agent.host,
+                      );
+                      setPendingHost(null);
+                      if (!res.ok) {
+                        setError(
+                          res.error === "sample_on_seat"
+                            ? "sample_on_seat"
+                            : res.error === "invalid_host"
+                              ? "invalid_host"
+                              : "generic",
+                        );
+                      }
+                    });
+                  }}
+                  className="font-semibold text-cedar-deep underline-offset-2 hover:underline disabled:opacity-60"
+                >
+                  {pending && pendingHost === agent.host
+                    ? t("useAgentPending")
+                    : t("useThisAgentOnSku")}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {error === "sample_on_seat" ? (
+        <p className="text-[11px] text-amber-900">{t("useAgentBlockedSample")}</p>
+      ) : null}
+      {error === "invalid_host" ? (
+        <p className="text-[11px] text-amber-900">{t("useAgentInvalidHost")}</p>
+      ) : null}
+      {error === "generic" ? (
+        <p className="text-[11px] text-amber-900">{t("errorGeneric")}</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -461,9 +572,12 @@ export function SupplierPanel({ view }: { view: SupplierPanelView }) {
   /** Read-only browse when the interactive shortlist is hidden (sample freeze / post-accept). */
   const [browseShortlist, setBrowseShortlist] = useState(false);
 
-  const allSuppliers = view.groups.flatMap((g) =>
-    [g.primary, ...g.backups].filter(Boolean),
-  ) as SupplierView[];
+  const allSuppliers = [
+    ...(view.groups.flatMap((g) =>
+      [g.primary, ...g.backups].filter(Boolean),
+    ) as SupplierView[]),
+    ...(view.lebanonAgentSeat ? [view.lebanonAgentSeat] : []),
+  ];
   const suppliersById = indexSuppliersById(view);
 
   const showShortlist = view.showShortlist;
@@ -935,7 +1049,24 @@ function SupplierShortlistSection({
         .map((g) => renderShortlistGroup(g))}
 
       {shouldShowImportSourcingAgentNote(effectiveTab) ? (
-        <ImportSourcingAgentNote />
+        <ImportSourcingAgentNote
+          skuId={view.skuId}
+          seatedHost={hostFromAgentSourceUrl(
+            view.lebanonAgentSeat?.sourceUrl ?? null,
+          )}
+        />
+      ) : null}
+
+      {shouldShowImportSourcingAgentNote(effectiveTab) &&
+      view.lebanonAgentSeat ? (
+        <div className="grid items-start gap-3 md:grid-cols-3">
+          <SupplierCard
+            s={view.lebanonAgentSeat}
+            sampleCta={ctaFor(view.lebanonAgentSeat)}
+            softLimit={view.softLimitUsd}
+            skuName={view.skuName}
+          />
+        </div>
       ) : null}
 
       {visibleGroups
@@ -982,7 +1113,10 @@ function SupplierCard({
       ? t("requestBackupSampleHint")
       : t("requestSampleHint");
 
-  const canAssess = canAssessListingUrl(s.sourceUrl);
+  const canAssess = shouldShowAssessListing({
+    platform: s.platform,
+    sourceUrl: s.sourceUrl,
+  });
 
   function openAssess() {
     if (!canAssess) return;
@@ -1032,11 +1166,11 @@ function SupplierCard({
         ) : null}
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-dark">
           <SourceBadge source={s.source} />
-          {s.leadSource === "live_search" ? (
+      {s.leadSource === "live_search" ? (
             <span className="rounded bg-sea/10 px-1.5 py-0.5 font-medium text-sea">
               {t("liveLeadBadge")}
             </span>
-          ) : (
+          ) : isLebanonAgentPlatform(s.platform) ? null : (
             <span className="rounded bg-sand px-1.5 py-0.5 font-medium text-stone-dark">
               {t("estimateLeadBadge")}
             </span>
@@ -1055,20 +1189,32 @@ function SupplierCard({
         </a>
       ) : null}
 
-      <button
-        type="button"
-        disabled={!canAssess || assessPending}
-        title={!canAssess ? t("assessNoUrl") : undefined}
-        onClick={openAssess}
-        className="inline-flex w-full items-center justify-center rounded-md bg-cedar px-3 py-2 text-center text-xs font-semibold text-foam transition hover:bg-cedar-deep disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {assessPending ? t("assessListingPending") : t("assessListing")}
-      </button>
-      {!canAssess ? (
-        <p className="text-[10px] leading-snug text-stone-dark">
-          {t("assessNoUrlHint")}
-        </p>
-      ) : null}
+      {canAssess ? (
+        <>
+          <button
+            type="button"
+            disabled={assessPending}
+            onClick={openAssess}
+            className="inline-flex w-full items-center justify-center rounded-md bg-cedar px-3 py-2 text-center text-xs font-semibold text-foam transition hover:bg-cedar-deep disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {assessPending ? t("assessListingPending") : t("assessListing")}
+          </button>
+        </>
+      ) : isLebanonAgentPlatform(s.platform) ? null : (
+        <>
+          <button
+            type="button"
+            disabled
+            title={t("assessNoUrl")}
+            className="inline-flex w-full items-center justify-center rounded-md bg-cedar px-3 py-2 text-center text-xs font-semibold text-foam transition hover:bg-cedar-deep disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t("assessListing")}
+          </button>
+          <p className="text-[10px] leading-snug text-stone-dark">
+            {t("assessNoUrlHint")}
+          </p>
+        </>
+      )}
 
       <div className="flex flex-col items-start gap-2">
         <button
@@ -1849,6 +1995,9 @@ function CostQuotesBlock({
   const [pending, startTransition] = useTransition();
   const [expanded, setExpanded] = useState(false);
   const isLocal = costQuotes.quoteSource === "local";
+  const importGuide = importCostQuoteCopyKeys(
+    isLocal ? null : costQuotes.pathPlatform,
+  );
   const [productCost, setProductCost] = useState(
     String(costQuotes.prefill.productCost),
   );
@@ -1975,7 +2124,7 @@ function CostQuotesBlock({
         <p className="mt-1 text-xs text-amber-900">{t("costQuotesPathSwitchNote")}</p>
       ) : (
         <p className="mt-1 text-xs text-stone-dark">
-          {isLocal ? t("costQuotesIntroLocal") : t("costQuotesIntro")}
+          {isLocal ? t("costQuotesIntroLocal") : t(importGuide.intro)}
         </p>
       )}
       <p className="mt-1 text-[11px] text-stone-dark">
@@ -1995,12 +2144,16 @@ function CostQuotesBlock({
             </>
           ) : (
             <>
-              <li>{t("costQuotesGuideFreight")}</li>
+              <li>{t(importGuide.freight)}</li>
               <li>
-                <ExampleLinkedText
-                  text={t("costQuotesGuideClearance")}
-                  hosts={CLEARANCE_BROKER_EXAMPLE_HOSTS}
-                />
+                {importGuide.clearance === "costQuotesGuideClearance" ? (
+                  <ExampleLinkedText
+                    text={t("costQuotesGuideClearance")}
+                    hosts={CLEARANCE_BROKER_EXAMPLE_HOSTS}
+                  />
+                ) : (
+                  t(importGuide.clearance)
+                )}
               </li>
               <li>{t("costQuotesGuideCourier")}</li>
             </>

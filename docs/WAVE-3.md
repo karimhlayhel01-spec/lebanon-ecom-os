@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 3**.
 **Wave 1** (multi-SKU hub, sample-first Supplier 3+2, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery Approach A) remains locked — see `docs/WAVE-2.md`. Do not reopen Discovery locks here.
 
-**Status:** Wave 3 **Supplier live leads + outbound email** — **LOCKED in intent** (founder discussion 2026-08-09). **LBP→USD + max-landed gate** — **LOCKED 2026-08-22**. **AliExpress-first keep** — **LOCKED 2026-08-22** in **§3.4**. **Lebanon agent + broker example notes** — **LOCKED 2026-08-22** in **§3.5**. Implementation is **additive** on the existing Supplier panel / FSM.
+**Status:** Wave 3 **Supplier live leads + outbound email** — **LOCKED in intent** (founder discussion 2026-08-09). **LBP→USD + max-landed gate** — **LOCKED 2026-08-22**. **AliExpress-first keep** — **LOCKED 2026-08-22** in **§3.4**. **Lebanon agent + broker example notes** — **LOCKED 2026-08-22** in **§3.5**. **Use Lebanon sourcing agent as Import seat + cost-quote copy** — **LOCKED 2026-08-26** in **§3.6**. Implementation is **additive** on the existing Supplier panel / FSM.
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -107,6 +107,20 @@ Static coaching copy only. Not supplier cards. Not Discovery.
 | **Local / Both clearance** | `clearanceLocalSoft` / `clearanceLocalVsDeliveryNote` / `clearanceBothNote` unchanged. Do not dump broker names on Local. Onboarding `sampleClearance` unchanged. |
 | **Out** | No phones, WhatsApp, Gemini, Serper for agents, invent pad, Discovery expensive-aisle, MIN_BUDGET. |
 
+### 3.6 Use Lebanon sourcing agent as Import seat + cost-quote copy (**LOCKED 2026-08-26**)
+
+Named agents stay coaching examples in §3.5. This slice adds **Use this agent** seats so `requestSample` has a real `supplier_options` id. Real unit costs stay the Import form — no new quote JSON keys, no Local form for agents.
+
+| Rule | Detail |
+| --- | --- |
+| **Picker** | Under `importSourcingAgentNote` (Import + Both only): four rows from the existing allow-list — **Open site** + **Use this agent on this SKU**. In-use row: name + Open site + **Undo** (`undoUseAgentOnSku`) — not a dead “in use” label. Undo deletes this SKU’s `lebanon_agent` directory seat only (not live Import listings); no sample → delete (all four rows show Use again); sample on that seat → block (`useAgentBlockedSample`), do not wipe in-flight/approved. Other-host Use still replace-if-no-sample (Undo not required to switch). Hosts and note copy stay §3.5. No sample CTA on clearance brokers. |
+| **Seat** | Inserts one owned Import `supplier_options`: `platform` `lebanon_agent`, `leadSource` `directory` (not `live_search`), name + sanitised `https` URL from the allow-list only. No unit / MOQ / stars. Hide **Assess** on that platform. |
+| **One per SKU** | At most one `lebanon_agent` seat. Replace if no sample on it. If a sample exists on that seat, error / confirm-block — do not wipe in-flight. |
+| **Sample** | Existing `requestSample` / flight cap / “you still contact outside” unchanged. The new id is a normal Import supplier for sample-first. |
+| **Refresh / gate** | Refresh Import, `visibleImportRefreshSeats`, `shouldKeepPersistedImportLiveSeat`, `unionImportRefreshLeads`, drop-on-read: never delete or hide `platform` `lebanon_agent` (keep even with unit `0`). Do **not** run `keepImportLiveLead` on them. Do not treat those URLs as live_search AliExpress / Alibaba. |
+| **Cost quotes** | Still source `import`. No new persistence keys. When working/path platform is `lebanon_agent`, swap intro + `costQuotesGuideFreight` + `costQuotesGuideClearance` (EN+AR): agent invoice; door-to-door → intl shipping; duties → clearance; if all-in, don’t double-count; no ASL / Ocean Link / Chami on this path. Courier + Local quotes unchanged. Prefill / save / unlock / path-switch unchanged. |
+| **Out** | No phones / WhatsApp scrape. No Gemini. No MIN_BUDGET. No Discovery expensive-aisle. No Local form for agents. |
+
 ---
 
 ## 4) Outbound email — Gmail (**LOCKED**)
@@ -162,6 +176,8 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-26 | **Undo Use this agent** — in-use row is Open site + Undo (remove directory seat if no sample; block if sample exists). Does not wipe live Import listings or in-flight/approved sample. Other-host Use still replace-if-no-sample. |
+| 2026-08-26 | **Use Lebanon sourcing agent as Import seat LOCKED** — allow-list Open site + Use this agent under Import sourcing note; one `lebanon_agent` / `directory` Import seat per SKU (replace if no sample; block if sample exists); hide Assess; Refresh/gate keep unit-0 agent seats; Import quote intro/freight/clearance swap when path is `lebanon_agent` (no broker names; no new quote JSON keys). |
 | 2026-08-22 | **Lebanon agent + broker example notes LOCKED** — static Import sourcing-agent note (Nour Express / China to Lebanon / Pick N Ship / China Gate) on Import + Both; clearance-broker examples (ASL / Ocean Link / Chami) on Import footer + Import quotes only. Not cards. Not Discovery. No phones. |
 | 2026-08-22 | **Over-cap live Import must not render** — `$320-340` / invent leftover on an Alibaba URL cannot sit under a $100 cap. Re-gate persisted Import live seats on ensure/refresh. AliExpress-first keep of cheap/unknown AE is unchanged. |
 | 2026-08-22 | **AliExpress-first keep LOCKED** — supersedes “null Serper hint = hide.” Drop only **known** over-cap USD. Keep unknown AliExpress. Hide unknown Alibaba until priced-and-fit. Query + scrape AE before Alibaba. Refresh **unions** prior keepable live Import seats with new leads (do not wipe cheap AE). Still no invent unit on a live URL. |
@@ -211,3 +227,4 @@ Thin scrapes prefer `caution`/`skip` — never invent a green light. Gemini must
 - Wave 4 Marketing AI (do not reopen here): `docs/WAVE-4.md`
 - Search vendors already in tree: `src/lib/discovery/providers/serper.ts`, `serpapi.ts`
 - LBP→USD + max-landed + AliExpress-first keep: `src/lib/supplier/live/unit-price.ts`, `src/lib/supplier/live/max-landed.ts`, `src/lib/supplier/live/fill-import-price.ts`, `unionImportRefreshLeads` in `src/lib/supplier/live/refresh.ts`
+- Lebanon agent seats + quote copy: `src/lib/supplier/lebanon-agent-seat.ts`, `useLebanonSourcingAgent` / `undoLebanonSourcingAgent` in `src/lib/supplier/service.ts`
