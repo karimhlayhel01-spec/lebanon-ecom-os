@@ -10,6 +10,7 @@ import {
 } from "@/actions/marketing";
 import { setCreativePackChoiceAction } from "@/actions/photo-packs";
 import {
+  copyNanoVisualPromptAction,
   discardVisualAction,
   generateVisualAction,
   regenerateVisualAction,
@@ -33,7 +34,12 @@ import {
   isIntroLiteracySectionId,
 } from "@/lib/marketing/intro-lesson";
 import { compareCreativesByCalendar } from "@/lib/marketing/creatives";
-import { buildExternalAiDeskPrompts } from "@/lib/marketing/ai-desk";
+import {
+  buildClaudeSkillRecipe,
+  CLAUDE_CUSTOMIZE_SKILLS_URL,
+  isKitDeskStage,
+  serializeKitForExternalDesk,
+} from "@/lib/marketing/ai-desk";
 import {
   suggestCreativeVisualTool,
   type CreativeVisualSuggestion,
@@ -957,28 +963,15 @@ function CreativeKitBlock({
     kit.source === "partial" ? kit.templateIds : [],
   );
 
-  const deskPrompts =
-    kit.stage === "pre_launch" ||
-    kit.stage === "launch" ||
-    kit.stage === "weekly_refresh"
-      ? buildExternalAiDeskPrompts({
-          productName,
-          category,
-          stage: kit.stage,
-          creative: (() => {
-            const c =
-              creatives.find((x) => !x.scheduleIgnored) ?? creatives[0];
-            if (!c) return undefined;
-            return {
-              hookEn: c.hookEn,
-              hookAr: c.hookAr,
-              captionEn: c.captionEn,
-              captionAr: c.captionAr,
-              shots: c.shots,
-            };
-          })(),
-        })
-      : [];
+  const deskStage = isKitDeskStage(kit.stage) ? kit.stage : null;
+  const kitPaste = deskStage
+    ? serializeKitForExternalDesk({
+        productName,
+        stage: deskStage,
+        cards: creatives,
+      })
+    : null;
+  const skillRecipe = deskStage ? buildClaudeSkillRecipe() : "";
 
   function update(id: string, patch: Partial<Creative>) {
     setCreatives((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
@@ -1172,6 +1165,7 @@ function CreativeKitBlock({
                   pending={pending}
                   fieldClass={fieldClass}
                   productName={productName}
+                  category={category}
                   stage={kit.stage}
                   t={t}
                   onUpdate={update}
@@ -1245,7 +1239,7 @@ function CreativeKitBlock({
         </div>
       )}
 
-      {deskPrompts.length > 0 && (
+      {deskStage && (
         <div className="mt-5 border-t border-stone/70 pt-3">
           <button
             type="button"
@@ -1270,42 +1264,87 @@ function CreativeKitBlock({
               >
                 {t("deskIntro")}
               </p>
+              <a
+                href={CLAUDE_CUSTOMIZE_SKILLS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-[11px] font-medium text-sea underline-offset-2 hover:underline"
+                dir={isAr ? "rtl" : undefined}
+              >
+                {t("deskOpenClaudeSkills")}
+              </a>
               <div className="mt-3 space-y-3">
-                {deskPrompts.map((p) => (
-                  <div
-                    key={p.id}
-                    className="rounded-lg border border-stone/80 bg-surface p-3"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-xs font-semibold text-ink">
-                        {t(p.titleKey)}
-                      </p>
+                <div className="rounded-lg border border-stone/80 bg-surface p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs font-semibold text-ink">
+                      {t("deskWholeKitTitle")}
+                    </p>
+                    {kitPaste ? (
                       <button
                         type="button"
                         onClick={async () => {
-                          const ok = await copyTextToClipboard(p.body);
+                          const ok = await copyTextToClipboard(kitPaste);
                           if (!ok) return;
-                          setCopiedDesk(p.id);
+                          setCopiedDesk("kit");
                           window.setTimeout(
                             () =>
                               setCopiedDesk((cur) =>
-                                cur === p.id ? null : cur,
+                                cur === "kit" ? null : cur,
                               ),
                             2000,
                           );
                         }}
                         className="shrink-0 rounded-md border border-cedar/40 bg-cedar/10 px-2.5 py-1 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15"
                       >
-                        {copiedDesk === p.id
+                        {copiedDesk === "kit"
                           ? t("deskCopied")
-                          : t("deskCopy")}
+                          : t("deskCopyKitForClaude")}
                       </button>
-                    </div>
-                    <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-stone bg-surface-subtle p-2 text-[10px] leading-relaxed text-stone-dark">
-                      {p.body}
-                    </pre>
+                    ) : null}
                   </div>
-                ))}
+                  {kitPaste ? (
+                    <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-stone bg-surface-subtle p-2 text-[10px] leading-relaxed text-stone-dark">
+                      {kitPaste}
+                    </pre>
+                  ) : (
+                    <p
+                      className="mt-2 text-[11px] leading-relaxed text-stone-dark"
+                      dir={isAr ? "rtl" : undefined}
+                    >
+                      {t("deskEmptyKit")}
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-stone/80 bg-surface p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs font-semibold text-ink">
+                      {t("deskSkillRecipeTitle")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await copyTextToClipboard(skillRecipe);
+                        if (!ok) return;
+                        setCopiedDesk("skill");
+                        window.setTimeout(
+                          () =>
+                            setCopiedDesk((cur) =>
+                              cur === "skill" ? null : cur,
+                            ),
+                          2000,
+                        );
+                      }}
+                      className="shrink-0 rounded-md border border-cedar/40 bg-cedar/10 px-2.5 py-1 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15"
+                    >
+                      {copiedDesk === "skill"
+                        ? t("deskCopied")
+                        : t("deskCopySkillForClaude")}
+                    </button>
+                  </div>
+                  <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-stone bg-surface-subtle p-2 text-[10px] leading-relaxed text-stone-dark">
+                    {skillRecipe}
+                  </pre>
+                </div>
               </div>
             </div>
           ) : null}
@@ -1357,6 +1396,7 @@ function CreativeCard({
   pending,
   fieldClass,
   productName,
+  category,
   stage,
   t,
   onUpdate,
@@ -1379,6 +1419,7 @@ function CreativeCard({
   pending: boolean;
   fieldClass: string;
   productName: string;
+  category: string;
   stage: MarketingStage;
   t: ReturnType<typeof useTranslations<"Marketing">>;
   onUpdate: (id: string, patch: Partial<Creative>) => void;
@@ -1398,6 +1439,10 @@ function CreativeCard({
   } | null;
 }) {
   const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [copyPromptHonesty, setCopyPromptHonesty] = useState<string | null>(
+    null,
+  );
+  const [copyPromptPending, startCopyPrompt] = useTransition();
   const [packPending, startPack] = useTransition();
   const [genPending, startGen] = useTransition();
   const [popupOpen, setPopupOpen] = useState(false);
@@ -1442,6 +1487,7 @@ function CreativeCard({
     ? suggestCreativeVisualTool({
         creative: c,
         productName,
+        category,
         stage: visualStage,
       })
     : null;
@@ -1676,15 +1722,51 @@ function CreativeCard({
             </p>
             <button
               type="button"
+              disabled={copyPromptPending}
               onClick={async () => {
+                const nanoSku = visualGen?.skuId ?? photoPackUi?.skuId;
+                const nanoKit = visualGen?.kitId ?? photoPackUi?.kitId;
+                if (
+                  (visual.tool === "nano_banana" ||
+                    visual.tool === "seedance") &&
+                  nanoSku &&
+                  nanoKit
+                ) {
+                  startCopyPrompt(async () => {
+                    const res = await copyNanoVisualPromptAction(
+                      nanoSku,
+                      nanoKit,
+                      c.id,
+                      isAr ? "ar" : "en",
+                    );
+                    if (!res.ok) return;
+                    const ok = await copyTextToClipboard(res.text);
+                    if (!ok) return;
+                    setCopiedPrompt(true);
+                    setCopyPromptHonesty(
+                      res.honesty === "monthly_cap"
+                        ? t("visualToolCopyCap")
+                        : res.honesty === "api_error"
+                          ? t("visualToolCopyFail")
+                          : null,
+                    );
+                    window.setTimeout(() => setCopiedPrompt(false), 2000);
+                  });
+                  return;
+                }
                 const ok = await copyTextToClipboard(visualPrompt);
                 if (!ok) return;
                 setCopiedPrompt(true);
+                setCopyPromptHonesty(null);
                 window.setTimeout(() => setCopiedPrompt(false), 2000);
               }}
-              className="rounded border border-cedar/40 bg-cedar/10 px-2 py-0.5 text-[11px] font-semibold text-cedar-deep transition hover:bg-cedar/15"
+              className="rounded border border-cedar/40 bg-cedar/10 px-2 py-0.5 text-[11px] font-semibold text-cedar-deep transition hover:bg-cedar/15 disabled:opacity-60"
             >
-              {copiedPrompt ? t("deskCopied") : t("visualToolCopyPrompt")}
+              {copyPromptPending
+                ? t("visualToolCopyPending")
+                : copiedPrompt
+                  ? t("deskCopied")
+                  : t("visualToolCopyPrompt")}
             </button>
           </div>
           <p
@@ -1750,6 +1832,9 @@ function CreativeCard({
               ? t("visualToolHintInApp")
               : t("visualToolHintPhoneFilm")}
           </p>
+          {copyPromptHonesty ? (
+            <p className="mt-1 text-[11px] text-amber-900">{copyPromptHonesty}</p>
+          ) : null}
           {visualGen && visualToolUsesPhotoPack(visual.tool) ? (
             <div className="mt-2 space-y-2">
               {photoPackUi && photoPackUi.packs.length === 0 ? (

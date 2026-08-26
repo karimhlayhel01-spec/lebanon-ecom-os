@@ -6,12 +6,18 @@
 import { isHiggsfieldConfigured } from "@/lib/marketing/visual-flags";
 import type { VisualGenKind } from "@/lib/marketing/visual-pack-ui";
 
-export const HIGGSFIELD_API_BASE = "https://platform.higgsfield.ai";
-export const HIGGSFIELD_NANO_PATH = "/nano-banana";
+export const HIGGSFIELD_API_BASE = "https://api.higgsfield.ai";
+export const HIGGSFIELD_NANO_T2I_PATH = "/nano-banana-2/text-to-image";
+export const HIGGSFIELD_NANO_I2I_PATH = "/nano-banana-2/image-to-image";
+/** Cloud strongest Nano Banana 2 setting. Pro is not on Cloud. Lite is weaker. */
+export const HIGGSFIELD_NANO_RESOLUTION = "4k";
+/** Cloud still accepts Seedance v1 lite (docs list Seedance 2.0 as coming soon). */
 export const HIGGSFIELD_SEEDANCE_I2V_PATH =
   "/bytedance/seedance/v1/lite/image-to-video";
 export const HIGGSFIELD_SEEDANCE_T2V_PATH =
   "/bytedance/seedance/v1/lite/text-to-video";
+/** Strongest v1-lite setting Cloud documents (480 / 720 / 1080). */
+export const HIGGSFIELD_SEEDANCE_RESOLUTION = "1080";
 
 const POLL_START_MS = 2000;
 const POLL_MAX_MS = 10_000;
@@ -31,12 +37,14 @@ export type VisualGenRunnerResult =
 
 type HfCredentials = { keyId: string; secret: string };
 
-/** Nano still vs Seedance clip (image-to-video when a pack photo exists). */
+/** Nano still vs Seedance clip (image-to-image / image-to-video when a pack photo exists). */
 export function higgsfieldSubmitPath(
   tool: "nano_banana" | "seedance",
   photoCount: number,
 ): string {
-  if (tool === "nano_banana") return HIGGSFIELD_NANO_PATH;
+  if (tool === "nano_banana") {
+    return photoCount > 0 ? HIGGSFIELD_NANO_I2I_PATH : HIGGSFIELD_NANO_T2I_PATH;
+  }
   return photoCount > 0
     ? HIGGSFIELD_SEEDANCE_I2V_PATH
     : HIGGSFIELD_SEEDANCE_T2V_PATH;
@@ -64,12 +72,13 @@ function isHttpsUrl(raw: string): boolean {
   }
 }
 
-function isHiggsfieldStatusUrl(raw: string): boolean {
+export function isHiggsfieldStatusUrl(raw: string): boolean {
   try {
     const u = new URL(raw);
+    const host = u.hostname;
     return (
       u.protocol === "https:" &&
-      u.hostname === "platform.higgsfield.ai" &&
+      (host === "api.higgsfield.ai" || host === "platform.higgsfield.ai") &&
       /^\/requests\/[^/]+\/status$/.test(u.pathname)
     );
   } catch {
@@ -245,31 +254,36 @@ export async function runHiggsfieldVisualGen(
   let payload: Record<string, unknown>;
 
   if (input.tool === "nano_banana") {
-    payload = {
-      prompt: input.prompt,
-      num_images: 1,
-      aspect_ratio: "4:5",
-      output_format: "jpeg",
-    };
     if (photoUrls.length > 0) {
-      payload.input_images = photoUrls.map((image_url) => ({
-        type: "image_url",
-        image_url,
-      }));
+      payload = {
+        prompt: input.prompt,
+        image_urls: photoUrls,
+        resolution: HIGGSFIELD_NANO_RESOLUTION,
+        aspect_ratio: "4:5",
+        output_format: "jpeg",
+      };
+    } else {
+      payload = {
+        prompt: input.prompt,
+        resolution: HIGGSFIELD_NANO_RESOLUTION,
+        aspect_ratio: "4:5",
+        output_format: "jpeg",
+        batch_size: 1,
+      };
     }
   } else if (photoUrls[0]) {
     payload = {
       prompt: seedancePrompt(input),
       image_url: photoUrls[0],
       duration: 5,
-      resolution: "720",
+      resolution: HIGGSFIELD_SEEDANCE_RESOLUTION,
       aspect_ratio: "9:16",
     };
   } else {
     payload = {
       prompt: seedancePrompt(input),
       duration: 5,
-      resolution: "720",
+      resolution: HIGGSFIELD_SEEDANCE_RESOLUTION,
       aspect_ratio: "9:16",
     };
   }

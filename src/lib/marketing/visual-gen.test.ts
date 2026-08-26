@@ -2,7 +2,9 @@ import { readFileSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
 import {
-  HIGGSFIELD_NANO_PATH,
+  HIGGSFIELD_API_BASE,
+  HIGGSFIELD_NANO_I2I_PATH,
+  HIGGSFIELD_NANO_T2I_PATH,
   HIGGSFIELD_SEEDANCE_I2V_PATH,
   HIGGSFIELD_SEEDANCE_T2V_PATH,
   higgsfieldSubmitPath,
@@ -118,9 +120,12 @@ describe("evaluateVisualGenGate", () => {
 });
 
 describe("higgsfieldSubmitPath", () => {
-  it("routes post stills to Nano and motion to Seedance (not footage-fix)", () => {
-    expect(higgsfieldSubmitPath("nano_banana", 0)).toBe(HIGGSFIELD_NANO_PATH);
-    expect(higgsfieldSubmitPath("nano_banana", 3)).toBe(HIGGSFIELD_NANO_PATH);
+  it("routes stills to Nano Banana 2 and motion to Seedance (not footage-fix)", () => {
+    expect(HIGGSFIELD_API_BASE).toBe("https://api.higgsfield.ai");
+    expect(higgsfieldSubmitPath("nano_banana", 0)).toBe(HIGGSFIELD_NANO_T2I_PATH);
+    expect(higgsfieldSubmitPath("nano_banana", 3)).toBe(HIGGSFIELD_NANO_I2I_PATH);
+    expect(HIGGSFIELD_NANO_T2I_PATH).toBe("/nano-banana-2/text-to-image");
+    expect(HIGGSFIELD_NANO_I2I_PATH).toBe("/nano-banana-2/image-to-image");
     expect(higgsfieldSubmitPath("seedance", 2)).toBe(
       HIGGSFIELD_SEEDANCE_I2V_PATH,
     );
@@ -142,6 +147,9 @@ describe("Phase 6c source locks", () => {
     );
     expect(gen).toMatch(/recordMarketingVisualCalls/);
     expect(gen).toMatch(/writeOwnedFile/);
+    expect(gen).toMatch(/resolveNanoHiggsfieldPrompt/);
+    expect(gen).toMatch(/resolveSeedanceHiggsfieldPrompt/);
+    expect(gen).toMatch(/tool === "nano_banana"/);
     expect(gen).not.toMatch(/recordMarketingGeminiCalls/);
     expect(gen).not.toMatch(/marketingGeminiUsage/);
     expect(gen).not.toMatch(/MARKETING_GEMINI_MONTHLY_CAP/);
@@ -150,7 +158,17 @@ describe("Phase 6c source locks", () => {
       path.join(root, "src/lib/marketing/visual-higgsfield.ts"),
       "utf8",
     );
+    expect(hf).toMatch(/https:\/\/api\.higgsfield\.ai/);
+    expect(hf).toMatch(/api\.higgsfield\.ai/);
     expect(hf).toMatch(/platform\.higgsfield\.ai/);
+    expect(hf).toMatch(/nano-banana-2\/text-to-image/);
+    expect(hf).toMatch(/nano-banana-2\/image-to-image/);
+    expect(hf).toMatch(/HIGGSFIELD_NANO_RESOLUTION = "4k"/);
+    expect(hf).toMatch(/HIGGSFIELD_SEEDANCE_RESOLUTION = "1080"/);
+    expect(hf).toMatch(/seedance\/v1\/lite/);
+    expect(hf).not.toMatch(/["']\/nano-banana["']/);
+    expect(hf).not.toMatch(/nano-banana-2\/lite/);
+    expect(hf).not.toMatch(/resolution: "1k"/);
     expect(hf).toMatch(/Authorization: authHeader/);
     expect(hf).not.toMatch(/mcp\.higgsfield/);
     expect(hf).not.toMatch(/@higgsfield\/client/);
@@ -178,6 +196,7 @@ describe("Phase 6c source locks", () => {
     expect(actions).toMatch(/export async function generateVisualAction/);
     expect(actions).toMatch(/export async function regenerateVisualAction/);
     expect(actions).toMatch(/export async function discardVisualAction/);
+    expect(actions).toMatch(/export async function copyNanoVisualPromptAction/);
     expect(actions).not.toMatch(/maxDuration/);
   });
 });

@@ -30,7 +30,6 @@ import {
 } from "@/lib/marketing/creatives-llm";
 import { readFileSync } from "fs";
 import path from "path";
-import { buildExternalAiDeskPrompts, PASTE_CREATIVE_MARKER } from "@/lib/marketing/ai-desk";
 import {
   createGeminiMarketingLlmProvider,
   getMarketingLlmProvider,
@@ -183,67 +182,6 @@ describe("fillCreativesKitWithGemini / provider", () => {
     expect(typeof getMarketingLlmProvider().improveCreativesKit).toBe(
       "function",
     );
-  });
-});
-
-describe("buildExternalAiDeskPrompts", () => {
-  it("includes product name and stage in both role prompts", () => {
-    const prompts = buildExternalAiDeskPrompts({
-      productName: "GlowLamp Pro",
-      category: "home_kitchen",
-      stage: "pre_launch",
-    });
-    expect(prompts).toHaveLength(2);
-    for (const p of prompts) {
-      expect(p.body).toContain("GlowLamp Pro");
-      expect(p.body.toLowerCase()).toMatch(/pre-launch|pre_launch/);
-    }
-  });
-
-  it("rewrite tightens one pasted creative — not a new kit", () => {
-    const rewrite = buildExternalAiDeskPrompts({
-      productName: "GlowLamp Pro",
-      category: "home_kitchen",
-      stage: "launch",
-    }).find((p) => p.id === "rewrite")!;
-    expect(rewrite.body).toContain(PASTE_CREATIVE_MARKER);
-    expect(rewrite.body.toLowerCase()).toMatch(/do not invent a full/);
-    expect(rewrite.body.toLowerCase()).toMatch(/2–3|2-3/);
-    expect(rewrite.body.toLowerCase()).not.toMatch(
-      /rewrite 3 short creative variants/,
-    );
-  });
-
-  it("strategy forbids full captions / kit-like posts", () => {
-    const strategy = buildExternalAiDeskPrompts({
-      productName: "GlowLamp Pro",
-      category: "home_kitchen",
-      stage: "weekly_refresh",
-    }).find((p) => p.id === "strategy")!;
-    expect(strategy.body.toLowerCase()).toMatch(/full caption/);
-    expect(strategy.body.toLowerCase()).toMatch(
-      /complete posts like a creative kit|not a second creative kit/,
-    );
-    expect(strategy.body.toLowerCase()).toMatch(/shot list/);
-  });
-
-  it("keeps paste-out prompts free of OS product meta", () => {
-    const stages = ["pre_launch", "launch", "weekly_refresh"] as const;
-    for (const stage of stages) {
-      const prompts = buildExternalAiDeskPrompts({
-        productName: "GlowLamp Pro",
-        category: "home_kitchen",
-        stage,
-      });
-      for (const p of prompts) {
-        expect(p.body).not.toContain("Lebanon Ecom OS");
-        expect(p.body).not.toContain("Topic A");
-        expect(p.body.toLowerCase()).not.toContain("capacity tier");
-        expect(p.body.toLowerCase()).not.toContain("stage unlock");
-        expect(p.body).not.toMatch(/OS Marketing kit/i);
-        expect(p.body).not.toMatch(/source of truth/i);
-      }
-    }
   });
 });
 

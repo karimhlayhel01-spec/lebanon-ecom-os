@@ -30,7 +30,7 @@ Lebanon Ecom OS Marketing is **AI-native kits**: content tailored per SKU (and w
 | **Skills / gates own truth** | Unlocks, capacity tiers, COD-as-wow ban, margin honesty stay in skills/gates. **LLM does not** unlock stages or invent ROAS / money advice. |
 | **Approach A** | Generate / improve on **explicit founder click** — not every page load. |
 | **In-OS LLM** | **Gemini first** via a `MarketingLlmProvider` seam (name flexible). Claude API later = **provider swap**, not a rewrite. |
-| **External AI desk** | Claude / ChatGPT **role prompts** = **Phase 3 shipped** (copyable helpers; not SoT; no auto-fill). Cursor = optional advanced tip, **not** the default marketing manager. |
+| **External AI desk** | Copy **whole kit** + optional Claude **Skill recipe** (shop-wide guardrails). Teaching copy only — founder opens Claude/ChatGPT themselves. No Claude/ChatGPT API; desk does **not** auto-fill kit cards. UI: collapsed behind **More help** (default closed) so kit + visual tool stay primary. |
 | **Whole-shop kit** | When ≥3 live SKUs, kit may use `skuId` **null** — brand / multi-SKU only. **Intro AI is per-SKU only** (never whole-shop Intro). |
 | **Store pack** | Attractiveness / discoverability / SEO pack = **Store** side surface (roadmap Phase 2) — not a new Marketing stage. |
 | **Non-promises** | No Google Merchant API, ranking guarantees, or AI-chatbot citation promises in Wave 4. |
@@ -60,7 +60,7 @@ Amend dates / promotion in §7 changelog.
 
 - **Ledger (Marketing only):** successful Gemini calls for **Intro fill** + **creatives kit improve** counted per workspace per UTC month (`marketing_gemini_usage`). Launch / weekly creatives meter **once per successful chunk**. Visual-prompt polish meters only when it actually calls Gemini (with `workspaceId`). **Store `improveStorePageCopy` is not wired** into this ledger.
 - Env: `MARKETING_GEMINI_MONTHLY_CAP` (default 40; `0` = templates only). At/over cap → fail-closed to templates / skills + calm honesty (`lessonAiCap` / `kitAiCap`); Try AI fill again hidden while capped.
-- Targeted EN/AR + RTL for Marketing Phase 3/5 / how-to / More help / cap copy. Desk stays behind More help. No Marketing redesign; no Phase 4/6 work.
+- Targeted EN/AR + RTL for Marketing Phase 3/5 / how-to / More help / cap copy. Desk stays behind More help (copy whole kit + optional Skill recipe). No Marketing redesign; no Phase 4/6 work.
 
 ---
 
@@ -100,9 +100,74 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 
 ### Generate
 
-- **With a pack:** Higgsfield uses that pack’s media + this card’s brief (hook, shots, how-to, format, stage-soft rules).
+- **With a pack:** Higgsfield uses that pack’s media + this card’s brief. **Nano** brief = sanitized product-only still (hook as mood; no film-plan first shot). Pack photos = this product’s look — do not invent a hand. **Seedance** still uses hook + full shots + how-to.
 - **No pack:** Generate still allowed → generic still/clip + calm honesty (won’t look like their product).
 - **Nano:** one still. Carousel v1 = **one still**, not an auto 5-slide set.
+
+**Nano still prompt (LOCKED 2026-08-26).** `nano_banana` Generate **and** Copy prompt are one product photograph.
+
+| Rule | Detail |
+| --- | --- |
+| **One frame** | One photo, one subject. No grid, collage, moodboard, 2×3, carousel-in-one-file, or “slides 1–5 in one image.” |
+| **No on-image type** | No letters, words, slogans, watermarks, logos, app UI, or captions **drawn in the pixels**. Hooks / “Arriving soon” / WhatsApp live in the **kit caption**, not the JPEG. Image models misspell; do not ask them to write. Product engraving on the physical item is fine. |
+| **Prompt contents** | Product name + hook as **mood/idea** (not overlay) + **sanitized** first still/slide (not verbatim film-plan) + stage-soft rules. Do **not** dump the full shot list or “Shoot N frames in order” how-to into the Nano prompt. |
+| **Sanitize** | Strip from the Nano composition line: `Text overlay` / on-screen type / “say or text” / quoted overlay slogans / `0–3s` (and other duration prefixes). |
+| **Product-only** | If what remains is hand / finger / face / body-action, **replace** with: true-to-life scale in a setting that fits this product, window light, **no hands, no faces, no people**. Pack photos = look **and scale**. Do not invent a hand or kitchenware props. |
+| **True-to-life scale (LOCKED 2026-08-26)** | Real-world size. Jewelry and small SKUs stay true size in a scene that fits the product — **not** filling the frame, not giant, not a sculpture. Drop “product large in frame” / “fill frame” from Nano prompts. **Do not** default to mug / tea / plate / book / phone as scale props. Card How to shoot may still say keep the product large for **phone filming**. Gemini fill-frame / giant / huge / monumental → fail-closed to sanitize. |
+| **Card unchanged** | Kit shots + How to shoot stay on the card for **phone** shooting. |
+| **Copy prompt** | Same sanitized product-only text as Generate (`suggestCreativeVisualTool`). |
+| **Gemini polish** | Must keep one-frame + no on-image type + product-only. Must not restore overlay, slide lists, or hand/face action. Fail-closed to skills text. |
+| **Honesty** | Generate is still a **draft**. Discard / Regenerate / film / Copy prompt. **No** Gemini JPEG referee. Anatomy can still fail; we stop *asking* for the failing pose. |
+| **Out** | Seedance body/path, phone-film prompts, Higgsfield host, popup/caps/flags, creatives.ts shot-list rewrite, Supplier, Discovery, Shopify, desk serializers. |
+
+**Paired Nano brief via Gemini (LOCKED 2026-08-26).** Card shots = SoT for the **beat**. Higgsfield gets a **rewrite**, not the film-plan text. **Seedance paired brief UNLOCKED 2026-08-26** — same Ask-shaped rewrite for motion; Cloud Seedance 2.0 still coming soon.
+
+| Rule | Detail |
+| --- | --- |
+| **SoT** | Kit shots + How to shoot + hook stay on the card for **phone**. Do not rewrite `creatives.ts` shot lists. |
+| **Rewrite** | On **Generate** and **Copy prompt** (Approach A — not page load): Gemini reads this card (product, stage, hook, full shots, how-to) and writes Higgsfield `promptEn`/`promptAr` — a still for Nano, a short clip for Seedance. Same meaning. Not the same sentences. |
+| **Engineering rules** | Nano: one photograph. Seedance: one short motion clip. No grid/collage. No letters/slogans/overlays in pixels. No hands / faces / people. Hook is mood, not overlay. **True-to-life scale** (not fill-frame). Scene from **shot-list beat / hook** (not mug/tea/plate/book/phone props). Pack photos = look **and scale**; do not invent a hand. Stage-soft rules stay. |
+| **Validate** | If Gemini returns overlay, hands/faces, slide dumps, fill-frame/giant product, tea/mug/plate kitchen still-life, or OS meta → **discard** and fail-closed to product-only sanitize (`suggestCreativeVisualTool`). |
+| **Spend** | Counts as **Marketing Gemini** (`MARKETING_GEMINI_MONTHLY_CAP`), not visual/Higgsfield. Copy then Generate = **two** calls. At/over cap or no key → sanitize, no silent spend. |
+| **Copy prompt** | Nano **and Seedance**: server action copies the **engineered** text. On miss, copy sanitize + calm honesty. |
+| **Preview** | Skills sanitize may show until Copy/Generate click. Do not call Gemini on page load. |
+| **Seedance** | **UNLOCKED 2026-08-26** for the same Gemini rewrite + habitat constitution (motion clip, not a still). Cloud Seedance 2.0 is still **coming soon** — Generate may fail-closed to Copy prompt until Cloud lists a live Seedance path. No silent switch to Kling/Veo. |
+| **Honesty** | Still a draft. No JPEG referee. No second LLM. |
+| **Out** | Phone-film, Higgsfield host, popup/visual caps/flags, Supplier, Discovery, Shopify, desk, Claude API, Kling/Veo as a silent Seedance stand-in. |
+
+**Nano scene from beat, not props (LOCKED 2026-08-26).** Caption carries the line. JPEG has no slogans.
+
+| Rule | Detail |
+| --- | --- |
+| **Brief** | Gemini reads the **full** card shot list + hook + how-to and writes a Higgsfield still for **that beat**. Kit regen is **not** required to test. |
+| **No on-image type** | Unchanged. Hook / “Arriving soon” stay in the **kit caption**. Do **not** restore overlay dump or 6-up collage. |
+| **No invented kitchenware** | Do **not** name mug, tea, plate, book, or phone as default scale props. |
+| **One still** | One photograph matching campaign mood. Not slides 1–5 in one file. |
+| **Fail-closed** | Skills sanitize: one photo, shot-list mood, true-to-life scale, no type, no hands/faces, **no mug/tea/plate/book/phone props**. Not the old overlay dump. |
+
+**Nano habitat + Ask-shaped brief (LOCKED 2026-08-26).** Gemini thinks like an Ask agent. Higgsfield gets a short **visual** brief only. No knowledge base. No JPEG referee.
+
+| Rule | Detail |
+| --- | --- |
+| **Gemini job** | SoT = this card’s beat + pack photos + **SKU category habitat**. Out = WAVE / LOCKED / caps / OS meta. Output = image prompt (product, scale, light, where it sits). |
+| **Category** | Pass SKU industry id into Nano Copy/Generate (and skills preview). Pack + beat win over the habitat line. |
+| **Rings** | RingConn / smart ring / wellness-fashion ring: sit in **its charging case**. Never a dinner plate / saucer. Do **not** put a ring dock on a lamp or pan. |
+| **Background** | Indoor / product setting from habitat. No village, countryside, postcard, mountain town, souk, or scenic landscape. Skills standing lines stay **positive** (do not name those words). |
+| **Other SKUs** | One habitat line: kitchen counter, desk, dash, shelf, mat, etc. Same one-still / no-type / no-hands rules. |
+| **Validate** | Overlay, hands, fill-frame, kitchenware words, village/postcard words, OS meta → fail-closed to skills sanitize. |
+| **Out** | Knowledge base, JPEG referee, Pro, restoring overlays/hands, Kling/Veo as a silent Seedance stand-in. |
+
+**Nano Banana 2 at 4k (LOCKED 2026-08-26).** Strongest Cloud Nano. Gemini brief still minimizes bugs (no hands / people / on-image words). Caption carries the line.
+
+| Rule | Detail |
+| --- | --- |
+| **Model** | Higgsfield Cloud **Nano Banana 2** (`/nano-banana-2/text-to-image` and `/image-to-image`). Host `api.higgsfield.ai`. |
+| **Resolution** | **`4k`** on Generate (t2i and i2i). Not `1k`. |
+| **Not** | Nano Banana **Pro** (no Cloud path). Nano Banana 2 **Lite**. Old `/nano-banana`. GPT Image / FLUX. Putting overlays, hands, or people back into the still. |
+| **Brief** | Unchanged: Gemini paired rewrite; fail-closed to product-only sanitize. `4k` is sharper, not a license to ask for type or anatomy. |
+| **Caps** | `MARKETING_VISUAL_MONTHLY_CAP` still counts **runs**, not dollars. Higgsfield credits cost more at 4k. |
+| **Seedance** | Parked. Clip resolution stays as-is. |
+
 - **Seedance:** **creates** a short draft clip from photos (and optional product clip). Does **not** edit a video they already filmed as the post.
 - **Seedance cards:** **bold** choice line: two ways — film this shot list on the phone, **or** add/pick a pack and Generate. The AI clip will **not** match every timed shot.
 - **Phone film cards:** no upload, no Generate, no Nano/Seedance, no pack picker.
@@ -137,7 +202,7 @@ Shopify, Instagram publish, Phase 4, AI photo referee, generate-all, footage-fix
 
 - Creative stages only (`pre_launch` / `launch` / `weekly_refresh`). **No** FSM rewrite; Phase 4 parked; no in-app visual gen.
 - Skills-first routing by format: `post`/`carousel` → Nano Banana; `reel`/`story`/`ugc` → Seedance; `testimonial` → phone film (no AI).
-- Each kit card: tool label, one-line why, **Copy prompt** (product + hook + **elaborated shots** + **how-to shoot** + stage-soft rules). Plain founder language — no OS / Topic A / unlocks meta.
+- Each kit card: tool label, one-line why, **Copy prompt**. **Nano and Seedance (paired brief):** Copy/Generate click rewrites the card shot list via Gemini into a Higgsfield-safe still or motion prompt (fail-closed to habitat sanitize). Preview may show sanitize until click. **Phone film:** product + hook + elaborated shots + how-to. Plain founder language — no OS / Topic A / unlocks meta.
 - Optional Gemini polish of why/prompt via `MarketingLlmProvider.polishCreativeVisualSuggestion` — fail-closed to skills text; UI uses skills on render (no spend / no file write / OS does not open tools).
 
 ---
@@ -158,7 +223,7 @@ Intent remains: one next creative, Posted / Skipped honor-system, OS SoT (no Cal
 - Validate rejects COD-as-wow, pre_launch soft bans, required fields / length / product name, **thin shot lines**.
 - Cards show **How to shoot** (phone / light / length / order); Phase 5 prompts reuse the same shot + how-to detail.
 - Whole-kit generate only (no Store-style per-creative version picker; no visual gen).
-- **External AI desk:** 1–2 copyable Claude/ChatGPT role prompts (SKU + stage + rules; helper not SoT). Teaching copy only — founder opens Claude/ChatGPT themselves. No Claude/ChatGPT API; desk does **not** auto-fill kit cards. UI: collapsed behind **More help** (default closed) so kit + visual tool stay primary.
+- **External AI desk:** Copy **whole kit** (product, stage, weekIndex/labels, non-ignored cards: format, hook/caption EN+AR, shots, howToShoot EN+AR — no templateIds/source/caps/file URLs) + optional shop-wide Claude **Skill recipe** (Lebanon, WhatsApp order path, no COD-as-wow, no ROAS/margins/stage unlock, don’t invent a full kit; **no productName** in the skill). Empty kit → honest one-line empty. Optional link to `https://claude.ai/customize/skills`. Founder opens Claude/ChatGPT themselves. No Claude/ChatGPT API; desk does **not** auto-fill kit cards. UI: collapsed behind **More help** (default closed) so kit + visual tool stay primary.
 - Provider: `MarketingLlmProvider.improveCreativesKit` → `creatives-llm.ts`.
 
 ---
@@ -242,6 +307,18 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-26 | **Seedance paired brief + habitat** — same Ask-shaped Gemini rewrite as Nano (category habitat, charging case, no village/plate, no on-frame slogans, no hands). Copy/Generate use it. Skills fallback is a short clip brief, not the film-plan dump. Cloud Seedance 2.0 still coming soon — Generate may fail-closed. v1 lite resolution 1080. No Kling/Veo swap. |
+| 2026-08-26 | **Nano habitat + Ask-shaped brief** — Gemini engineers stills like an Ask→Build handoff (SoT + out) but emits a visual-only Higgsfield prompt. SKU category habitat. Rings → charging case, not dinner plate. No village/postcard. Fail-closed on those words. No KB / JPEG referee. Seedance parked. |
+| 2026-08-26 | **Nano Banana 2 at 4k** — Higgsfield stills use Cloud Nano Banana 2 at `4k` (t2i + i2i). Not Pro (no Cloud path), not Lite, not old `/nano-banana`. Gemini no-hands / no-type brief unchanged. Seedance parked. |
+| 2026-08-26 | **Nano scene from beat, not props** — Gemini engineers stills from the card shot-list beat; no on-image type (caption carries the line); drop mug/tea/plate/book/phone default props. True-to-life scale stays. Fail-closed is not overlay dump. Seedance parked. Kit regen not required to test. |
+| 2026-08-26 | **Nano true-to-life scale** — Higgsfield stills: real object size in scene (ring = jewelry, not fill-frame). Drop “product large in frame” from Nano prompts/Gemini rewrite. Pack photos = look + scale. No hands. Card shots unchanged. Seedance parked. |
+| 2026-08-26 | **Paired Nano brief via Gemini** — Generate + Copy prompt: Gemini rewrites this card’s shot list into a Higgsfield-safe Nano prompt (one still, no type, no hands). Shots stay the phone plan. Fail-closed to product-only sanitize. Marketing Gemini cap. |
+| 2026-08-26 | **Seedance paired brief PARKED** — Gemini shot-list→Higgsfield rewrite is Nano only until founder checks stills. Seedance Generate/Copy stay skills film-plan prompts. No Seedance 2.5. |
+| 2026-08-26 | **Nano product-only sanitize** — do not paste film-plan first shots (overlay / 0–3s / hands) into nano_banana Generate or Copy prompt; product large, no hands/faces. Card shots unchanged. Draft honesty. No referee. Seedance unchanged. |
+| 2026-08-26 | **Nano still prompt = one frame, no on-image type** — Generate + Copy prompt for nano_banana: one photograph, no grid/collage, no letters/slogans in pixels (spelling is the model drawing). Card shot lists / How to shoot unchanged. Seedance + phone film unchanged. |
+| 2026-08-26 | Higgsfield Generate retargeted to api.higgsfield.ai / Nano Banana 2. |
+| 2026-08-26 | **More help Copy buttons name Claude** — kit “Copy for Claude chat”; skill “Copy for Claude Skills”; kicker “More help · Claude”. No serializer/API/auto-fill. |
+| 2026-08-26 | **More help = Copy whole kit + Skill recipe** — replace desk role-prompt novels; Whole kit serializer + shop-wide Claude Skill recipe (no product name); Customize → Skills link; collapsed default closed. No Gemini fill / visuals / weekly Move / Shopify. |
 | 2026-08-19 | Phase 8 8a/8b reverted — Connect not working (Partner grant 500 / redirect_uri); retry later. Shopify connect/write parked. Phase 4 stays parked. |
 | 2026-08-17 | Phase 6c shipped (flag default still off). |
 | 2026-08-17 | Phase 6b — Add product photos page + named per-SKU packs + Nano/Seedance pack picker. No Generate / Higgsfield. |

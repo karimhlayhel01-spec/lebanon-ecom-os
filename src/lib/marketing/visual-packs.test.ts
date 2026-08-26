@@ -260,6 +260,7 @@ describe("Phase 6b UI source", () => {
     expect(panel).toMatch(/generateVisualAction/);
     expect(panel).toMatch(/regenerateVisualAction/);
     expect(panel).toMatch(/discardVisualAction/);
+    expect(panel).toMatch(/copyNanoVisualPromptAction/);
     expect(panel).toMatch(/VisualResultDialog/);
     expect(panel).not.toMatch(/Higgsfield/);
     expect(panel).not.toMatch(/from ["']@\/db["']/);

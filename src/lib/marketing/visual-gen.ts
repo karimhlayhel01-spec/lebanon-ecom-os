@@ -1,6 +1,7 @@
 /**
  * Wave 4 Phase 6c — Generate / Regenerate / Discard for per-SKU Nano/Seedance cards.
- * Fail-closed. Separate from MarketingLlmProvider. No Gemini ledger.
+ * Fail-closed. Higgsfield spend uses the visual ledger. Nano prompt rewrite
+ * (paired brief) uses Marketing Gemini via visual-tool-llm — Seedance parked.
  */
 
 import { and, eq } from "drizzle-orm";
@@ -50,6 +51,7 @@ import {
   routeCreativeVisualTool,
   suggestCreativeVisualTool,
 } from "@/lib/marketing/visual-tool";
+import { resolveNanoHiggsfieldPrompt, resolveSeedanceHiggsfieldPrompt } from "@/lib/marketing/visual-tool-llm";
 import type { MarketingStage } from "@/lib/constants";
 
 export type VisualGenActionResult =
@@ -123,6 +125,35 @@ async function loadKitCreative(args: {
   const stage = kitStage(kit.stage);
   if (!stage) return null;
   return { kit, creative, stage };
+}
+
+async function skuBriefFields(skuId: string): Promise<{
+  productName: string;
+  category: string;
+}> {
+  const row = await db
+    .select({
+      name: schema.skuCards.name,
+      basics: schema.skuCards.basics,
+    })
+    .from(schema.skuCards)
+    .where(eq(schema.skuCards.id, skuId))
+    .then((rows) => rows[0]);
+  let category = "";
+  if (row?.basics) {
+    try {
+      const basics = JSON.parse(row.basics) as { category?: unknown };
+      if (typeof basics.category === "string") {
+        category = basics.category.trim();
+      }
+    } catch {
+      category = "";
+    }
+  }
+  return {
+    productName: row?.name?.trim() || "your product",
+    category,
+  };
 }
 
 async function existingVisualRow(
@@ -297,16 +328,25 @@ export async function generateOrRegenerateCreativeVisual(args: {
   );
   if (!allowance.ok) return { ok: false, error: "monthly_cap" };
 
-  const skuName = await db
-    .select({ name: schema.skuCards.name })
-    .from(schema.skuCards)
-    .where(eq(schema.skuCards.id, scoped.skuId))
-    .then((rows) => rows[0]?.name ?? "your product");
-  const suggestion = suggestCreativeVisualTool({
+  const sku = await skuBriefFields(scoped.skuId);
+  const briefInput = {
     creative: loaded.creative,
-    productName: skuName,
+    productName: sku.productName,
+    category: sku.category,
     stage: loaded.stage,
-  });
+  };
+  const brief =
+    tool === "nano_banana"
+      ? await resolveNanoHiggsfieldPrompt(briefInput, {
+          env,
+          workspaceId: args.workspaceId,
+        })
+      : tool === "seedance"
+        ? await resolveSeedanceHiggsfieldPrompt(briefInput, {
+            env,
+            workspaceId: args.workspaceId,
+          })
+        : suggestCreativeVisualTool(briefInput);
   const packs = await listPhotoPacksForSku(args.workspaceId, scoped.skuId);
   const packId = resolveSelectedPackId({
     chosenPackId: row?.packId,
@@ -315,8 +355,8 @@ export async function generateOrRegenerateCreativeVisual(args: {
   const media = await loadPackMedia(args.workspaceId, scoped.skuId, packId);
   const usedGeneric = media.photos.length === 0;
   const prompt = usedGeneric
-    ? `${suggestion.promptEn}\nNo product photos were attached — generate a generic still/clip. It will not look like their product.`
-    : `${suggestion.promptEn}\nUse the attached product photos as this product’s look.`;
+    ? `${brief.promptEn}\nNo product photos were attached — generate a generic still/clip. It will not look like their product.`
+    : `${brief.promptEn}\nUse the attached product photos as this product’s look.`;
 
   const ran = await visualGenRunner(
     {
@@ -452,5 +492,74 @@ export async function loadOwnedCreativeVisual(
     mimeType: kind === "clip" ? "video/mp4" : "image/jpeg",
     kind,
     originalName: kind === "clip" ? "product-clip.mp4" : "product-still.jpg",
+  };
+}
+
+export type CopyNanoPromptResult =
+  | {
+      ok: true;
+      text: string;
+      source: "gemini" | "skills";
+      honesty: null | "monthly_cap" | "api_error";
+    }
+  | { ok: false; error: "not_found" };
+
+/** Approach A Copy prompt for Nano — Gemini rewrite, fail-closed to skills sanitize. */
+export async function copyCreativeNanoPrompt(args: {
+  workspaceId: string;
+  skuId: unknown;
+  kitId: string;
+  creativeId: string;
+  locale: "en" | "ar";
+  env?: Record<string, string | undefined>;
+}): Promise<CopyNanoPromptResult> {
+  await ensureMigrated();
+  const scoped = await requirePhotoPackSku(args.workspaceId, args.skuId);
+  if (!scoped.ok) return { ok: false, error: "not_found" };
+  const loaded = await loadKitCreative({
+    workspaceId: args.workspaceId,
+    skuId: scoped.skuId,
+    kitId: args.kitId.trim(),
+    creativeId: args.creativeId.trim(),
+  });
+  if (!loaded) return { ok: false, error: "not_found" };
+  const sku = await skuBriefFields(scoped.skuId);
+  const briefInput = {
+    creative: loaded.creative,
+    productName: sku.productName,
+    category: sku.category,
+    stage: loaded.stage,
+  };
+  const tool = routeCreativeVisualTool(loaded.creative.format);
+  if (tool === "nano_banana") {
+    const resolved = await resolveNanoHiggsfieldPrompt(briefInput, {
+      env: args.env ?? process.env,
+      workspaceId: args.workspaceId,
+    });
+    return {
+      ok: true,
+      text: args.locale === "ar" ? resolved.promptAr : resolved.promptEn,
+      source: resolved.source,
+      honesty: resolved.honesty,
+    };
+  }
+  if (tool === "seedance") {
+    const resolved = await resolveSeedanceHiggsfieldPrompt(briefInput, {
+      env: args.env ?? process.env,
+      workspaceId: args.workspaceId,
+    });
+    return {
+      ok: true,
+      text: args.locale === "ar" ? resolved.promptAr : resolved.promptEn,
+      source: resolved.source,
+      honesty: resolved.honesty,
+    };
+  }
+  const skills = suggestCreativeVisualTool(briefInput);
+  return {
+    ok: true,
+    text: args.locale === "ar" ? skills.promptAr : skills.promptEn,
+    source: "skills",
+    honesty: null,
   };
 }
