@@ -11,6 +11,24 @@ function parseOptionalUnitsLeft(raw: unknown): number | null {
 }
 
 /**
+ * Shop / multi-SKU left roll-up: sum known values only.
+ * All unknown → null (never invent 0 as sold-out).
+ */
+export function rollUpKnownUnitsLeft(
+  lefts: readonly (number | null | undefined)[],
+): number | null {
+  let sum = 0;
+  let anyKnown = false;
+  for (const left of lefts) {
+    if (left != null && Number.isFinite(left)) {
+      sum += left;
+      anyKnown = true;
+    }
+  }
+  return anyKnown ? sum : null;
+}
+
+/**
  * Parse `per_sku_sold_left` JSON.
  * Legacy: `{ orders, sku: { sold, left } }` or `{ orders, sold, left }`
  * Mode C: `{ orders, skus: { [skuId]: { sold, left, sales } } }`
@@ -32,8 +50,7 @@ export function parsePerSkuSoldLeft(raw: string): {
         { sold: number; left: number | null; sales: number }
       > = {};
       let skuSold = 0;
-      let skuLeftSum = 0;
-      let anyKnownLeft = false;
+      const lefts: (number | null)[] = [];
       for (const [id, v] of Object.entries(
         parsed.skus as Record<
           string,
@@ -45,15 +62,12 @@ export function parsePerSkuSoldLeft(raw: string): {
         const sales = Number(v?.sales ?? 0);
         skus[id] = { sold, left, sales };
         skuSold += sold;
-        if (left != null) {
-          skuLeftSum += left;
-          anyKnownLeft = true;
-        }
+        lefts.push(left);
       }
       return {
         orders,
         skuSold,
-        skuLeft: anyKnownLeft ? skuLeftSum : null,
+        skuLeft: rollUpKnownUnitsLeft(lefts),
         skus,
       };
     }

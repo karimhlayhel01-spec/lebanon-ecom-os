@@ -60,9 +60,9 @@ export const weeklyEntryFormSchema = z.object({
   skuSold: nonNegFiniteSchema,
   /**
    * Optional client field — ignored for persistence (server-computed).
-   * If present must be non-negative finite (not NaN → silently 0).
+   * Null = unknown; if present must be non-negative finite (not NaN → 0).
    */
-  skuLeft: nonNegFiniteSchema.optional(),
+  skuLeft: unitsLeftSchema.optional(),
   skuLines: z.array(skuWeekLineSchema).min(1).optional(),
 });
 

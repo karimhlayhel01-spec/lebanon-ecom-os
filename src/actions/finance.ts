@@ -54,7 +54,7 @@ export async function addWeeklyEntryAction(
     courierFees: data.courierFees,
     skuSold: data.skuSold,
     // Placeholder only; addWeeklyEntry overwrites from inventory ledger.
-    skuLeft: data.skuLeft ?? 0,
+    skuLeft: data.skuLeft ?? null,
     skuLines,
   });
 

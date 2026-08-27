@@ -135,6 +135,7 @@ describe("parseWeeklyEntryFormData", () => {
       skuLeft: 10,
     };
     expect(validateWeeklyEntryInput(good).ok).toBe(true);
+    expect(validateWeeklyEntryInput({ ...good, skuLeft: null }).ok).toBe(true);
     expect(
       validateWeeklyEntryInput({ ...good, metaSpend: -5 }),
     ).toEqual({ ok: false, error: "invalid_fields" });

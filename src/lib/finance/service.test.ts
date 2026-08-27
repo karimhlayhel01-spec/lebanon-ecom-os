@@ -1,3 +1,5 @@
+import { readFileSync } from "fs";
+import path from "path";
 import { describe, expect, it } from "vitest";
 import {
   computeCurrentActual,
@@ -242,5 +244,69 @@ describe("multi-SKU Topic A roll-up (Mode C)", () => {
     );
     expect(unknownLeft.skus.a?.left).toBeNull();
     expect(unknownLeft.skuLeft).toBeNull();
+  });
+
+  it("unknown left stays null on roll-up and parse (do not invent 0)", () => {
+    const unknownLines: SkuCostLine[] = [
+      {
+        skuId: "a",
+        sold: 4,
+        left: null,
+        sales: 100,
+        importCogsPerUnit: 5,
+        usesQuotes: false,
+      },
+    ];
+    const unknownRoll = rollUpMultiSkuWeek(unknownLines);
+    expect(unknownRoll.skuLeft).toBeNull();
+    expect(unknownRoll.skuSold).toBe(4);
+
+    const soldOut = rollUpMultiSkuWeek([
+      {
+        skuId: "a",
+        sold: 10,
+        left: 0,
+        sales: 200,
+        importCogsPerUnit: 5,
+        usesQuotes: false,
+      },
+    ]);
+    expect(soldOut.skuLeft).toBe(0);
+
+    const mixed = rollUpMultiSkuWeek([
+      {
+        skuId: "a",
+        sold: 4,
+        left: null,
+        sales: 100,
+        importCogsPerUnit: 5,
+        usesQuotes: false,
+      },
+      {
+        skuId: "b",
+        sold: 2,
+        left: 8,
+        sales: 50,
+        importCogsPerUnit: 6,
+        usesQuotes: false,
+      },
+    ]);
+    expect(mixed.skuLeft).toBe(8);
+
+    const parsedLegacyUnknown = parsePerSkuSoldLeft(
+      JSON.stringify({ orders: 4, sku: { sold: 4, left: null } }),
+    );
+    expect(parsedLegacyUnknown.skuLeft).toBeNull();
+    expect(parsedLegacyUnknown.skuSold).toBe(4);
+
+    const service = readFileSync(
+      path.join(process.cwd(), "src/lib/finance/service.ts"),
+      "utf8",
+    );
+    expect(service).toContain("skuLeft: parsed.skuLeft");
+    expect(service).not.toContain("parsed.skuLeft ?? 0");
+    expect(service).not.toContain("solePersistLeft ?? 0");
+    expect(service).toContain("Ignore client left");
+    expect(service).toContain("skuLeft = solePersistLeft");
   });
 });

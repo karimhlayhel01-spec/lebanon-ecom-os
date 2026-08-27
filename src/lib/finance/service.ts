@@ -29,7 +29,7 @@ import {
 } from "@/lib/finance/sku-contribution";
 import {
   parsePerSkuSoldLeft,
-  serializePerSkuSoldLeft,
+  rollUpKnownUnitsLeft,
 } from "@/lib/finance/per-sku-sold-left";
 import {
   encodePerSkuSoldLeftForWrite,
@@ -52,6 +52,7 @@ export type {
 
 export {
   parsePerSkuSoldLeft,
+  rollUpKnownUnitsLeft,
   serializePerSkuSoldLeft,
 } from "@/lib/finance/per-sku-sold-left";
 
@@ -83,7 +84,8 @@ export type WeeklyInput = {
   codOutstanding: number;
   courierFees: number;
   skuSold: number;
-  skuLeft: number;
+  /** Shop roll-up; null when units left are unknown — never invent 0. */
+  skuLeft: number | null;
   /** Present when entry used multi-SKU mode C shape. */
   skuLines?: SkuWeekLine[];
 };
@@ -289,16 +291,13 @@ export function costBasisForSku(sku: SkuCardView): CostBasis {
 export function rollUpMultiSkuWeek(lines: SkuCostLine[]): {
   sales: number;
   skuSold: number;
-  skuLeft: number;
+  skuLeft: number | null;
   importCogsTotal: number;
   blendedBasis: CostBasis;
 } {
   const sales = lines.reduce((s, l) => s + Math.max(l.sales, 0), 0);
   const skuSold = lines.reduce((s, l) => s + Math.max(l.sold, 0), 0);
-  const skuLeft = lines.reduce(
-    (s, l) => s + Math.max(l.left ?? 0, 0),
-    0,
-  );
+  const skuLeft = rollUpKnownUnitsLeft(lines.map((l) => l.left));
   const importCogsTotal = lines.reduce(
     (s, l) => s + l.importCogsPerUnit * Math.max(l.sold, 0),
     0,
@@ -525,7 +524,7 @@ function parseEntry(row: typeof schema.topicAEntries.$inferSelect): WeeklyInput 
     codOutstanding: row.codOutstanding,
     courierFees: row.courierFees,
     skuSold: parsed.skuSold,
-    skuLeft: parsed.skuLeft ?? 0,
+    skuLeft: parsed.skuLeft,
     skuLines: skuLines.length > 0 ? skuLines : undefined,
   };
 }
@@ -1031,7 +1030,7 @@ export async function addWeeklyEntry(
 
   let sales = input.sales;
   let skuSold = input.skuSold;
-  let skuLeft: number = input.skuLeft;
+  let skuLeft: number | null = input.skuLeft ?? null;
   /** Sole-SKU JSON left (null when received unknown). Mode C uses skusJson. */
   let solePersistLeft: number | null | undefined;
   let skusJson:
@@ -1081,8 +1080,8 @@ export async function addWeeklyEntry(
       priorUnitsSold: inv?.priorUnitsSold ?? 0,
       thisWeekSold: sold,
     });
-    // WeeklyInput.skuLeft is shop aggregate number; JSON stores null when unknown.
-    skuLeft = solePersistLeft ?? 0;
+    // WeeklyInput.skuLeft is the shop aggregate; null when received unknown.
+    skuLeft = solePersistLeft;
     skuSold = sold;
   }
 
