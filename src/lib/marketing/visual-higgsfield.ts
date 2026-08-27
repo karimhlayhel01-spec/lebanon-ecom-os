@@ -11,13 +11,28 @@ export const HIGGSFIELD_NANO_T2I_PATH = "/nano-banana-2/text-to-image";
 export const HIGGSFIELD_NANO_I2I_PATH = "/nano-banana-2/image-to-image";
 /** Cloud strongest Nano Banana 2 setting. Pro is not on Cloud. Lite is weaker. */
 export const HIGGSFIELD_NANO_RESOLUTION = "4k";
-/** Cloud still accepts Seedance v1 lite (docs list Seedance 2.0 as coming soon). */
+/**
+ * Preferred Cloud Seedance (OpenAPI). This account 404s it (`model_not_found`);
+ * Generate then retries lite. Still Seedance — not Kling/Veo. No 2.0 path.
+ */
 export const HIGGSFIELD_SEEDANCE_I2V_PATH =
-  "/bytedance/seedance/v1/lite/image-to-video";
+  "/bytedance/seedance/v1/pro/fast/image-to-video";
 export const HIGGSFIELD_SEEDANCE_T2V_PATH =
+  "/bytedance/seedance/v1/pro/fast/text-to-video";
+export const HIGGSFIELD_SEEDANCE_I2V_FALLBACK_PATH =
+  "/bytedance/seedance/v1/lite/image-to-video";
+export const HIGGSFIELD_SEEDANCE_T2V_FALLBACK_PATH =
   "/bytedance/seedance/v1/lite/text-to-video";
-/** Strongest v1-lite setting Cloud documents (480 / 720 / 1080). */
+/** Same Seedance paths on platform if Cloud api 404s this account. Not Kling/Veo. */
+export const HIGGSFIELD_SEEDANCE_SUBMIT_BASES = [
+  HIGGSFIELD_API_BASE,
+  "https://platform.higgsfield.ai",
+] as const;
+/** Strongest setting Cloud documents for this path (480 / 720 / 1080). */
 export const HIGGSFIELD_SEEDANCE_RESOLUTION = "1080";
+/** Cloud I2V schema is a single start frame (`image_url`). */
+export const HIGGSFIELD_SEEDANCE_PACK_PHOTO_LIMIT = 1;
+const HIGGSFIELD_NANO_PACK_PHOTO_LIMIT = 8;
 
 const POLL_START_MS = 2000;
 const POLL_MAX_MS = 10_000;
@@ -33,7 +48,32 @@ export type VisualGenRunnerInput = {
 
 export type VisualGenRunnerResult =
   | { ok: true; media: { bytes: Buffer; mimeType: string; kind: VisualGenKind } }
-  | { ok: false; error: "api_error" | "nsfw" | "no_keys" };
+  | {
+      ok: false;
+      error: "api_error" | "nsfw" | "no_keys" | "hf_credits" | "hf_model";
+    };
+
+/** Map Higgsfield HTTP status. Never parse detail text for control flow. */
+export function mapHiggsfieldHttpStatus(
+  status: number,
+): "hf_credits" | "hf_model" | "api_error" {
+  if (status === 403) return "hf_credits";
+  if (status === 404) return "hf_model";
+  return "api_error";
+}
+
+function higgsfieldLogTarget(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.host}${u.pathname}`;
+  } catch {
+    return "(bad-url)";
+  }
+}
+
+function logHiggsfieldFailure(url: string, extra: string): void {
+  console.error(`[higgsfield] ${higgsfieldLogTarget(url)} ${extra}`);
+}
 
 type HfCredentials = { keyId: string; secret: string };
 
@@ -45,9 +85,26 @@ export function higgsfieldSubmitPath(
   if (tool === "nano_banana") {
     return photoCount > 0 ? HIGGSFIELD_NANO_I2I_PATH : HIGGSFIELD_NANO_T2I_PATH;
   }
-  return photoCount > 0
-    ? HIGGSFIELD_SEEDANCE_I2V_PATH
-    : HIGGSFIELD_SEEDANCE_T2V_PATH;
+  return seedanceSubmitPaths(photoCount)[0]!;
+}
+
+/** Preferred Seedance path first; lite if this Cloud account 404s pro/fast. */
+export function seedanceSubmitPaths(photoCount: number): string[] {
+  if (photoCount > 0) {
+    return [
+      HIGGSFIELD_SEEDANCE_I2V_PATH,
+      HIGGSFIELD_SEEDANCE_I2V_FALLBACK_PATH,
+    ];
+  }
+  return [HIGGSFIELD_SEEDANCE_T2V_PATH, HIGGSFIELD_SEEDANCE_T2V_FALLBACK_PATH];
+}
+
+/** api host first, then platform — still Seedance only. */
+export function seedanceSubmitUrls(photoCount: number): string[] {
+  const paths = seedanceSubmitPaths(photoCount);
+  return HIGGSFIELD_SEEDANCE_SUBMIT_BASES.flatMap((base) =>
+    paths.map((p) => `${base}${p}`),
+  );
 }
 
 export function resolveHiggsfieldCredentials(
@@ -90,7 +147,9 @@ async function hfJson(
   url: string,
   creds: HfCredentials,
   init?: RequestInit,
-): Promise<{ ok: true; body: unknown } | { ok: false }> {
+): Promise<
+  { ok: true; body: unknown } | { ok: false; status?: number }
+> {
   try {
     const res = await fetch(url, {
       ...init,
@@ -102,9 +161,15 @@ async function hfJson(
       },
       signal: AbortSignal.timeout(30_000),
     });
-    if (!res.ok) return { ok: false };
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 400);
+      logHiggsfieldFailure(url, `${res.status} ${detail}`);
+      return { ok: false, status: res.status };
+    }
     return { ok: true, body: await res.json() };
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "fetch_failed";
+    logHiggsfieldFailure(url, msg);
     return { ok: false };
   }
 }
@@ -161,6 +226,8 @@ type HfStatus = {
   status_url?: unknown;
   images?: unknown;
   video?: unknown;
+  error?: unknown;
+  request_id?: unknown;
 };
 
 function outputUrlFromStatus(body: HfStatus, kind: VisualGenKind): string | null {
@@ -197,6 +264,9 @@ async function pollUntilDone(
     const status = typeof body.status === "string" ? body.status : "";
     if (status === "nsfw") return { ok: false, error: "nsfw" };
     if (status === "failed" || status === "canceled") {
+      const err =
+        "error" in body && typeof body.error === "string" ? body.error : "";
+      logHiggsfieldFailure(statusUrl, `${status} ${err}`.trim());
       return { ok: false, error: "api_error" };
     }
     if (status === "completed") {
@@ -243,10 +313,24 @@ export async function runHiggsfieldVisualGen(
   const creds = resolveHiggsfieldCredentials(env);
   if (!creds) return { ok: false, error: "no_keys" };
 
+  const photoLimit =
+    input.tool === "seedance"
+      ? HIGGSFIELD_SEEDANCE_PACK_PHOTO_LIMIT
+      : HIGGSFIELD_NANO_PACK_PHOTO_LIMIT;
   const photoUrls: string[] = [];
-  for (const photo of input.photos.slice(0, 8)) {
+  for (const photo of input.photos.slice(0, photoLimit)) {
     const url = await uploadInputFile(creds, photo.bytes, photo.mimeType);
     if (url) photoUrls.push(url);
+  }
+  if (
+    input.tool === "seedance" &&
+    input.photos.length > 0 &&
+    photoUrls.length === 0
+  ) {
+    logHiggsfieldFailure(
+      `${HIGGSFIELD_API_BASE}/files/generate-upload-url`,
+      "seedance start-frame upload missed; text-to-video",
+    );
   }
 
   const kind: VisualGenKind = input.tool === "seedance" ? "clip" : "still";
@@ -288,17 +372,45 @@ export async function runHiggsfieldVisualGen(
     };
   }
 
-  const submitted = await hfJson(`${HIGGSFIELD_API_BASE}${path}`, creds, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  if (!submitted.ok || !submitted.body || typeof submitted.body !== "object") {
-    return { ok: false, error: "api_error" };
+  const seedanceUrls =
+    input.tool === "seedance"
+      ? seedanceSubmitUrls(photoUrls.length)
+      : [`${HIGGSFIELD_API_BASE}${path}`];
+  let submitted: Awaited<ReturnType<typeof hfJson>> | null = null;
+  let usedUrl = seedanceUrls[0] ?? `${HIGGSFIELD_API_BASE}${path}`;
+  for (const tryUrl of seedanceUrls) {
+    usedUrl = tryUrl;
+    submitted = await hfJson(tryUrl, creds, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (submitted.ok) break;
+    if (submitted.status === 404 && tryUrl !== seedanceUrls.at(-1)) {
+      continue;
+    }
+    break;
+  }
+  if (
+    !submitted ||
+    !submitted.ok ||
+    !submitted.body ||
+    typeof submitted.body !== "object"
+  ) {
+    return {
+      ok: false,
+      error:
+        submitted && submitted.ok === false && submitted.status
+          ? mapHiggsfieldHttpStatus(submitted.status)
+          : "api_error",
+    };
   }
   const body = submitted.body as HfStatus;
   const status = typeof body.status === "string" ? body.status : "";
   if (status === "nsfw") return { ok: false, error: "nsfw" };
   if (status === "failed" || status === "canceled") {
+    const err =
+      "error" in body && typeof body.error === "string" ? body.error : "";
+    logHiggsfieldFailure(usedUrl, `${status} ${err}`.trim());
     return { ok: false, error: "api_error" };
   }
   if (status === "completed") {
@@ -310,11 +422,17 @@ export async function runHiggsfieldVisualGen(
     "request_id" in body && typeof body.request_id === "string"
       ? body.request_id
       : "";
+  let usedOrigin = HIGGSFIELD_API_BASE;
+  try {
+    usedOrigin = new URL(usedUrl).origin;
+  } catch {
+    usedOrigin = HIGGSFIELD_API_BASE;
+  }
   const statusUrl =
     typeof body.status_url === "string"
       ? body.status_url
       : requestId
-        ? `${HIGGSFIELD_API_BASE}/requests/${encodeURIComponent(requestId)}/status`
+        ? `${usedOrigin}/requests/${encodeURIComponent(requestId)}/status`
         : "";
   if (!isHiggsfieldStatusUrl(statusUrl)) return { ok: false, error: "api_error" };
   return pollUntilDone(creds, statusUrl, kind);

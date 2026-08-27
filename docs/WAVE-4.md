@@ -100,7 +100,7 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 
 ### Generate
 
-- **With a pack:** Higgsfield uses that pack’s media + this card’s brief. **Nano** brief = sanitized product-only still (hook as mood; no film-plan first shot). Pack photos = this product’s look — do not invent a hand. **Seedance** still uses hook + full shots + how-to.
+- **With a pack:** Higgsfield uses that pack’s media + this card’s brief. **Nano** brief = sanitized product-only still (hook as mood; no film-plan first shot). Pack photos = this product’s look — do not invent a hand. **Seedance** I2V uses the **first** pack photo as the start frame (Cloud `image_url` is singular).
 - **No pack:** Generate still allowed → generic still/clip + calm honesty (won’t look like their product).
 - **Nano:** one still. Carousel v1 = **one still**, not an auto 5-slide set.
 
@@ -120,7 +120,7 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 | **Honesty** | Generate is still a **draft**. Discard / Regenerate / film / Copy prompt. **No** Gemini JPEG referee. Anatomy can still fail; we stop *asking* for the failing pose. |
 | **Out** | Seedance body/path, phone-film prompts, Higgsfield host, popup/caps/flags, creatives.ts shot-list rewrite, Supplier, Discovery, Shopify, desk serializers. |
 
-**Paired Nano brief via Gemini (LOCKED 2026-08-26).** Card shots = SoT for the **beat**. Higgsfield gets a **rewrite**, not the film-plan text. **Seedance paired brief UNLOCKED 2026-08-26** — same Ask-shaped rewrite for motion; Cloud Seedance 2.0 still coming soon.
+**Paired Nano brief via Gemini (LOCKED 2026-08-26).** Card shots = SoT for the **beat**. Higgsfield gets a **rewrite**, not the film-plan text. **Seedance paired brief UNLOCKED 2026-08-26** — same Ask-shaped rewrite for motion. Cloud Seedance 2.0 is still absent from the public OpenAPI; Generate prefers **v1 pro/fast**, retries **v1 lite** on 404.
 
 | Rule | Detail |
 | --- | --- |
@@ -131,7 +131,7 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 | **Spend** | Counts as **Marketing Gemini** (`MARKETING_GEMINI_MONTHLY_CAP`), not visual/Higgsfield. Copy then Generate = **two** calls. At/over cap or no key → sanitize, no silent spend. |
 | **Copy prompt** | Nano **and Seedance**: server action copies the **engineered** text. On miss, copy sanitize + calm honesty. |
 | **Preview** | Skills sanitize may show until Copy/Generate click. Do not call Gemini on page load. |
-| **Seedance** | **UNLOCKED 2026-08-26** for the same Gemini rewrite + habitat constitution (motion clip, not a still). Cloud Seedance 2.0 is still **coming soon** — Generate may fail-closed to Copy prompt until Cloud lists a live Seedance path. No silent switch to Kling/Veo. |
+| **Seedance** | Gemini rewrite + habitat stay for **Copy prompt**. In-OS Generate is **off** (LOCKED 2026-08-27) — Cloud REST 404s this key; teach Claude ↔ Higgsfield. No 2.0 OpenAPI path. No Kling/Veo. |
 | **Honesty** | Still a draft. No JPEG referee. No second LLM. |
 | **Out** | Phone-film, Higgsfield host, popup/visual caps/flags, Supplier, Discovery, Shopify, desk, Claude API, Kling/Veo as a silent Seedance stand-in. |
 
@@ -168,8 +168,18 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 | **Caps** | `MARKETING_VISUAL_MONTHLY_CAP` still counts **runs**, not dollars. Higgsfield credits cost more at 4k. |
 | **Seedance** | Parked. Clip resolution stays as-is. |
 
-- **Seedance:** **creates** a short draft clip from photos (and optional product clip). Does **not** edit a video they already filmed as the post.
-- **Seedance cards:** **bold** choice line: two ways — film this shot list on the phone, **or** add/pick a pack and Generate. The AI clip will **not** match every timed shot.
+**Seedance in-OS Generate (LOCKED 2026-08-27).** Cloud REST Seedance (`pro/fast` and `lite`, api + platform) **404s `model_not_found` on this key**. Website/MCP Seedance works. **Do not** swap Kling/Veo.
+
+| Rule | Detail |
+| --- | --- |
+| **Seedance Generate** | **Off** in OS. No Generate / Regenerate / result popup on Seedance cards. |
+| **Copy prompt** | **On.** Same paired Gemini rewrite (`copyNanoVisualPromptAction` / `resolveSeedanceHiggsfieldPrompt`). Fail-closed to skills sanitize. |
+| **Teach** | Three-line Claude ↔ Higgsfield connector how-to. Connector `https://mcp.higgsfield.ai`. Optional **Open Claude** (`https://claude.ai`). |
+| **Nano Generate** | **Stays.** |
+| **Out** | iframe `higgsfield.ai`; Next.js calling `mcp.higgsfield`; Kling/Veo; hiding Nano Generate. |
+
+- **Seedance:** **creates** a short draft clip from photos (and optional product clip) **in Claude + Higgsfield Seedance**, not in this OS. Does **not** edit a video they already filmed as the post.
+- **Seedance cards:** **bold** choice line: two ways — film this shot list on the phone, **or** Copy prompt + Claude Seedance (**not** in-OS Generate).
 - **Phone film cards:** no upload, no Generate, no Nano/Seedance, no pack picker.
 
 ### Result popup
@@ -183,7 +193,7 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 ### Caps / env (names)
 
 - Do **not** use `MARKETING_GEMINI_MONTHLY_CAP` for visuals.
-- **Primary founder rule:** 1 Generate + 3 Regenerates per Nano/Seedance card.
+- **Primary founder rule:** 1 Generate + 3 Regenerates per **Nano** card. Seedance has **no** in-OS Generate.
 - **Safety:** `MARKETING_VISUAL_MONTHLY_CAP` — successful Higgsfield runs per workspace per UTC month; default **80**; `0` = no Generate (Copy prompt only). At/over cap → fail-closed to Copy prompt + honesty.
 - **Flag:** `MARKETING_VISUAL_GEN` default **off** (`0`) until founder enables.
 - Higgsfield keys in env only (`HF_API_KEY_ID` / `HF_API_KEY_SECRET` or equivalent). **Never commit secrets.**
@@ -252,7 +262,7 @@ Intent remains: one next creative, Posted / Skipped honor-system, OS SoT (no Cal
 Calm, fixed-title block (not model-authored titles). Canonical ids in `INTRO_LITERACY_SECTION_IDS`:
 
 - `ai_captions` — Chat AI for captions
-- `ai_image_nano` — Nano Banana (image / stills tooling hint)
+- `ai_image_nano` — Nano Banana stills: **Generate in this OS** on post/carousel cards; Copy prompt backup. Not an external image site.
 - `ai_video_seedance` — Seedance (motion / short-video tooling hint)
 - `ai_chat_claude` — Claude / ChatGPT as strategy / post helpers
 - `ai_cursor_optional` — Cursor as optional advanced tip
@@ -307,6 +317,12 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-27 | **Intro literacy Nano = in-OS Generate** — `ai_image_nano` no longer says open Nano Banana externally. Template + Gemini prompt: Generate on post/carousel cards; Copy prompt backup; packs; draft; caption carries the line. No Higgsfield name. Literacy kicker (`lessonAiLiteracyIntro`) no longer says all tools are external. Captions/Claude/Cursor stay external. Seedance literacy unchanged. Persisted Gemini Intro bodies keep old text until Generate lesson / Try AI fill. |
+| 2026-08-27 | **Seedance = Copy prompt + Claude↔Higgsfield** — in-OS Generate **off** (Cloud REST 404 `model_not_found`; website/MCP Seedance works). Copy prompt **on**. Three-line Claude connector how-to (`https://mcp.higgsfield.ai`) + optional Open Claude. Nano Generate stays. Out: iframe higgsfield.ai, Next.js MCP, Kling/Veo. |
+| 2026-08-27 | **Seedance not on this Cloud key** — api `pro/fast` and `lite` both 404 `model_not_found`. Generate retries the same Seedance paths on `platform.higgsfield.ai`. Still 404 → honesty: video model isn't on this account; Copy prompt. No Kling/Veo. No Seedance 2.0 REST path. |
+| 2026-08-27 | **Seedance 404 → lite fallback** — Cloud `pro/fast` returns `model_not_found` on this account. Generate retries `/bytedance/seedance/v1/lite/{image,text}-to-video`. Still Seedance. No Kling/Veo. |
+| 2026-08-27 | **Seedance Generate logs Cloud HTTP status** — server log pathname + status + truncated detail (no keys, no prompt). HTTP 403 → calm credits honesty. Still no Kling/Veo. |
+| 2026-08-27 | **Seedance Cloud path = v1 pro/fast** — public OpenAPI still has no Seedance 2.0. Generate retargets to `/bytedance/seedance/v1/pro/fast/{image,text}-to-video` at 1080 (not lite). I2V uploads one start frame only. No Kling/Veo. No MCP. |
 | 2026-08-26 | **Seedance paired brief + habitat** — same Ask-shaped Gemini rewrite as Nano (category habitat, charging case, no village/plate, no on-frame slogans, no hands). Copy/Generate use it. Skills fallback is a short clip brief, not the film-plan dump. Cloud Seedance 2.0 still coming soon — Generate may fail-closed. v1 lite resolution 1080. No Kling/Veo swap. |
 | 2026-08-26 | **Nano habitat + Ask-shaped brief** — Gemini engineers stills like an Ask→Build handoff (SoT + out) but emits a visual-only Higgsfield prompt. SKU category habitat. Rings → charging case, not dinner plate. No village/postcard. Fail-closed on those words. No KB / JPEG referee. Seedance parked. |
 | 2026-08-26 | **Nano Banana 2 at 4k** — Higgsfield stills use Cloud Nano Banana 2 at `4k` (t2i + i2i). Not Pro (no Cloud path), not Lite, not old `/nano-banana`. Gemini no-hands / no-type brief unchanged. Seedance parked. |

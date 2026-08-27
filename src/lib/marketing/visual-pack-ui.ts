@@ -88,6 +88,9 @@ export function visualToolUsesPhotoPack(tool: CreativeVisualTool): boolean {
   return tool === "nano_banana" || tool === "seedance";
 }
 
+/** Higgsfield MCP connector — teach on Seedance cards. Do not fetch from Next.js. */
+export const HIGGSFIELD_MCP_CONNECTOR_URL = "https://mcp.higgsfield.ai";
+
 /** 3 Regenerates after the first Generate (4 Higgsfield runs max per creative). */
 export const VISUAL_GEN_MAX_REGENERATES = 3;
 
@@ -99,6 +102,8 @@ export type VisualGenError =
   | "skipped"
   | "not_found"
   | "nsfw"
+  | "hf_credits"
+  | "hf_model"
   | "api_error";
 
 export type VisualGenKind = "still" | "clip";
@@ -130,7 +135,8 @@ export function regenCountAfterDiscard(): number {
 
 /**
  * Fail-closed gates before any Higgsfield call.
- * Shop / null skuId → not_found. Phone film → skipped.
+ * Shop / null skuId → not_found. Phone film and Seedance → skipped
+ * (Seedance Generate is off; Copy prompt + Claude connector instead).
  */
 export function evaluateVisualGenGate(args: {
   flagOn: boolean;
@@ -146,7 +152,7 @@ export function evaluateVisualGenGate(args: {
   if (parsePhotoPackSkuId(args.skuId).ok === false) {
     return { ok: false, error: "not_found" };
   }
-  if (args.tool === "phone_film") {
+  if (args.tool === "phone_film" || args.tool === "seedance") {
     return { ok: false, error: "skipped" };
   }
   if (!args.flagOn) return { ok: false, error: "flag_off" };

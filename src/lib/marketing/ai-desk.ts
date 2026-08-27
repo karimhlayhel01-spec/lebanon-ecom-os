@@ -10,6 +10,9 @@ import type { Creative } from "@/lib/marketing/creatives";
 export const CLAUDE_CUSTOMIZE_SKILLS_URL =
   "https://claude.ai/customize/skills";
 
+/** Optional Open Claude from Seedance teaching (not an API). */
+export const CLAUDE_APP_URL = "https://claude.ai";
+
 export type KitDeskStage = Extract<
   MarketingStage,
   "pre_launch" | "launch" | "weekly_refresh"

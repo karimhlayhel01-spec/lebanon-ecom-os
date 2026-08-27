@@ -37,6 +37,7 @@ import { compareCreativesByCalendar } from "@/lib/marketing/creatives";
 import {
   buildClaudeSkillRecipe,
   CLAUDE_CUSTOMIZE_SKILLS_URL,
+  CLAUDE_APP_URL,
   isKitDeskStage,
   serializeKitForExternalDesk,
 } from "@/lib/marketing/ai-desk";
@@ -45,6 +46,7 @@ import {
   type CreativeVisualSuggestion,
 } from "@/lib/marketing/visual-tool";
 import {
+  HIGGSFIELD_MCP_CONNECTOR_URL,
   packIdForCreative,
   productPhotosPath,
   resolveSelectedPackId,
@@ -77,6 +79,8 @@ function explainVisualGen(
 ): string {
   if (code === "monthly_cap") return t("visualGenHonestyCap");
   if (code === "nsfw") return t("visualGenHonestyNsfw");
+  if (code === "hf_credits") return t("visualGenHonestyCredits");
+  if (code === "hf_model") return t("visualGenHonestyModel");
   if (code === "regen_cap") return t("visualGenRegenDisabled");
   return t("visualGenHonestyFail");
 }
@@ -1827,15 +1831,44 @@ function CreativeCard({
           >
             {visualPrompt}
           </pre>
-          <p className="mt-1 text-[10px] text-stone-dark">
-            {visualToolUsesPhotoPack(visual.tool)
-              ? t("visualToolHintInApp")
-              : t("visualToolHintPhoneFilm")}
-          </p>
+          {visual.tool === "seedance" ? (
+            <div
+              className="mt-2 space-y-1 text-[10px] leading-relaxed text-stone-dark"
+              dir={isAr ? "rtl" : undefined}
+            >
+              <p>{t("visualSeedanceHowTo1")}</p>
+              <p>
+                {t("visualSeedanceHowTo2")}{" "}
+                <a
+                  href={HIGGSFIELD_MCP_CONNECTOR_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-sea underline-offset-2 hover:underline"
+                >
+                  {HIGGSFIELD_MCP_CONNECTOR_URL}
+                </a>
+              </p>
+              <p>{t("visualSeedanceHowTo3")}</p>
+              <a
+                href={CLAUDE_APP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block font-medium text-sea underline-offset-2 hover:underline"
+              >
+                {t("visualSeedanceOpenClaude")}
+              </a>
+            </div>
+          ) : (
+            <p className="mt-1 text-[10px] text-stone-dark">
+              {visual.tool === "nano_banana"
+                ? t("visualToolHintInApp")
+                : t("visualToolHintPhoneFilm")}
+            </p>
+          )}
           {copyPromptHonesty ? (
             <p className="mt-1 text-[11px] text-amber-900">{copyPromptHonesty}</p>
           ) : null}
-          {visualGen && visualToolUsesPhotoPack(visual.tool) ? (
+          {visualGen && visual.tool === "nano_banana" ? (
             <div className="mt-2 space-y-2">
               {photoPackUi && photoPackUi.packs.length === 0 ? (
                 <p className="text-[11px] text-stone-dark">
@@ -1909,7 +1942,7 @@ function CreativeCard({
           ) : null}
         </div>
       ) : null}
-      {popupOpen && genFile && visualGen ? (
+      {popupOpen && genFile && visualGen && visual?.tool === "nano_banana" ? (
         <VisualResultDialog
           href={`${genFile.href}?v=${genFile.generatedAt ?? ""}`}
           kind={genFile.kind}

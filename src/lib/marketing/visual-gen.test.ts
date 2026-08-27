@@ -39,7 +39,7 @@ function gate(
 describe("evaluateVisualGenGate", () => {
   it("allows a first Generate when the flag, keys, and cap are open", () => {
     expect(gate()).toEqual({ ok: true });
-    expect(gate({ tool: "seedance" })).toEqual({ ok: true });
+    expect(gate({ tool: "nano_banana" })).toEqual({ ok: true });
   });
 
   it("hides Generate when the flag is off", () => {
@@ -67,8 +67,12 @@ describe("evaluateVisualGenGate", () => {
     });
   });
 
-  it("skips phone film even when Generate is otherwise ready", () => {
+  it("skips phone film and Seedance even when Generate is otherwise ready", () => {
     expect(gate({ tool: "phone_film" })).toEqual({
+      ok: false,
+      error: "skipped",
+    });
+    expect(gate({ tool: "seedance" })).toEqual({
       ok: false,
       error: "skipped",
     });
@@ -165,6 +169,7 @@ describe("Phase 6c source locks", () => {
     expect(hf).toMatch(/nano-banana-2\/image-to-image/);
     expect(hf).toMatch(/HIGGSFIELD_NANO_RESOLUTION = "4k"/);
     expect(hf).toMatch(/HIGGSFIELD_SEEDANCE_RESOLUTION = "1080"/);
+    expect(hf).toMatch(/seedance\/v1\/pro\/fast/);
     expect(hf).toMatch(/seedance\/v1\/lite/);
     expect(hf).not.toMatch(/["']\/nano-banana["']/);
     expect(hf).not.toMatch(/nano-banana-2\/lite/);

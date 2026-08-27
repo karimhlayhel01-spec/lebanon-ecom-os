@@ -233,6 +233,9 @@ describe("Phase 6b UI source", () => {
     expect(ui).not.toMatch(/from ["']fs["']/);
     expect(ui).not.toMatch(/from ["']postgres["']/);
     expect(ui).not.toMatch(/assertSkuOwned|requirePhotoPackSku/);
+    expect(ui).toMatch(
+      /HIGGSFIELD_MCP_CONNECTOR_URL = "https:\/\/mcp\.higgsfield\.ai"/,
+    );
   });
 
   it("Nano/Seedance cards pick a pack; phone film and shop kit do not", () => {
@@ -262,14 +265,40 @@ describe("Phase 6b UI source", () => {
     expect(panel).toMatch(/discardVisualAction/);
     expect(panel).toMatch(/copyNanoVisualPromptAction/);
     expect(panel).toMatch(/VisualResultDialog/);
-    expect(panel).not.toMatch(/Higgsfield/);
+    expect(panel).toMatch(/visualSeedanceHowTo1/);
+    expect(panel).toMatch(/visualSeedanceHowTo2/);
+    expect(panel).toMatch(/visualSeedanceHowTo3/);
+    expect(panel).toMatch(/visualSeedanceOpenClaude/);
+    expect(panel).toMatch(/HIGGSFIELD_MCP_CONNECTOR_URL/);
+    expect(panel).toMatch(/CLAUDE_APP_URL/);
     expect(panel).not.toMatch(/from ["']@\/db["']/);
     expect(panel).not.toMatch(/visual-storage/);
     expect(panel).not.toMatch(/HF_API_KEY/);
+    expect(panel).not.toMatch(/iframe/);
+    const copyAt = panel.indexOf("copyNanoVisualPromptAction(");
+    expect(copyAt).toBeGreaterThan(0);
+    expect(panel.slice(Math.max(0, copyAt - 500), copyAt)).toMatch(
+      /visual\.tool === "seedance"/,
+    );
     const genAt = panel.indexOf("generateVisualAction(");
     expect(genAt).toBeGreaterThan(0);
     expect(panel.slice(Math.max(0, genAt - 400), genAt)).toMatch(
       /stayOnMarketingForKitWrite/,
+    );
+    const nanoGenUi = panel.slice(
+      panel.indexOf("visualGen && visual.tool === \"nano_banana\""),
+      panel.indexOf("<VisualResultDialog"),
+    );
+    expect(nanoGenUi).toMatch(/generateVisualAction/);
+    expect(nanoGenUi).not.toMatch(/Higgsfield/);
+    expect(nanoGenUi).not.toMatch(/mcp\.higgsfield/);
+    const dialogAt = panel.indexOf("<VisualResultDialog");
+    expect(dialogAt).toBeGreaterThan(0);
+    expect(panel.slice(Math.max(0, dialogAt - 200), dialogAt)).toMatch(
+      /visual\?\.tool === "nano_banana"/,
+    );
+    expect(panel.slice(Math.max(0, dialogAt - 200), dialogAt)).not.toMatch(
+      /seedance/,
     );
     const regenAt = panel.indexOf("regenerateVisualAction(");
     expect(regenAt).toBeGreaterThan(0);
@@ -350,13 +379,28 @@ describe("Phase 6b UI source", () => {
       "visualGenClose",
       "visualToolHintInApp",
       "visualToolHintPhoneFilm",
+      "visualSeedanceHowTo1",
+      "visualSeedanceHowTo2",
+      "visualSeedanceHowTo3",
+      "visualSeedanceOpenClaude",
     ];
     for (const key of keys) {
       expect(en.Marketing[key]?.trim().length).toBeGreaterThan(0);
       expect(ar.Marketing[key]?.trim().length).toBeGreaterThan(0);
     }
     expect(en.Marketing.photoPacksTitle).toBe("Add product photos");
-    expect(en.Marketing.photoPacksSeedanceChoice).toMatch(/AI clip/i);
+    expect(en.Marketing.photoPacksSeedanceChoice).toMatch(/Claude/i);
+    expect(en.Marketing.photoPacksSeedanceChoice).toMatch(/Seedance/);
+    expect(en.Marketing.photoPacksSeedanceChoice).toMatch(/Not Generate/i);
+    expect(en.Marketing.photoPacksSeedanceChoice).not.toMatch(/add\/pick a pack and Generate/i);
+    expect(ar.Marketing.photoPacksSeedanceChoice).toMatch(/Claude/);
+    expect(en.Marketing.visualSeedanceHowTo1).toMatch(/Copy this prompt/i);
+    expect(en.Marketing.visualSeedanceHowTo2).toMatch(/Higgsfield/);
+    expect(en.Marketing.visualSeedanceHowTo2).toMatch(/Claude/);
+    expect(en.Marketing.visualSeedanceHowTo3).toMatch(/Seedance/);
+    expect(en.Marketing.visualSeedanceOpenClaude).toMatch(/Open Claude/i);
+    expect(ar.Marketing.visualSeedanceHowTo2).toMatch(/Higgsfield/);
+    expect(ar.Marketing.visualSeedanceOpenClaude).toMatch(/Claude/);
     expect(en.Marketing.photoPacksNanoChoice).toMatch(/AI still/i);
     expect(en.Marketing.photoPacksNanoChoice).not.toMatch(/timed shot/i);
     expect(ar.Marketing.photoPacksNanoChoice).toMatch(/صورة/);
@@ -371,6 +415,10 @@ describe("Phase 6b UI source", () => {
     expect(en.Marketing.visualGenHonestyCap).not.toMatch(
       /MARKETING_GEMINI_MONTHLY_CAP/,
     );
+    expect(en.Marketing.visualGenHonestyCredits).toMatch(/more credit/i);
+    expect(en.Marketing.visualGenHonestyCredits).not.toMatch(/Higgsfield/i);
+    expect(en.Marketing.visualGenHonestyModel).toMatch(/video model isn't on this/i);
+    expect(en.Marketing.visualGenHonestyModel).not.toMatch(/Higgsfield|Kling|Veo/i);
     expect(en.Marketing.visualGenGenerate).not.toMatch(/Higgsfield/i);
     expect(en.Marketing.visualToolHint).toBeUndefined();
     expect(en.Marketing.visualToolHintInApp).toMatch(/stays on the card/i);

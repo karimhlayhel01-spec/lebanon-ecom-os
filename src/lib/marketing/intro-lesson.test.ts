@@ -1,3 +1,5 @@
+import { readFileSync } from "fs";
+import path from "path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ALL_INTRO_SECTION_IDS,
@@ -45,6 +47,65 @@ describe("buildIntroLesson", () => {
       expect(section.titleAr).toBe(INTRO_SECTION_TITLES[id].titleAr);
       expect(section.bodyEn.length).toBeGreaterThan(20);
     }
+  });
+
+  it("teaches Nano Generate in this OS (not an external image site)", () => {
+    const lesson = buildIntroLesson({
+      name: "Gua Sha Set",
+      category: "beauty_personal_care",
+    });
+    const nano = lesson.sections.find((s) => s.id === "ai_image_nano")!;
+    expect(nano.bodyEn).toContain("Gua Sha Set");
+    expect(nano.bodyEn).toMatch(/post and carousel/i);
+    expect(nano.bodyEn).toMatch(/Generate for a draft still/);
+    expect(nano.bodyEn).toMatch(/Copy prompt is backup/i);
+    expect(nano.bodyEn).toMatch(/product photos/);
+    expect(nano.bodyEn).toMatch(/caption carries the line/i);
+    expect(nano.bodyEn).not.toMatch(/does not generate images/i);
+    expect(nano.bodyEn).not.toMatch(/open the tool externally/i);
+    expect(nano.bodyEn).not.toMatch(/Higgsfield/i);
+    expect(nano.bodyAr).toContain("Gua Sha Set");
+    expect(nano.bodyAr).toMatch(/Generate/);
+    expect(nano.bodyAr).not.toMatch(/لا يولّد صوراً لك بعد/);
+    expect(nano.bodyAr).not.toMatch(/افتح الأداة خارجياً/);
+    expect(nano.bodyAr).not.toMatch(/Higgsfield/i);
+
+    const llm = readFileSync(
+      path.join(process.cwd(), "src/lib/marketing/intro-llm.ts"),
+      "utf8",
+    );
+    expect(llm).toMatch(/Nano Banana Generate is IN this OS/);
+    expect(llm).not.toMatch(/Say tools are external/);
+    expect(llm).toMatch(/Do not name Higgsfield/);
+    expect(llm).toMatch(/ai_video_seedance/);
+  });
+
+  it("literacy kicker does not say every tool is external", () => {
+    const en = JSON.parse(
+      readFileSync(path.join(process.cwd(), "messages/en.json"), "utf8"),
+    ) as { Marketing: Record<string, string> };
+    const ar = JSON.parse(
+      readFileSync(path.join(process.cwd(), "messages/ar.json"), "utf8"),
+    ) as { Marketing: Record<string, string> };
+    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/Nano Generate is in this OS/i);
+    expect(en.Marketing.lessonAiLiteracyIntro).not.toMatch(/tools stay external/i);
+    expect(ar.Marketing.lessonAiLiteracyIntro).toMatch(/توليد Nano داخل هذا النظام/);
+    expect(ar.Marketing.lessonAiLiteracyIntro).not.toMatch(/الأدوات خارجية/);
+  });
+
+  it("teaches Seedance via Copy prompt + Claude Higgsfield connector", () => {
+    const lesson = buildIntroLesson({
+      name: "Gua Sha Set",
+      category: "beauty_personal_care",
+    });
+    const seedance = lesson.sections.find((s) => s.id === "ai_video_seedance")!;
+    expect(seedance.bodyEn).toMatch(/Copy a Seedance prompt/);
+    expect(seedance.bodyEn).toContain("Gua Sha Set");
+    expect(seedance.bodyEn).toContain("https://mcp.higgsfield.ai");
+    expect(seedance.bodyEn).toMatch(/not generated in this OS/i);
+    expect(seedance.bodyEn).toMatch(/ask Claude to run Seedance/);
+    expect(seedance.bodyAr).toContain("https://mcp.higgsfield.ai");
+    expect(seedance.bodyAr).toContain("Gua Sha Set");
   });
 
   it("substitutes THIS product name into section bodies", () => {

@@ -131,7 +131,10 @@ HARD RULES
 - bodyEn: clear English, plain paragraphs separated by \\n\\n; bullets may use "• ".
 - bodyAr: clear Arabic (Lebanon-friendly), same structure; keep productName spelling as given (do not translate the product name).
 - Each bodyEn and bodyAr must be substantive (at least ~2 short paragraphs or one paragraph + bullets). No empty shells.
-- Literacy sections (ai_*): calm tool hints for THIS product — ChatGPT/Claude captions, Nano Banana stills, Seedance motion, strategy chat, Cursor optional — not a wall of hype. Say tools are external; this OS does not unlock stages via chat AI.
+- Literacy sections (ai_*): calm tool hints for THIS product — not a wall of hype. This OS does not unlock stages via chat AI.
+- ai_captions / ai_chat_claude / ai_cursor_optional: those tools are external (founder opens ChatGPT / Claude / Cursor themselves).
+- ai_image_nano: Nano Banana Generate is IN this OS on post/carousel kit cards. Copy prompt is backup if Generate is off. Add or pick product photos. Draft still; caption carries the line (no words in the image). Do not say the OS cannot generate images. Do not send them to an external Nano site. Do not name Higgsfield.
+- ai_video_seedance: Copy prompt from the kit card; Claude + Higgsfield connector (https://mcp.higgsfield.ai); Seedance is not generated in this OS. Film on the phone when they can.
 
 Section ids:
 ${idList}`;
