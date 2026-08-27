@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 4**.
 **Wave 1** (multi-SKU hub, stage-aware Marketing FSM, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery) and **Wave 3** (Supplier) remain locked — see `docs/WAVE-2.md`, `docs/WAVE-3.md`. Do not reopen those locks here.
 
-**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits + external AI desk). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + **Copy prompt**). **Phase 6c shipped 2026-08-17** (in-OS Nano Banana stills + Seedance clips via Higgsfield; `MARKETING_VISUAL_GEN` default still off). **Phase 7 shipped** (Marketing Gemini spend ledger + harden / EN–AR / tests). **Store follow-up shipped** (per-SKU page packs + Marketing-style picker). **Whole-shop Store pack shipped** (≥3 live SKUs). **Shopify connect/write parked** (Phase 8 8a/8b reverted 2026-08-19).
+**Status:** Wave 4 **Marketing AI** — **LOCKED in intent** (founder discussion 2026-08-10). **Phase 1 shipped** (Intro Gemini + literacy + UI harden; literacy = Nano + Seedance + Xpoz; template SoT on assemble and load). **Phase 2 shipped** (Store attractive + discoverability pack). **Phase 3 shipped** (AI creative kits; **More help · Claude desk removed 2026-08-27**). **Phase 4 parked** (this week’s one post — UI race; revisit later). **Phase 5 shipped** (Nano Banana / Seedance tool suggest + **Copy prompt**). **Phase 6c shipped 2026-08-17** (in-OS **Nano** stills via Higgsfield; `MARKETING_VISUAL_GEN` default still off). **Seedance in-OS Generate off 2026-08-27** — Copy prompt + Claude ↔ Higgsfield MCP (`https://mcp.higgsfield.ai`); Nano Generate stays; pack picker Nano-only. **Phase 7 shipped** (Marketing Gemini spend ledger + harden / EN–AR / tests). **Store follow-up shipped** (per-SKU page packs + Marketing-style picker). **Whole-shop Store pack shipped** (≥3 live SKUs). **Shopify connect/write parked** (Phase 8 8a/8b reverted 2026-08-19). Shopify stays disconnected.
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -46,10 +46,10 @@ Amend dates / promotion in §7 changelog.
 | **0** | Lock this doc |
 | **1** | Intro Gemini bodies + AI literacy + Intro UI harden — **shipped** |
 | **2** | Store attractive + discoverability pack (Store surface) — **shipped** |
-| **3** | AI-native creative kits + external AI desk roles — **shipped** |
+| **3** | AI-native creative kits — **shipped** (external AI desk **removed 2026-08-27**) |
 | **4** | This week’s one post + Posted / Skipped — **parked / deferred** (UI race — revisit later) |
 | **5** | Tool suggest Nano Banana / Seedance + copyable prompts — **shipped** |
-| **6** | In-OS Nano Banana stills + Seedance clips via Higgsfield — **shipped 2026-08-17** (`MARKETING_VISUAL_GEN` default off) |
+| **6** | In-OS **Nano** stills via Higgsfield — **shipped 2026-08-17** (`MARKETING_VISUAL_GEN` default off). Seedance Generate **off** 2026-08-27 (Copy + Claude MCP) |
 | **7** | Harden / EN–AR / tests / Marketing Gemini spend ledger — **shipped** |
 
 **Parked follow-ups:** Store Gemini metering (still not on Marketing Phase 7 ledger). Phase 4 hero remains parked. **Shopify connect/write parked** — Phase 8 8a/8b reverted 2026-08-19 (Connect not working: Partner grant 500 / `redirect_uri`); retry later. Do not start 8c.
@@ -66,7 +66,7 @@ Amend dates / promotion in §7 changelog.
 
 ## 4f) Phase 6 — In-OS visual gen via Higgsfield (**LOCKED 2026-08-16; Phase 6c shipped 2026-08-17, flag default off**)
 
-In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate API**. File on the kit card. Download is extra, not the only copy. **Phase 6c shipped 2026-08-17**; `MARKETING_VISUAL_GEN` default still off. Phase 5 **Copy prompt** stays as the fail-closed fallback.
+In-OS **Nano Banana stills** via the Higgsfield **generate API** (flag default off). **Seedance in-OS Generate is off (LOCKED 2026-08-27)** — Copy prompt + Claude ↔ Higgsfield MCP; not Generate in this OS. File Nano output on the kit card. Download is extra, not the only copy. **Phase 6c shipped 2026-08-17**; `MARKETING_VISUAL_GEN` default still off. Phase 5 **Copy prompt** stays as the fail-closed fallback.
 
 ### Positioning
 
@@ -100,8 +100,10 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 
 ### Generate
 
-- **With a pack:** Higgsfield uses that pack’s media + this card’s brief. **Nano** brief = sanitized product-only still (hook as mood; no film-plan first shot). Pack photos = this product’s look — do not invent a hand. **Seedance** I2V uses the **first** pack photo as the start frame (Cloud `image_url` is singular).
-- **No pack:** Generate still allowed → generic still/clip + calm honesty (won’t look like their product).
+**Nano only in this OS (LOCKED 2026-08-27).** Seedance has no Generate / Regenerate / result popup / pack picker. Historical Seedance I2V notes below do not ship.
+
+- **With a pack:** Higgsfield uses that pack’s media + this **Nano** card’s brief. Brief = sanitized product-only still (hook as mood; no film-plan first shot). Pack photos = this product’s look — do not invent a hand.
+- **No pack:** Nano Generate still allowed → generic still + calm honesty (won’t look like their product).
 - **Nano:** one still. Carousel v1 = **one still**, not an auto 5-slide set.
 
 **Nano still prompt (LOCKED 2026-08-26).** `nano_banana` Generate **and** Copy prompt are one product photograph.

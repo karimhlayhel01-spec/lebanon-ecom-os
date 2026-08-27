@@ -4,7 +4,7 @@ Product and engineering locks for **Wave 3**.
 **Wave 1** (multi-SKU hub, sample-first Supplier 3+2, Postgres, fail-closed `skuId`) remains the live baseline.  
 **Wave 2** (Discovery Approach A) remains locked — see `docs/WAVE-2.md`. Do not reopen Discovery locks here.
 
-**Status:** Wave 3 **Supplier live leads + outbound email** — **LOCKED in intent** (founder discussion 2026-08-09). **LBP→USD + max-landed gate** — **LOCKED 2026-08-22**. **AliExpress-first keep** — **LOCKED 2026-08-22** in **§3.4**. **Lebanon agent + broker example notes** — **LOCKED 2026-08-22** in **§3.5**. **Use Lebanon sourcing agent as Import seat + cost-quote copy** — **LOCKED 2026-08-26** in **§3.6**. Implementation is **additive** on the existing Supplier panel / FSM.
+**Status:** Wave 3 **Supplier live leads + outbound email** — **LOCKED in intent** (founder discussion 2026-08-09). **LBP→USD + max-landed gate** — **LOCKED 2026-08-22**. **AliExpress-first keep** — **LOCKED 2026-08-22** in **§3.4**. **Lebanon agent + broker example notes** — **LOCKED 2026-08-22** in **§3.5**. **Use Lebanon sourcing agent as Import seat + cost-quote copy** — **LOCKED 2026-08-26** in **§3.6**. **Agent unit 0 = unknown** (quotes + first-batch estimate) — **LOCKED 2026-08-27**. Implementation is **additive** on the existing Supplier panel / FSM.
 
 **Canonical doc:** this file. Do not reopen locks unless the founder explicitly changes one.
 
@@ -20,7 +20,7 @@ Product and engineering locks for **Wave 3**.
   - **Import (live on):** real seats or honest empty + retry — never silent invent theater.
   - **Import (live off):** invent Planning estimates remain the safe fallback.
   - **Local (live on):** accurate only — empty or partial live shortlist; never invent Lebanese theater as truth.
-- Email: keep the negotiation draft; add **Gmail compose / send** when connected — never silent auto-send.
+- Email: keep the negotiation draft; **Open in Gmail** compose (3a) shipped; in-app send (3b) parked — never silent auto-send.
 
 **Out of scope for Wave 3 (parked):**
 - Discovery photo gallery / per-card images (Wave 2 direction parked — see WAVE-2 §12)
@@ -114,11 +114,12 @@ Named agents stay coaching examples in §3.5. This slice adds **Use this agent**
 | Rule | Detail |
 | --- | --- |
 | **Picker** | Under `importSourcingAgentNote` (Import + Both only): four rows from the existing allow-list — **Open site** + **Use this agent on this SKU**. In-use row: name + Open site + **Undo** (`undoUseAgentOnSku`) — not a dead “in use” label. Undo deletes this SKU’s `lebanon_agent` directory seat only (not live Import listings); no sample → delete (all four rows show Use again); sample on that seat → block (`useAgentBlockedSample`), do not wipe in-flight/approved. Other-host Use still replace-if-no-sample (Undo not required to switch). Hosts and note copy stay §3.5. No sample CTA on clearance brokers. |
-| **Seat** | Inserts one owned Import `supplier_options`: `platform` `lebanon_agent`, `leadSource` `directory` (not `live_search`), name + sanitised `https` URL from the allow-list only. No unit / MOQ / stars. Hide **Assess** on that platform. |
+| **Seat** | Inserts one owned Import `supplier_options`: `platform` `lebanon_agent`, `leadSource` `directory` (not `live_search`), name + sanitised `https` URL from the allow-list only. No unit / MOQ / stars (`unitPrice` 0 / `moq` 0 = **unknown**, not a $0 factory quote). Hide **Assess** on that platform. |
 | **One per SKU** | At most one `lebanon_agent` seat. Replace if no sample on it. If a sample exists on that seat, error / confirm-block — do not wipe in-flight. |
 | **Sample** | Existing `requestSample` / flight cap / “you still contact outside” unchanged. The new id is a normal Import supplier for sample-first. |
+| **First batch** | Agent seat is a real Import option in the first-batch supplier dropdown (same list as other Import seats). |
 | **Refresh / gate** | Refresh Import, `visibleImportRefreshSeats`, `shouldKeepPersistedImportLiveSeat`, `unionImportRefreshLeads`, drop-on-read: never delete or hide `platform` `lebanon_agent` (keep even with unit `0`). Do **not** run `keepImportLiveLead` on them. Do not treat those URLs as live_search AliExpress / Alibaba. |
-| **Cost quotes** | Still source `import`. No new persistence keys. When working/path platform is `lebanon_agent`, swap intro + `costQuotesGuideFreight` + `costQuotesGuideClearance` (EN+AR): agent invoice; door-to-door → intl shipping; duties → clearance; if all-in, don’t double-count; no ASL / Ocean Link / Chami on this path. Courier + Local quotes unchanged. Prefill / save / unlock / path-switch unchanged. |
+| **Cost quotes** | Still source `import`. No new persistence keys. When working/path platform is `lebanon_agent`, swap intro + `costQuotesGuideFreight` + `costQuotesGuideClearance` (EN+AR): agent invoice; door-to-door → intl shipping; duties → clearance; if all-in, don’t double-count; no ASL / Ocean Link / Chami on this path. Courier + Local quotes unchanged. Prefill / save / unlock / path-switch unchanged. **`unitPrice` ≤ 0 is missing** — do not prefill or estimate batch as $0. |
 | **Out** | No phones / WhatsApp scrape. No Gemini. No MIN_BUDGET. No Discovery expensive-aisle. No Local form for agents. |
 
 ---
@@ -167,7 +168,7 @@ Never commit secrets.
 - Auto-emailing suppliers without confirm
 - Moving Supplier onto Discovery cards
 - Invent Local shortlist posing as real when `SUPPLIER_LIVE_LEADS` is on (empty > invent)
-- Clearing a good **Import** shortlist when Import live returns empty (Import still heuristic-pads)
+- Clearing a good **Import** shortlist when Import live returns empty (live on: honest empty + retry, no invent pad)
 - Discovery photo gallery in this wave
 
 ---
@@ -176,6 +177,7 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-27 | **Agent unit 0 is unknown** — directory `unitPrice` / `moq` 0 is missing cost, not $0. Quotes prefill, batch estimate, and first-batch supplier dropdown treat the agent seat as a real Import option with unknown unit. |
 | 2026-08-26 | **Undo Use this agent** — in-use row is Open site + Undo (remove directory seat if no sample; block if sample exists). Does not wipe live Import listings or in-flight/approved sample. Other-host Use still replace-if-no-sample. |
 | 2026-08-26 | **Use Lebanon sourcing agent as Import seat LOCKED** — allow-list Open site + Use this agent under Import sourcing note; one `lebanon_agent` / `directory` Import seat per SKU (replace if no sample; block if sample exists); hide Assess; Refresh/gate keep unit-0 agent seats; Import quote intro/freight/clearance swap when path is `lebanon_agent` (no broker names; no new quote JSON keys). |
 | 2026-08-22 | **Lebanon agent + broker example notes LOCKED** — static Import sourcing-agent note (Nour Express / China to Lebanon / Pick N Ship / China Gate) on Import + Both; clearance-broker examples (ASL / Ocean Link / Chami) on Import footer + Import quotes only. Not cards. Not Discovery. No phones. |
