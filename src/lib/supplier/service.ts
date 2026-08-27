@@ -90,6 +90,7 @@ import {
 import {
   buildPersistedQuotedCosts,
   costQuotesNeedRefresh,
+  knownWorkingUnitPrice,
   pathSwitchShouldStaleCostQuotes,
   resolveCostQuotesPrefill,
   toMarginInput,
@@ -1672,7 +1673,9 @@ export async function getSupplierPanel(
   const localLegs = localPlanningLegs(sku.moneySnapshot);
 
   const planningPrefill = {
-    productCost: chosenSupplier?.unitPrice ?? sku.moneySnapshot.productCost,
+    productCost:
+      knownWorkingUnitPrice(chosenSupplier?.unitPrice) ??
+      sku.moneySnapshot.productCost,
     intlShip: sku.moneySnapshot.intlShip,
     clearanceTaxes: sku.moneySnapshot.clearanceTaxes,
     supplierDelivery: localLegs.supplierDelivery,
@@ -1691,7 +1694,7 @@ export async function getSupplierPanel(
     saved: quotesSaved,
     quoted,
     planningPrefill,
-    workingUnitPrice: chosenSupplier?.unitPrice ?? null,
+    workingUnitPrice: knownWorkingUnitPrice(chosenSupplier?.unitPrice),
   });
 
   const primaryState = skuJourney

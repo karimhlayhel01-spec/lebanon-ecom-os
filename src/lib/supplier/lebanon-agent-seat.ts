@@ -232,3 +232,113 @@ export function importCostQuoteCopyKeys(pathPlatform: string | null): {
     clearance: "costQuotesGuideClearance",
   };
 }
+
+/**
+ * Marketplace 3+2 plus the directory seat. Agent rank 90 stays out of groups
+ * (§3.6) but batch / chosen-supplier UI must still see the id.
+ */
+export function suppliersIncludingLebanonAgentSeat<T extends { id: string }>(
+  groups: ReadonlyArray<{ primary: T | null; backups: readonly T[] }>,
+  lebanonAgentSeat: T | null | undefined,
+): T[] {
+  const fromGroups = groups.flatMap((g) =>
+    [g.primary, ...g.backups].filter((s): s is T => Boolean(s)),
+  );
+  if (!lebanonAgentSeat) return fromGroups;
+  if (fromGroups.some((s) => s.id === lebanonAgentSeat.id)) return fromGroups;
+  return [...fromGroups, lebanonAgentSeat];
+}
+
+/** Prefer the approved sample supplier (often the agent) over groups[0]. */
+export function defaultBatchSupplierId(input: {
+  suppliers: readonly { id: string }[];
+  approvedSampleSupplierId?: string | null;
+  sampleSupplierId?: string | null;
+  approvedSupplierIds: readonly string[];
+}): string {
+  const inList = (id: string | null | undefined) =>
+    Boolean(id) && input.suppliers.some((s) => s.id === id);
+  if (inList(input.approvedSampleSupplierId)) {
+    return input.approvedSampleSupplierId as string;
+  }
+  if (inList(input.sampleSupplierId)) {
+    return input.sampleSupplierId as string;
+  }
+  const approvedSet = new Set(input.approvedSupplierIds);
+  return (
+    input.suppliers.find((s) => approvedSet.has(s.id))?.id ??
+    input.suppliers[0]?.id ??
+    ""
+  );
+}
+
+/**
+ * Directory seats store unitPrice 0 / moq 0 as unknown — not a $0 factory quote.
+ * Marketplace rows keep their stored numbers.
+ */
+export function knownSupplierUnitPrice(s: {
+  platform?: string | null;
+  unitPrice: number;
+}): number | null {
+  if (isLebanonAgentPlatform(s.platform) && !(s.unitPrice > 0)) return null;
+  return s.unitPrice;
+}
+
+export function knownSupplierMoq(s: {
+  platform?: string | null;
+  moq: number;
+}): number | null {
+  if (isLebanonAgentPlatform(s.platform) && !(s.moq > 0)) return null;
+  return s.moq;
+}
+
+export function defaultBatchQty(moq: number | null | undefined): number {
+  return moq != null && moq > 0 ? moq : 100;
+}
+
+/** Saved quote unit, else Discovery planning — never agent 0. */
+export function fallbackBatchUnitPrice(input: {
+  quotedProductCost?: number | null;
+  planningProductCost?: number | null;
+}): number | null {
+  if (input.quotedProductCost != null && input.quotedProductCost > 0) {
+    return input.quotedProductCost;
+  }
+  if (input.planningProductCost != null && input.planningProductCost > 0) {
+    return input.planningProductCost;
+  }
+  return null;
+}
+
+export function batchUnitPriceForEstimate(input: {
+  supplier: { platform?: string | null; unitPrice: number };
+  fallbackUnitPrice?: number | null;
+}): number | null {
+  const known = knownSupplierUnitPrice(input.supplier);
+  if (known != null && known > 0) return known;
+  if (isLebanonAgentPlatform(input.supplier.platform)) {
+    const fallback = input.fallbackUnitPrice;
+    if (fallback != null && fallback > 0) return fallback;
+    return null;
+  }
+  return known;
+}
+
+/**
+ * MOQ line for the batch <select>. Null when unit or MOQ is unknown so
+ * agent unitPrice 0 is not shown as a real ~$0 MOQ cost.
+ */
+export function estimateBatchCostAtMoq(input: {
+  supplier: { platform?: string | null; unitPrice: number; moq: number };
+  intlShip: number;
+  clearanceTaxes: number;
+  fallbackUnitPrice?: number | null;
+}): number | null {
+  const moq = knownSupplierMoq(input.supplier);
+  const unit = batchUnitPriceForEstimate({
+    supplier: input.supplier,
+    fallbackUnitPrice: input.fallbackUnitPrice,
+  });
+  if (moq == null || !(moq > 0) || unit == null) return null;
+  return Math.round((unit + input.intlShip + input.clearanceTaxes) * moq);
+}

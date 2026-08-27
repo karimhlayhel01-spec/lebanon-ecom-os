@@ -3,18 +3,30 @@ import path from "path";
 import { describe, expect, it } from "vitest";
 import { shouldShowAssessListing } from "@/lib/supplier/diligence/listing-url";
 import {
+  knownWorkingUnitPrice,
+  resolveCostQuotesPrefill,
+} from "@/lib/supplier/quotes";
+import {
   IMPORT_SOURCING_AGENT_DIRECTORY,
   LEBANON_AGENT_LEAD_SOURCE,
   LEBANON_AGENT_PLATFORM,
   agentNameForHost,
+  batchUnitPriceForEstimate,
   buildLebanonAgentSeatValues,
+  defaultBatchQty,
+  defaultBatchSupplierId,
+  estimateBatchCostAtMoq,
+  fallbackBatchUnitPrice,
   hostFromAgentSourceUrl,
   importCostQuoteCopyKeys,
   isLebanonAgentPlatform,
+  knownSupplierMoq,
+  knownSupplierUnitPrice,
   planUndoLebanonAgentSeat,
   planUseLebanonAgentSeat,
   sanitiseAllowListedAgentHttpsUrl,
   seatedHostAfterUndo,
+  suppliersIncludingLebanonAgentSeat,
   undoLebanonAgentDeleteIds,
 } from "@/lib/supplier/lebanon-agent-seat";
 import {
@@ -351,6 +363,69 @@ describe("lebanon_agent cost-quote copy", () => {
     );
   });
 
+  it("agent unitPrice 0 prefills from snapshot or saved quotes, not $0", () => {
+    const values = buildLebanonAgentSeatValues({
+      name: "Nour Express",
+      sourceUrl: "https://nourexpress.me",
+      productName: "Collapsible lunch box",
+    });
+    expect(values.unitPrice).toBe(0);
+    expect(knownWorkingUnitPrice(values.unitPrice)).toBeNull();
+    const planning = {
+      productCost: 6.25,
+      intlShip: 1,
+      clearanceTaxes: 0.5,
+      supplierDelivery: 1,
+      packaging: 0.5,
+      localCourier: 2,
+      sellPrice: 30,
+    };
+    expect(
+      resolveCostQuotesPrefill({
+        saved: false,
+        quoted: null,
+        planningPrefill: {
+          ...planning,
+          productCost:
+            knownWorkingUnitPrice(values.unitPrice) ?? planning.productCost,
+        },
+        workingUnitPrice: knownWorkingUnitPrice(values.unitPrice),
+      }).productCost,
+    ).toBe(6.25);
+    expect(
+      resolveCostQuotesPrefill({
+        saved: true,
+        quoted: {
+          productCost: 9,
+          intlShip: 1.2,
+          clearanceTaxes: 0.8,
+          localCourier: 2.5,
+          sellPrice: 32,
+        },
+        planningPrefill: planning,
+        workingUnitPrice: values.unitPrice,
+      }).productCost,
+    ).toBe(9);
+    const service = readFileSync(
+      path.join(process.cwd(), "src/lib/supplier/service.ts"),
+      "utf8",
+    );
+    const start = service.indexOf("const planningPrefill");
+    const end = service.indexOf("const primaryState");
+    const slice = service.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(slice).toContain("knownWorkingUnitPrice");
+    expect(slice).toContain("sku.moneySnapshot.productCost");
+    expect(slice).not.toMatch(/chosenSupplier\?\.unitPrice \?\?/);
+    expect(slice).not.toMatch(/\.set\(\{[^}]*unitPrice/);
+    const saveStart = service.indexOf("export async function saveCostQuotes");
+    const saveEnd = service.indexOf("export async function orderBatch");
+    const saveFn = service.slice(saveStart, saveEnd);
+    expect(saveFn).not.toContain("supplierOptions");
+    expect(saveFn).toContain("quotedCosts");
+  });
+
   it("does not add agent seats to Discovery service", () => {
     const discovery = readFileSync(
       path.join(process.cwd(), "src/lib/discovery/service.ts"),
@@ -383,5 +458,108 @@ describe("lebanon_agent cost-quote copy", () => {
     expect(hostFromAgentSourceUrl("https://www.nourexpress.me/path")).toBe(
       "nourexpress.me",
     );
+  });
+});
+
+describe("lebanon_agent batch dropdown + estimate (WAVE-3 §3.6)", () => {
+  const marketplace = {
+    id: "ali-1",
+    name: "Alibaba listing",
+    platform: "alibaba",
+    unitPrice: 4.5,
+    moq: 200,
+  };
+  const agent = {
+    id: "agent-1",
+    name: "Nour Express",
+    platform: LEBANON_AGENT_PLATFORM,
+    unitPrice: 0,
+    moq: 0,
+  };
+
+  it("includes the directory seat and prefers the approved agent id", () => {
+    const groups = [
+      {
+        primary: marketplace,
+        backups: [
+          {
+            id: "ali-2",
+            name: "Backup",
+            platform: "aliexpress",
+            unitPrice: 3,
+            moq: 100,
+          },
+        ],
+      },
+    ];
+    const suppliers = suppliersIncludingLebanonAgentSeat(groups, agent);
+    expect(suppliers.map((s) => s.id)).toEqual(["ali-1", "ali-2", "agent-1"]);
+    expect(
+      defaultBatchSupplierId({
+        suppliers,
+        approvedSampleSupplierId: agent.id,
+        sampleSupplierId: agent.id,
+        approvedSupplierIds: [agent.id],
+      }),
+    ).toBe(agent.id);
+    expect(defaultBatchQty(knownSupplierMoq(agent))).toBe(100);
+  });
+
+  it("does not treat agent unitPrice 0 as a real MOQ cost", () => {
+    expect(knownSupplierUnitPrice(agent)).toBeNull();
+    expect(knownSupplierMoq(agent)).toBeNull();
+    expect(
+      estimateBatchCostAtMoq({
+        supplier: agent,
+        intlShip: 1,
+        clearanceTaxes: 0.5,
+        fallbackUnitPrice: 8,
+      }),
+    ).toBeNull();
+    expect(
+      batchUnitPriceForEstimate({
+        supplier: agent,
+        fallbackUnitPrice: 8,
+      }),
+    ).toBe(8);
+    expect(
+      batchUnitPriceForEstimate({
+        supplier: agent,
+        fallbackUnitPrice: 0,
+      }),
+    ).toBeNull();
+    expect(
+      fallbackBatchUnitPrice({
+        quotedProductCost: 0,
+        planningProductCost: 6.25,
+      }),
+    ).toBe(6.25);
+    expect(
+      estimateBatchCostAtMoq({
+        supplier: marketplace,
+        intlShip: 1,
+        clearanceTaxes: 0.5,
+      }),
+    ).toBe(Math.round((4.5 + 1 + 0.5) * 200));
+  });
+
+  it("locks BatchOrder to the agent seat list (not groups-only)", () => {
+    const panel = readFileSync(
+      path.join(process.cwd(), "src/components/supplier/SupplierPanel.tsx"),
+      "utf8",
+    );
+    const start = panel.indexOf("function BatchOrder");
+    const end = panel.indexOf("function NextBatchOrder");
+    const batchFn = panel.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(batchFn).toContain("suppliersIncludingLebanonAgentSeat");
+    expect(batchFn).toContain("view.lebanonAgentSeat");
+    expect(batchFn).toContain("defaultBatchSupplierId");
+    expect(batchFn).toContain("estimateBatchCostAtMoq");
+    expect(batchFn).toContain("batchUnitPriceForEstimate");
+    expect(batchFn).toContain("knownSupplierUnitPrice");
+    expect(batchFn).not.toMatch(/view\.groups\.flatMap/);
+    expect(batchFn).not.toContain("batchEstAtMoq");
   });
 });

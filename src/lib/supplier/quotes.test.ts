@@ -4,6 +4,7 @@ import type { SkuCardView } from "@/lib/sku/service";
 import {
   buildPersistedQuotedCosts,
   costQuotesNeedRefresh,
+  knownWorkingUnitPrice,
   pathSwitchShouldStaleCostQuotes,
   resolveCostQuotesDisplayMode,
   resolveCostQuotesPrefill,
@@ -156,6 +157,45 @@ describe("resolveCostQuotesPrefill after path switch", () => {
     // Other legs stay as a starting point from prior quotes.
     expect(prefill.intlShip).toBe(1.2);
     expect(prefill.sellPrice).toBe(32);
+  });
+
+  it("treats working unitPrice <= 0 as missing (not $0)", () => {
+    expect(knownWorkingUnitPrice(0)).toBeNull();
+    expect(knownWorkingUnitPrice(-1)).toBeNull();
+    expect(knownWorkingUnitPrice(null)).toBeNull();
+    expect(knownWorkingUnitPrice(7.5)).toBe(7.5);
+    expect(
+      resolveCostQuotesPrefill({
+        saved: false,
+        quoted: null,
+        planningPrefill: planning,
+        workingUnitPrice: 0,
+      }).productCost,
+    ).toBe(4);
+    expect(
+      resolveCostQuotesPrefill({
+        saved: false,
+        quoted: null,
+        planningPrefill: planning,
+        workingUnitPrice: -1,
+      }).productCost,
+    ).toBe(4);
+    expect(
+      resolveCostQuotesPrefill({
+        saved: false,
+        quoted,
+        planningPrefill: planning,
+        workingUnitPrice: 0,
+      }).productCost,
+    ).toBe(5);
+    expect(
+      resolveCostQuotesPrefill({
+        saved: true,
+        quoted,
+        planningPrefill: planning,
+        workingUnitPrice: 0,
+      }).productCost,
+    ).toBe(5);
   });
 });
 

@@ -220,7 +220,15 @@ function prefillFromQuoted(quoted: QuotedPrefillSource): CostQuotesPrefillFields
  * When quotes are saved, show saved numbers.
  * When unsaved (first path or after path switch), prefer the working supplier’s
  * unit price for productCost; keep other legs from prior quotes if present.
+ * unitPrice <= 0 is unknown (agent directory seats) — do not let `??` keep $0.
  */
+export function knownWorkingUnitPrice(
+  unitPrice: number | null | undefined,
+): number | null {
+  if (unitPrice == null || unitPrice <= 0) return null;
+  return unitPrice;
+}
+
 export function resolveCostQuotesPrefill(args: {
   saved: boolean;
   quoted: QuotedPrefillSource | null;
@@ -235,7 +243,8 @@ export function resolveCostQuotesPrefill(args: {
     : args.planningPrefill;
   return {
     ...base,
-    productCost: args.workingUnitPrice ?? base.productCost,
+    productCost:
+      knownWorkingUnitPrice(args.workingUnitPrice) ?? base.productCost,
   };
 }
 

@@ -52,9 +52,17 @@ import {
 } from "@/lib/supplier/lebanon-agent-notes";
 import {
   IMPORT_SOURCING_AGENT_DIRECTORY,
+  batchUnitPriceForEstimate,
+  defaultBatchQty,
+  defaultBatchSupplierId,
+  estimateBatchCostAtMoq,
+  fallbackBatchUnitPrice,
   hostFromAgentSourceUrl,
   importCostQuoteCopyKeys,
   isLebanonAgentPlatform,
+  knownSupplierMoq,
+  knownSupplierUnitPrice,
+  suppliersIncludingLebanonAgentSeat,
 } from "@/lib/supplier/lebanon-agent-seat";
 import { shouldShowAssessListing } from "@/lib/supplier/diligence/listing-url";
 import type {
@@ -572,12 +580,10 @@ export function SupplierPanel({ view }: { view: SupplierPanelView }) {
   /** Read-only browse when the interactive shortlist is hidden (sample freeze / post-accept). */
   const [browseShortlist, setBrowseShortlist] = useState(false);
 
-  const allSuppliers = [
-    ...(view.groups.flatMap((g) =>
-      [g.primary, ...g.backups].filter(Boolean),
-    ) as SupplierView[]),
-    ...(view.lebanonAgentSeat ? [view.lebanonAgentSeat] : []),
-  ];
+  const allSuppliers = suppliersIncludingLebanonAgentSeat(
+    view.groups,
+    view.lebanonAgentSeat,
+  );
   const suppliersById = indexSuppliersById(view);
 
   const showShortlist = view.showShortlist;
@@ -2312,14 +2318,6 @@ function CostField({
   );
 }
 
-function batchEstAtMoq(
-  s: SupplierView,
-  intlShip: number,
-  clearanceTaxes: number,
-): number {
-  return Math.round((s.unitPrice + intlShip + clearanceTaxes) * s.moq);
-}
-
 /** Stable USD formatting — avoid SSR/client locale mismatches from toLocaleString(). */
 function formatUsd(n: number): string {
   return n.toLocaleString("en-US");
@@ -2328,33 +2326,44 @@ function formatUsd(n: number): string {
 function BatchOrder({ view }: { view: SupplierPanelView }) {
   const t = useTranslations("Supplier");
   const [pending, startTransition] = useTransition();
-  const suppliers = view.groups.flatMap((g) =>
-    [g.primary, ...g.backups].filter(Boolean),
-  ) as SupplierView[];
+  const suppliers = suppliersIncludingLebanonAgentSeat(
+    view.groups,
+    view.lebanonAgentSeat,
+  );
   // Prefer a supplier with an approved sample (batch is only legal with them).
   // Path B may approve a backup — any approved id is eligible, not only "working".
   const approvedSet = new Set(view.approvedSupplierIds);
-  const defaultId =
-    view.approvedSampleSupplierId &&
-    suppliers.some((s) => s.id === view.approvedSampleSupplierId)
-      ? view.approvedSampleSupplierId
-      : view.sample?.supplierId &&
-          suppliers.some((s) => s.id === view.sample!.supplierId)
-        ? view.sample.supplierId
-        : (suppliers.find((s) => approvedSet.has(s.id))?.id ??
-          suppliers[0]?.id ??
-          "");
+  const fallbackUnit = fallbackBatchUnitPrice({
+    quotedProductCost: view.costQuotes.quoted?.productCost,
+    planningProductCost: view.money.productCost,
+  });
+  const defaultId = defaultBatchSupplierId({
+    suppliers,
+    approvedSampleSupplierId: view.approvedSampleSupplierId,
+    sampleSupplierId: view.sample?.supplierId,
+    approvedSupplierIds: view.approvedSupplierIds,
+  });
   const [supplierId, setSupplierId] = useState(defaultId);
   const selected = suppliers.find((s) => s.id === supplierId) ?? suppliers[0];
-  const [qty, setQty] = useState(selected?.moq ?? 100);
+  const [qty, setQty] = useState(
+    defaultBatchQty(selected ? knownSupplierMoq(selected) : null),
+  );
   const [acks, setAcks] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const freight =
     view.batchBasis.intlShip + view.batchBasis.clearanceTaxes;
-  const perUnit = (selected?.unitPrice ?? 0) + freight;
-  const estCost = Math.round(perUnit * qty);
-  const overLimit = estCost > view.softLimitUsd;
+  const unitPrice = selected
+    ? batchUnitPriceForEstimate({
+        supplier: selected,
+        fallbackUnitPrice: fallbackUnit,
+      })
+    : null;
+  const estCost =
+    unitPrice != null && qty > 0
+      ? Math.round((unitPrice + freight) * qty)
+      : null;
+  const overLimit = estCost != null && estCost > view.softLimitUsd;
 
   // Hard gate mirror: batch only when selection has an approved sample.
   const canBatchSelected = !!selected && approvedSet.has(selected.id);
@@ -2365,17 +2374,25 @@ function BatchOrder({ view }: { view: SupplierPanelView }) {
   // the dropdown; next step is SAMPLE for that backup, not batch.
   const pathBOptions = overLimit
     ? suppliers
-        .filter(
-          (s) =>
-            s.id !== selected?.id && s.moq < (selected?.moq ?? Infinity),
-        )
+        .filter((s) => {
+          const moq = knownSupplierMoq(s);
+          const selectedMoq = selected
+            ? knownSupplierMoq(selected)
+            : null;
+          return (
+            s.id !== selected?.id &&
+            moq != null &&
+            selectedMoq != null &&
+            moq < selectedMoq
+          );
+        })
         .sort((a, b) => a.moq - b.moq || a.unitPrice - b.unitPrice)
         .slice(0, 6)
     : [];
 
   function selectPathBSupplier(s: SupplierView) {
     setSupplierId(s.id);
-    setQty(s.moq);
+    setQty(defaultBatchQty(knownSupplierMoq(s)));
     setAcks(false);
     setError(null);
   }
@@ -2407,23 +2424,31 @@ function BatchOrder({ view }: { view: SupplierPanelView }) {
             onChange={(e) => {
               setSupplierId(e.target.value);
               const s = suppliers.find((x) => x.id === e.target.value);
-              if (s) setQty(s.moq);
+              if (s) setQty(defaultBatchQty(knownSupplierMoq(s)));
               setAcks(false);
               setError(null);
             }}
             className="mt-1 w-full rounded-md border border-stone bg-surface px-2.5 py-2 text-sm text-ink outline-none focus:border-cedar"
           >
             {suppliers.map((s) => {
-              const est = batchEstAtMoq(
-                s,
-                view.batchBasis.intlShip,
-                view.batchBasis.clearanceTaxes,
-              );
+              const moq = knownSupplierMoq(s);
+              const unit = knownSupplierUnitPrice(s);
+              const est = estimateBatchCostAtMoq({
+                supplier: s,
+                intlShip: view.batchBasis.intlShip,
+                clearanceTaxes: view.batchBasis.clearanceTaxes,
+                fallbackUnitPrice: fallbackUnit,
+              });
+              const moneyBits = [
+                moq != null ? `MOQ ${moq}` : null,
+                unit != null ? `$${unit.toFixed(2)}` : null,
+                est != null ? `~$${formatUsd(est)}` : null,
+              ].filter(Boolean);
               return (
                 <option key={s.id} value={s.id}>
                   [{s.source === "local" ? t("sourceLocal") : t("sourceImport")}]{" "}
-                  {s.name} — MOQ {s.moq} · ${s.unitPrice.toFixed(2)} · ~
-                  {`$${formatUsd(est)}`}
+                  {s.name}
+                  {moneyBits.length > 0 ? ` — ${moneyBits.join(" · ")}` : ""}
                 </option>
               );
             })}
@@ -2446,7 +2471,7 @@ function BatchOrder({ view }: { view: SupplierPanelView }) {
         <span
           className={`font-semibold ${overLimit ? "text-amber-800" : "text-cedar-deep"}`}
         >
-          ~${formatUsd(estCost)}
+          {estCost != null ? `~$${formatUsd(estCost)}` : "—"}
         </span>
         <span className="text-[11px] text-stone-dark">
           {view.batchBasis.usesQuotes
@@ -2505,11 +2530,17 @@ function BatchOrder({ view }: { view: SupplierPanelView }) {
               </p>
               <ul className="mt-2 space-y-2">
                 {pathBOptions.map((s) => {
-                  const est = batchEstAtMoq(
-                    s,
-                    view.batchBasis.intlShip,
-                    view.batchBasis.clearanceTaxes,
-                  );
+                  const moq = knownSupplierMoq(s);
+                  const unit = batchUnitPriceForEstimate({
+                    supplier: s,
+                    fallbackUnitPrice: fallbackUnit,
+                  });
+                  const est = estimateBatchCostAtMoq({
+                    supplier: s,
+                    intlShip: view.batchBasis.intlShip,
+                    clearanceTaxes: view.batchBasis.clearanceTaxes,
+                    fallbackUnitPrice: fallbackUnit,
+                  });
                   return (
                     <li
                       key={s.id}
@@ -2518,10 +2549,17 @@ function BatchOrder({ view }: { view: SupplierPanelView }) {
                       <div className="min-w-0">
                         <p className="truncate font-medium text-ink">{s.name}</p>
                         <p className="text-[11px] text-stone-dark">
-                          {t("moq")} {s.moq} · ${s.unitPrice.toFixed(2)} ·{" "}
-                          {t("pathBEstAtMoq", {
-                            cost: formatUsd(est),
-                          })}
+                          {moq != null ? `${t("moq")} ${moq}` : null}
+                          {moq != null && unit != null ? " · " : null}
+                          {unit != null ? `$${unit.toFixed(2)}` : null}
+                          {est != null ? (
+                            <>
+                              {" · "}
+                              {t("pathBEstAtMoq", {
+                                cost: formatUsd(est),
+                              })}
+                            </>
+                          ) : null}
                         </p>
                       </div>
                       <button
