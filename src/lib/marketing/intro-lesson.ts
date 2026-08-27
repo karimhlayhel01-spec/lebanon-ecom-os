@@ -6,6 +6,7 @@
  * or validation fails. No COD-as-marketing-wow (Lebanon default).
  */
 
+import { XPOZ_MCP_CONNECTOR_URL } from "@/lib/marketing/ai-desk";
 import {
   fillNiche,
   nicheFor,
@@ -27,9 +28,14 @@ export const INTRO_LESSON_SECTION_IDS = [
 
 /** AI literacy — fixed titles; calm tool hints (not model-authored titles). */
 export const INTRO_LITERACY_SECTION_IDS = [
-  "ai_captions",
   "ai_image_nano",
   "ai_video_seedance",
+  "ai_competitors_xpoz",
+] as const;
+
+/** Dropped literacy ids — strip on load; ignore if Gemini still emits them. */
+export const RETIRED_INTRO_SECTION_IDS = [
+  "ai_captions",
   "ai_chat_claude",
   "ai_cursor_optional",
 ] as const;
@@ -106,10 +112,6 @@ export const INTRO_SECTION_TITLES: Record<
     titleEn: "8. Your marketing journey map",
     titleAr: "٨. خريطة رحلة التسويق",
   },
-  ai_captions: {
-    titleEn: "AI for captions (ChatGPT / Claude)",
-    titleAr: "الذكاء الاصطناعي للتعليقات (ChatGPT / Claude)",
-  },
   ai_image_nano: {
     titleEn: "Stills with Nano Banana",
     titleAr: "صور ثابتة مع Nano Banana",
@@ -118,13 +120,9 @@ export const INTRO_SECTION_TITLES: Record<
     titleEn: "Motion with Seedance",
     titleAr: "حركة قصيرة مع Seedance",
   },
-  ai_chat_claude: {
-    titleEn: "Strategy help with Claude / ChatGPT",
-    titleAr: "مساعدة استراتيجية مع Claude / ChatGPT",
-  },
-  ai_cursor_optional: {
-    titleEn: "Cursor (optional advanced tip)",
-    titleAr: "Cursor (نصيحة متقدّمة اختيارية)",
+  ai_competitors_xpoz: {
+    titleEn: "Competitors with Xpoz",
+    titleAr: "منافسون مع Xpoz",
   },
 };
 
@@ -146,22 +144,46 @@ export function isIntroLiteracySectionId(
   return (INTRO_LITERACY_SECTION_IDS as readonly string[]).includes(id);
 }
 
+/** SKU-tailored Claude + Xpoz study prompt. Copy uses this helper — never parse lesson bodies. */
+export function buildXpozClaudePrompt(args: {
+  productName: string;
+  category: string;
+  locale: "en" | "ar";
+}): string {
+  const name = args.productName.trim() || "your product";
+  const niche = nicheFor(args.category.trim());
+  if (args.locale === "ar") {
+    return [
+      `أنت تساعد في دراسة المنافسين لهذا المنتج: ${name}.`,
+      `أبيع في لبنان. المحتوى عربي أولاً. الطلبات عبر واتساب.`,
+      `عالم النيش: ${niche.worldAr}.`,
+      `استخدم موصل Xpoz (${XPOZ_MCP_CONNECTOR_URL}) لهذه الدراسة. المنشورات العلنية فقط. لا تخترع عائد إنفاق إعلاني (ROAS) أو هوامش أو فتح مراحل — تلك تبقى في نظام التشغيل.`,
+      `ابحث أولاً`,
+      `ابحث في إنستغرام وتيك توك عن هذا النيش في لبنان / بالعربية. جد ٥–٨ حسابات تبدو كمتاجر تبيع لنفس المشترين لـ ${name}. تجاوز الوكالات والحسابات الفيروسية العشوائية والحسابات التي لا تبيع هنا.`,
+      `ثم ادرس`,
+      `لهذه المتاجر، انظر آخر نحو ١٥ منشوراً: الخطّافات، التنسيقات، والعروض.`,
+      `أفكار فقط`,
+      `جد أيضاً ٢–٣ حسابات أجنبية في نفس النيش. خذ إيقاعات يمكن تكييفها لـ ${name} في لبنان — لا تنسخها كعلامة.`,
+      `إذا كنت أعرف متاجر مسبقاً، أدرج: @___ (لا بأس إن بقي فارغاً)`,
+    ].join("\n\n");
+  }
+  return [
+    `You are helping me study competitors for THIS product: ${name}.`,
+    `I sell in Lebanon. Content is Arabic-first. Orders go through WhatsApp.`,
+    `Niche world: ${niche.worldEn}.`,
+    `Use the Xpoz connector (${XPOZ_MCP_CONNECTOR_URL}) to do this study. Public posts only. Do not invent ROAS, margins, or unlocks — those stay in this operating system.`,
+    `FIND FIRST`,
+    `Search Instagram and TikTok for this niche in Lebanon / Arabic. Find 5–8 accounts that look like shops selling to the same buyers as ${name}. Skip agencies, random viral accounts, and accounts that are not selling here.`,
+    `THEN STUDY`,
+    `For those shops, look at the last ~15 posts: hooks, formats, and offers.`,
+    `IDEAS ONLY`,
+    `Also find 2–3 foreign accounts in the same niche. Pull beats I can adapt for ${name} in Lebanon — do not copy them as a brand.`,
+    `If I already know shops, include: @___ (ok if empty)`,
+  ].join("\n\n");
+}
+
 function buildLiteracySections(name: string): IntroLessonSection[] {
   return [
-    {
-      id: "ai_captions",
-      ...INTRO_SECTION_TITLES.ai_captions,
-      bodyEn: [
-        `Use ChatGPT or Claude to draft captions and comment replies for ${name} — then edit in your voice.`,
-        `Paste your hook + one product fact. Ask for 3 short EN options and 3 AR options. Never paste private customer data.`,
-        `Keep WhatsApp as the order path. AI writes drafts; you decide what posts.`,
-      ].join("\n\n"),
-      bodyAr: [
-        `استخدم ChatGPT أو Claude لصياغة التعليقات وردود التعليقات لـ ${name} — ثم عدّل بصوتك.`,
-        `الصق الخطّاف وحقيقة منتج واحدة. اطلب ٣ خيارات قصيرة بالإنجليزية و٣ بالعربية. لا تلصق بيانات زبائن خاصة.`,
-        `أبقِ واتساب مسار الطلب. الذكاء الاصطناعي يكتب مسودات؛ أنت تقرّر ما يُنشر.`,
-      ].join("\n\n"),
-    },
     {
       id: "ai_image_nano",
       ...INTRO_SECTION_TITLES.ai_image_nano,
@@ -191,31 +213,17 @@ function buildLiteracySections(name: string): IntroLessonSection[] {
       ].join("\n\n"),
     },
     {
-      id: "ai_chat_claude",
-      ...INTRO_SECTION_TITLES.ai_chat_claude,
+      id: "ai_competitors_xpoz",
+      ...INTRO_SECTION_TITLES.ai_competitors_xpoz,
       bodyEn: [
-        `Claude or ChatGPT can help plan a week of angles for ${name} — series ideas, reply scripts, niche wording.`,
-        `Ask: “Given this product and niche, what are 3 series titles and one DM order reply?” Paste facts from this lesson.`,
-        `They do not unlock Marketing stages or invent ROAS. Skills and gates in this OS stay the source of truth.`,
+        `Claude + Xpoz (not this OS) can find Lebanon shops selling like ${name}, then study recent posts.`,
+        `In Claude, add the Xpoz connector (${XPOZ_MCP_CONNECTOR_URL}). Copy the prompt below, paste it, and ask Claude to run the study.`,
+        `Find shops first if you do not know handles. Two or three foreign accounts are ideas only — do not copy them as a brand.`,
       ].join("\n\n"),
       bodyAr: [
-        `Claude أو ChatGPT يمكنهما المساعدة في تخطيط زوايا أسبوع لـ ${name} — أفكار سلاسل، نصوص رد، صياغة النيش.`,
-        `اسأل: «لهذا المنتج والنيش، ما ٣ عناوين سلاسل ورد طلب واحد في الرسائل؟» الصق حقائق من هذا الدرس.`,
-        `هما لا يفتحان مراحل التسويق ولا يخترعان عائد إعلانات. المهارات والبوابات في هذا النظام تبقى مصدر الحقيقة.`,
-      ].join("\n\n"),
-    },
-    {
-      id: "ai_cursor_optional",
-      ...INTRO_SECTION_TITLES.ai_cursor_optional,
-      bodyEn: [
-        `Cursor is optional for advanced founders who already work in code or docs — not your default marketing manager.`,
-        `Use it only if you want help drafting long briefs or organizing assets for ${name}. Day-to-day posts stay in ChatGPT/Claude + this lesson.`,
-        `Skip Cursor if you just want to ship captions and creatives — that is the intended path.`,
-      ].join("\n\n"),
-      bodyAr: [
-        `Cursor اختياري لمؤسسين متقدّمين يعملون أصلاً في الكود أو المستندات — ليس مدير التسويق الافتراضي.`,
-        `استخدمه فقط إن أردت مساعدة في موجزات طويلة أو تنظيم أصول لـ ${name}. المنشورات اليومية تبقى في ChatGPT/Claude + هذا الدرس.`,
-        `تخطَّ Cursor إن أردت فقط نشر التعليقات والإبداعات — هذا هو المسار المقصود.`,
+        `Claude + Xpoz (ليس هذا النظام) يمكنه إيجاد متاجر لبنانية تبيع مثل ${name}، ثم دراسة المنشورات الأخيرة.`,
+        `في Claude أضف موصل Xpoz (${XPOZ_MCP_CONNECTOR_URL}). انسخ الموجّه أدناه، الصقه، واطلب من Claude تشغيل الدراسة.`,
+        `ابحث عن المتاجر أولاً إذا لم تعرف المعرّفات. حسابان أو ثلاثة أجنبية أفكار فقط — لا تنسخها كعلامة.`,
       ].join("\n\n"),
     },
   ];
@@ -435,8 +443,38 @@ export function applyCanonicalTitles(
 }
 
 /**
+ * After Gemini assemble: literacy how-to is template SoT (Nano / Seedance / Xpoz).
+ * Core hook…journey_map bodies stay as passed.
+ */
+export function applyTemplateLiteracyBodies(
+  lesson: IntroLessonPayload,
+): IntroLessonPayload {
+  const template = buildIntroLesson({
+    name: lesson.productName,
+    category: lesson.category === "unknown" ? "" : lesson.category,
+  });
+  const byId = new Map(template.sections.map((s) => [s.id, s]));
+  return applyCanonicalTitles({
+    ...lesson,
+    sections: lesson.sections.map((s) => {
+      if (!isIntroLiteracySectionId(s.id)) return s;
+      const fallback = byId.get(s.id);
+      if (!fallback) return s;
+      return {
+        ...s,
+        titleEn: fallback.titleEn,
+        titleAr: fallback.titleAr,
+        bodyEn: fallback.bodyEn,
+        bodyAr: fallback.bodyAr,
+      };
+    }),
+  });
+}
+
+/**
  * Ensure literacy sections exist (older kits may only have the 8 core ids).
  * Preserves existing bodies; fills missing literacy from templates.
+ * Drops retired ids (ai_captions, ai_chat_claude, ai_cursor_optional).
  */
 export function ensureIntroLessonComplete(
   lesson: IntroLessonPayload,

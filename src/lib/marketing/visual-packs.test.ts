@@ -133,9 +133,9 @@ describe("nextAutoPhotoPackName", () => {
 });
 
 describe("visualToolUsesPhotoPack", () => {
-  it("Nano/Seedance yes; phone film no", () => {
+  it("Nano yes; Seedance and phone film no", () => {
     expect(visualToolUsesPhotoPack("nano_banana")).toBe(true);
-    expect(visualToolUsesPhotoPack("seedance")).toBe(true);
+    expect(visualToolUsesPhotoPack("seedance")).toBe(false);
     expect(visualToolUsesPhotoPack("phone_film")).toBe(false);
   });
 });
@@ -236,9 +236,15 @@ describe("Phase 6b UI source", () => {
     expect(ui).toMatch(
       /HIGGSFIELD_MCP_CONNECTOR_URL = "https:\/\/mcp\.higgsfield\.ai"/,
     );
+    const usesPack = ui.slice(
+      ui.indexOf("export function visualToolUsesPhotoPack"),
+      ui.indexOf("HIGGSFIELD_MCP_CONNECTOR_URL"),
+    );
+    expect(usesPack).toMatch(/nano_banana/);
+    expect(usesPack).not.toMatch(/seedance/);
   });
 
-  it("Nano/Seedance cards pick a pack; phone film and shop kit do not", () => {
+  it("Nano cards pick a pack; Seedance, phone film, and shop kit do not", () => {
     const panel = readFileSync(
       path.join(root, "src/components/marketing/MarketingPanel.tsx"),
       "utf8",

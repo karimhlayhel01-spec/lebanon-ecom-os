@@ -84,8 +84,9 @@ export function photoPackMotionHref(packId: string): string {
   return `/api/marketing/visual-motion/${encodeURIComponent(packId)}`;
 }
 
+/** Pack picker / empty pointer on Nano cards only. Seedance is Copy + Claude, not in-OS Generate. */
 export function visualToolUsesPhotoPack(tool: CreativeVisualTool): boolean {
-  return tool === "nano_banana" || tool === "seedance";
+  return tool === "nano_banana";
 }
 
 /** Higgsfield MCP connector — teach on Seedance cards. Do not fetch from Next.js. */

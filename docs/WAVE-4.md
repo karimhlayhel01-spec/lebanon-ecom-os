@@ -30,7 +30,7 @@ Lebanon Ecom OS Marketing is **AI-native kits**: content tailored per SKU (and w
 | **Skills / gates own truth** | Unlocks, capacity tiers, COD-as-wow ban, margin honesty stay in skills/gates. **LLM does not** unlock stages or invent ROAS / money advice. |
 | **Approach A** | Generate / improve on **explicit founder click** — not every page load. |
 | **In-OS LLM** | **Gemini first** via a `MarketingLlmProvider` seam (name flexible). Claude API later = **provider swap**, not a rewrite. |
-| **External AI desk** | Copy **whole kit** + optional Claude **Skill recipe** (shop-wide guardrails). Teaching copy only — founder opens Claude/ChatGPT themselves. No Claude/ChatGPT API; desk does **not** auto-fill kit cards. UI: collapsed behind **More help** (default closed) so kit + visual tool stay primary. |
+| **External AI desk** | **Removed 2026-08-27.** No More help · Claude, whole-kit paste, or Skill recipe on the kit. Seedance cards still teach Copy prompt + Open Claude (`https://claude.ai`). Intro literacy is Nano + Seedance + **Xpoz** (Claude connector, not in this OS). Kits unchanged. Higgsfield stays Seedance-only. |
 | **Whole-shop kit** | When ≥3 live SKUs, kit may use `skuId` **null** — brand / multi-SKU only. **Intro AI is per-SKU only** (never whole-shop Intro). |
 | **Store pack** | Attractiveness / discoverability / SEO pack = **Store** side surface (roadmap Phase 2) — not a new Marketing stage. |
 | **Non-promises** | No Google Merchant API, ranking guarantees, or AI-chatbot citation promises in Wave 4. |
@@ -60,7 +60,7 @@ Amend dates / promotion in §7 changelog.
 
 - **Ledger (Marketing only):** successful Gemini calls for **Intro fill** + **creatives kit improve** counted per workspace per UTC month (`marketing_gemini_usage`). Launch / weekly creatives meter **once per successful chunk**. Visual-prompt polish meters only when it actually calls Gemini (with `workspaceId`). **Store `improveStorePageCopy` is not wired** into this ledger.
 - Env: `MARKETING_GEMINI_MONTHLY_CAP` (default 40; `0` = templates only). At/over cap → fail-closed to templates / skills + calm honesty (`lessonAiCap` / `kitAiCap`); Try AI fill again hidden while capped.
-- Targeted EN/AR + RTL for Marketing Phase 3/5 / how-to / More help / cap copy. Desk stays behind More help (copy whole kit + optional Skill recipe). No Marketing redesign; no Phase 4/6 work.
+- Targeted EN/AR + RTL for Marketing Phase 3/5 / how-to / cap copy. **More help · Claude desk removed 2026-08-27.** No Marketing redesign; no Phase 4/6 work.
 
 ---
 
@@ -92,10 +92,10 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 
 - Upload opens a **page** titled **Add product photos** (not a tiny button with no explanation).
 - Named **packs**: each pack = photos of the **same product look** (a few angles) + optional **one** short product-motion clip when the motion is the proof (collapse/pour). **Not** a finished social Reel.
-- One pack is **default**. On each Nano/Seedance card, founder may pick which pack **this post** uses (same SKU, different look). If they never pick, use default.
+- One pack is **default**. On each **Nano** card, founder may pick which pack **this post** uses (same SKU, different look). If they never pick, use default. **Seedance cards have no pack picker** (Generate off; Copy + Claude).
 - **Not** a shop-wide folder library and **not** “create a folder named folder then rename then attach to every product.” Packs live on **this SKU**.
 - **Bold HOW TO PHOTOGRAPH** (full checklist) at the **top of the upload page only**: window light, product fills the frame, a few angles, less clutter; optional short clip only if motion is the proof; bad photos → weak Nano/Seedance. **Do not** repeat this essay on every kit card.
-- Nano/Seedance card with **no pack**: short pointer to the upload page (e.g. add product photos; how to shoot them is on that page). **Not** a second shot list.
+- **Nano** card with **no pack**: short pointer to the upload page (e.g. add product photos; how to shoot them is on that page). **Not** a second shot list. Seedance cards do not show this pointer.
 - **No** AI photo-approval / Gemini judging uploads.
 
 ### Generate
@@ -172,14 +172,14 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 
 | Rule | Detail |
 | --- | --- |
-| **Seedance Generate** | **Off** in OS. No Generate / Regenerate / result popup on Seedance cards. |
+| **Seedance Generate** | **Off** in OS. No Generate / Regenerate / result popup on Seedance cards. No pack picker / empty “add product photos” pointer. |
 | **Copy prompt** | **On.** Same paired Gemini rewrite (`copyNanoVisualPromptAction` / `resolveSeedanceHiggsfieldPrompt`). Fail-closed to skills sanitize. |
 | **Teach** | Three-line Claude ↔ Higgsfield connector how-to. Connector `https://mcp.higgsfield.ai`. Optional **Open Claude** (`https://claude.ai`). |
 | **Nano Generate** | **Stays.** |
 | **Out** | iframe `higgsfield.ai`; Next.js calling `mcp.higgsfield`; Kling/Veo; hiding Nano Generate. |
 
 - **Seedance:** **creates** a short draft clip from photos (and optional product clip) **in Claude + Higgsfield Seedance**, not in this OS. Does **not** edit a video they already filmed as the post.
-- **Seedance cards:** **bold** choice line: two ways — film this shot list on the phone, **or** Copy prompt + Claude Seedance (**not** in-OS Generate).
+- **Seedance cards:** **bold** choice line: two ways — film this shot list on the phone, **or** Copy prompt + Claude Seedance (**not** in-OS Generate). No pack picker / add-photos pointer on the card (kit-top **Add product photos** stays for Nano).
 - **Phone film cards:** no upload, no Generate, no Nano/Seedance, no pack picker.
 
 ### Result popup
@@ -233,7 +233,7 @@ Intent remains: one next creative, Posted / Skipped honor-system, OS SoT (no Cal
 - Validate rejects COD-as-wow, pre_launch soft bans, required fields / length / product name, **thin shot lines**.
 - Cards show **How to shoot** (phone / light / length / order); Phase 5 prompts reuse the same shot + how-to detail.
 - Whole-kit generate only (no Store-style per-creative version picker; no visual gen).
-- **External AI desk:** Copy **whole kit** (product, stage, weekIndex/labels, non-ignored cards: format, hook/caption EN+AR, shots, howToShoot EN+AR — no templateIds/source/caps/file URLs) + optional shop-wide Claude **Skill recipe** (Lebanon, WhatsApp order path, no COD-as-wow, no ROAS/margins/stage unlock, don’t invent a full kit; **no productName** in the skill). Empty kit → honest one-line empty. Optional link to `https://claude.ai/customize/skills`. Founder opens Claude/ChatGPT themselves. No Claude/ChatGPT API; desk does **not** auto-fill kit cards. UI: collapsed behind **More help** (default closed) so kit + visual tool stay primary.
+- **External AI desk:** **Removed 2026-08-27** — no More help · Claude, whole-kit paste, or Skill recipe. Seedance **Open Claude** on the card stays. Intro literacy is Nano + Seedance + Xpoz.
 - Provider: `MarketingLlmProvider.improveCreativesKit` → `creatives-llm.ts`.
 
 ---
@@ -255,17 +255,19 @@ Intent remains: one next creative, Posted / Skipped honor-system, OS SoT (no Cal
 
 - Canonical section **ids** remain `INTRO_LESSON_SECTION_IDS` in `src/lib/marketing/intro-lesson.ts` (`hook`, `niche_signal`, `why_follow`, `reply_loop`, `series`, `three_metrics`, `dm_order_clarity`, `journey_map`).
 - **Titles** come from code / i18n by id — UI must **not** depend on model-supplied titles.
-- Gemini fills **`bodyEn` / `bodyAr`** only for the owned SKU; validate; on failure fall back to deterministic `buildIntroLesson`.
+- Gemini fills **`bodyEn` / `bodyAr`** for **core** sections (`hook`…`journey_map`) only. After assemble, literacy (`ai_image_nano`, `ai_video_seedance`, `ai_competitors_xpoz`) is **overwritten** from `buildIntroLesson` for that product. On failure fall back to deterministic `buildIntroLesson`.
 
 ### 4.2 AI literacy block (fixed titles)
 
 Calm, fixed-title block (not model-authored titles). Canonical ids in `INTRO_LITERACY_SECTION_IDS`:
 
-- `ai_captions` — Chat AI for captions
 - `ai_image_nano` — Nano Banana stills: **Generate in this OS** on post/carousel cards; Copy prompt backup. Not an external image site.
-- `ai_video_seedance` — Seedance (motion / short-video tooling hint)
-- `ai_chat_claude` — Claude / ChatGPT as strategy / post helpers
-- `ai_cursor_optional` — Cursor as optional advanced tip
+- `ai_video_seedance` — Seedance: **Copy kit prompt + Claude Higgsfield** (`https://mcp.higgsfield.ai`); not in this OS. No film-plan / overlay / hands-as-how-to novels.
+- `ai_competitors_xpoz` — Xpoz (Claude connector): competitor **discover-then-study**. Not in this OS. Not a kit card. Not Higgsfield. Connector `https://mcp.xpoz.ai/mcp`. Copy uses a deterministic helper (`buildXpozClaudePrompt`); do not parse lesson bodies.
+
+After Gemini assemble (`validateAndAssembleIntroLesson`), literacy bodies are **template SoT** (`applyTemplateLiteracyBodies`). Core hook…journey_map stay Gemini. Persisted Gemini literacy novels stay until Generate / Try AI fill / audit regen.
+
+`ai_captions`, `ai_chat_claude`, and `ai_cursor_optional` **removed 2026-08-27**. Persisted intros drop retired ids on load via `ensureIntroLessonComplete` — no regen required. Missing `ai_competitors_xpoz` is **backfilled** on load. Kit Seedance Open Claude stays.
 
 Same Intro accordion under a literacy subheading.
 
@@ -317,6 +319,13 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-27 | **Intro literacy = template after Gemini assemble** — overwrite `ai_*` from `buildIntroLesson`; core stays Gemini. Seedance = Copy + Claude Higgsfield. Gemini must not invent Seedance film-plans. |
+| 2026-08-27 | **TEMPORARY Intro lesson-block Regenerate (audit) — removed** — rail stays fixed. Successful Intro stays fixed on the rail. |
+| 2026-08-27 | **Intro literacy: Xpoz third row** — `ai_competitors_xpoz` (Claude + Xpoz MCP). Discover-then-study competitors; not in this OS; not a kit card; not Higgsfield. Copy helper `buildXpozClaudePrompt`. Nano + Seedance stay. Kits / Seedance Generate-off / pack picker unchanged. Backfill on load. |
+| 2026-08-27 | **Intro literacy: Nano + Seedance only** — drop `ai_chat_claude` and `ai_cursor_optional` (with `ai_captions`). Kicker is stills/motion. Seedance card Open Claude stays. More literacy later when founder says so. Persisted intros strip on load. |
+| 2026-08-27 | **Intro literacy: drop AI for captions** — `ai_captions` accordion gone. Kicker no longer names captions. Kit captions stay on cards. Persisted intros strip the section on load (no regen). Claude / Nano / Seedance / Cursor literacy stay. |
+| 2026-08-27 | **Seedance cards: no pack picker** — empty “add product photos” pointer and pack select are Nano only. Kit-top Add product photos stays. Copy prompt + Open Claude unchanged. |
+| 2026-08-27 | **More help · Claude removed** — no whole-kit paste, Skill recipe, or Open Claude Skills on the kit. Seedance Copy prompt + Open Claude stays. Intro Claude literacy stays. `deskCopied` kept for Copy prompt flash. |
 | 2026-08-27 | **Intro literacy Nano = in-OS Generate** — `ai_image_nano` no longer says open Nano Banana externally. Template + Gemini prompt: Generate on post/carousel cards; Copy prompt backup; packs; draft; caption carries the line. No Higgsfield name. Literacy kicker (`lessonAiLiteracyIntro`) no longer says all tools are external. Captions/Claude/Cursor stay external. Seedance literacy unchanged. Persisted Gemini Intro bodies keep old text until Generate lesson / Try AI fill. |
 | 2026-08-27 | **Seedance = Copy prompt + Claude↔Higgsfield** — in-OS Generate **off** (Cloud REST 404 `model_not_found`; website/MCP Seedance works). Copy prompt **on**. Three-line Claude connector how-to (`https://mcp.higgsfield.ai`) + optional Open Claude. Nano Generate stays. Out: iframe higgsfield.ai, Next.js MCP, Kling/Veo. |
 | 2026-08-27 | **Seedance not on this Cloud key** — api `pro/fast` and `lite` both 404 `model_not_found`. Generate retries the same Seedance paths on `platform.higgsfield.ai`. Still 404 → honesty: video model isn't on this account; Copy prompt. No Kling/Veo. No Seedance 2.0 REST path. |

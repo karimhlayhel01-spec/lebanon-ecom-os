@@ -8,7 +8,9 @@ import {
   INTRO_LESSON_SECTION_IDS,
   INTRO_LITERACY_SECTION_IDS,
   INTRO_SECTION_TITLES,
+  RETIRED_INTRO_SECTION_IDS,
   applyCanonicalTitles,
+  applyTemplateLiteracyBodies,
   type IntroLessonInput,
   type IntroLessonPayload,
   type IntroLessonSection,
@@ -71,6 +73,9 @@ export function validateAndAssembleIntroLesson(args: {
     if (!row || typeof row.id !== "string") {
       return { ok: false, error: "invalid_shape" };
     }
+    if ((RETIRED_INTRO_SECTION_IDS as readonly string[]).includes(row.id)) {
+      continue;
+    }
     if (!isIntroLessonSectionId(row.id)) {
       return { ok: false, error: "unknown_id" };
     }
@@ -121,13 +126,15 @@ export function validateAndAssembleIntroLesson(args: {
 
   return {
     ok: true,
-    lesson: applyCanonicalTitles({
-      kind: "intro_lesson",
-      productName,
-      category,
-      source: args.source ?? "gemini",
-      sections,
-    }),
+    lesson: applyTemplateLiteracyBodies(
+      applyCanonicalTitles({
+        kind: "intro_lesson",
+        productName,
+        category,
+        source: args.source ?? "gemini",
+        sections,
+      }),
+    ),
   };
 }
 

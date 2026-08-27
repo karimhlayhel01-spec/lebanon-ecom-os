@@ -29,18 +29,13 @@ import type {
   MarketingPanelView,
 } from "@/lib/marketing/service";
 import {
+  buildXpozClaudePrompt,
   getIntroSectionTitle,
   isIntroLessonSectionId,
   isIntroLiteracySectionId,
 } from "@/lib/marketing/intro-lesson";
 import { compareCreativesByCalendar } from "@/lib/marketing/creatives";
-import {
-  buildClaudeSkillRecipe,
-  CLAUDE_CUSTOMIZE_SKILLS_URL,
-  CLAUDE_APP_URL,
-  isKitDeskStage,
-  serializeKitForExternalDesk,
-} from "@/lib/marketing/ai-desk";
+import { CLAUDE_APP_URL, XPOZ_MCP_CONNECTOR_URL } from "@/lib/marketing/ai-desk";
 import {
   suggestCreativeVisualTool,
   type CreativeVisualSuggestion,
@@ -663,6 +658,8 @@ function IntroLessonBlock({
             section={section}
             open={openId === section.id}
             isAr={isAr}
+            productName={lesson.productName}
+            category={lesson.category}
             onToggle={() =>
               setOpenId((cur) => (cur === section.id ? null : section.id))
             }
@@ -685,6 +682,8 @@ function IntroLessonBlock({
                 section={section}
                 open={openId === section.id}
                 isAr={isAr}
+                productName={lesson.productName}
+                category={lesson.category}
                 onToggle={() =>
                   setOpenId((cur) =>
                     cur === section.id ? null : section.id,
@@ -703,11 +702,15 @@ function IntroAccordionRow({
   section,
   open,
   isAr,
+  productName,
+  category,
   onToggle,
 }: {
   section: NonNullable<MarketingKitView["lesson"]>["sections"][number];
   open: boolean;
   isAr: boolean;
+  productName: string;
+  category: string;
   onToggle: () => void;
 }) {
   const title = isIntroLessonSectionId(section.id)
@@ -737,10 +740,91 @@ function IntroAccordionRow({
           className="max-h-[min(28rem,55vh)] overflow-y-auto pb-3 text-sm text-stone-dark"
           dir={isAr ? "rtl" : "ltr"}
         >
-          <LessonBody text={body} />
+          {section.id === "ai_competitors_xpoz" ? (
+            <XpozLiteracyBody
+              teachingBody={body}
+              productName={productName}
+              category={category}
+              isAr={isAr}
+            />
+          ) : (
+            <LessonBody text={body} />
+          )}
         </div>
       )}
     </li>
+  );
+}
+
+function XpozLiteracyBody({
+  teachingBody,
+  productName,
+  category,
+  isAr,
+}: {
+  teachingBody: string;
+  productName: string;
+  category: string;
+  isAr: boolean;
+}) {
+  const t = useTranslations("Marketing");
+  const [copied, setCopied] = useState(false);
+  const prompt = buildXpozClaudePrompt({
+    productName,
+    category,
+    locale: isAr ? "ar" : "en",
+  });
+
+  return (
+    <div className="space-y-3">
+      <LessonBody text={teachingBody} />
+      <div
+        className="space-y-1 text-[10px] leading-relaxed text-stone-dark"
+        dir={isAr ? "rtl" : undefined}
+      >
+        <p>
+          {t("lessonXpozHowTo1")}{" "}
+          <a
+            href={XPOZ_MCP_CONNECTOR_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-sea underline-offset-2 hover:underline"
+          >
+            {XPOZ_MCP_CONNECTOR_URL}
+          </a>
+        </p>
+        <p>{t("lessonXpozHowTo2")}</p>
+        <p>{t("lessonXpozHowTo3")}</p>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            const ok = await copyTextToClipboard(prompt);
+            if (!ok) return;
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 2000);
+          }}
+          className="rounded border border-cedar/40 bg-cedar/10 px-2 py-0.5 text-[11px] font-semibold text-cedar-deep transition hover:bg-cedar/15"
+        >
+          {copied ? t("deskCopied") : t("visualToolCopyPrompt")}
+        </button>
+      </div>
+      <pre
+        dir={isAr ? "rtl" : undefined}
+        className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-stone bg-surface-subtle p-2 text-[10px] leading-relaxed text-stone-dark"
+      >
+        {prompt}
+      </pre>
+      <a
+        href={CLAUDE_APP_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-block text-[10px] font-medium text-sea underline-offset-2 hover:underline"
+      >
+        {t("lessonXpozOpenClaude")}
+      </a>
+    </div>
   );
 }
 
@@ -928,8 +1012,6 @@ function CreativeKitBlock({
   const [creatives, setCreatives] = useState<Creative[]>(kit.creatives);
   const [saved, setSaved] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [copiedDesk, setCopiedDesk] = useState<string | null>(null);
-  const [deskOpen, setDeskOpen] = useState(false);
   const [focusedCreativeId, setFocusedCreativeId] = useState<string | null>(
     null,
   );
@@ -966,16 +1048,6 @@ function CreativeKitBlock({
   const leftoverIdSet = new Set(
     kit.source === "partial" ? kit.templateIds : [],
   );
-
-  const deskStage = isKitDeskStage(kit.stage) ? kit.stage : null;
-  const kitPaste = deskStage
-    ? serializeKitForExternalDesk({
-        productName,
-        stage: deskStage,
-        cards: creatives,
-      })
-    : null;
-  const skillRecipe = deskStage ? buildClaudeSkillRecipe() : "";
 
   function update(id: string, patch: Partial<Creative>) {
     setCreatives((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
@@ -1240,118 +1312,6 @@ function CreativeKitBlock({
           >
             {regenPending ? t("generatingKit") : t("moveToNextWeek")}
           </button>
-        </div>
-      )}
-
-      {deskStage && (
-        <div className="mt-5 border-t border-stone/70 pt-3">
-          <button
-            type="button"
-            onClick={() => setDeskOpen((o) => !o)}
-            aria-expanded={deskOpen}
-            className="text-left text-[11px] font-medium text-stone-dark underline-offset-2 transition hover:text-ink hover:underline"
-            dir={isAr ? "rtl" : undefined}
-          >
-            {deskOpen ? t("deskHide") : t("deskMoreHelp")}
-          </button>
-          {deskOpen ? (
-            <div className="mt-3">
-              <h4
-                className="text-[11px] font-medium tracking-wide text-stone-dark"
-                dir={isAr ? "rtl" : undefined}
-              >
-                {t("deskTitle")}
-              </h4>
-              <p
-                className="mt-1 text-[11px] leading-relaxed text-stone-dark"
-                dir={isAr ? "rtl" : undefined}
-              >
-                {t("deskIntro")}
-              </p>
-              <a
-                href={CLAUDE_CUSTOMIZE_SKILLS_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 inline-block text-[11px] font-medium text-sea underline-offset-2 hover:underline"
-                dir={isAr ? "rtl" : undefined}
-              >
-                {t("deskOpenClaudeSkills")}
-              </a>
-              <div className="mt-3 space-y-3">
-                <div className="rounded-lg border border-stone/80 bg-surface p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-xs font-semibold text-ink">
-                      {t("deskWholeKitTitle")}
-                    </p>
-                    {kitPaste ? (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const ok = await copyTextToClipboard(kitPaste);
-                          if (!ok) return;
-                          setCopiedDesk("kit");
-                          window.setTimeout(
-                            () =>
-                              setCopiedDesk((cur) =>
-                                cur === "kit" ? null : cur,
-                              ),
-                            2000,
-                          );
-                        }}
-                        className="shrink-0 rounded-md border border-cedar/40 bg-cedar/10 px-2.5 py-1 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15"
-                      >
-                        {copiedDesk === "kit"
-                          ? t("deskCopied")
-                          : t("deskCopyKitForClaude")}
-                      </button>
-                    ) : null}
-                  </div>
-                  {kitPaste ? (
-                    <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-stone bg-surface-subtle p-2 text-[10px] leading-relaxed text-stone-dark">
-                      {kitPaste}
-                    </pre>
-                  ) : (
-                    <p
-                      className="mt-2 text-[11px] leading-relaxed text-stone-dark"
-                      dir={isAr ? "rtl" : undefined}
-                    >
-                      {t("deskEmptyKit")}
-                    </p>
-                  )}
-                </div>
-                <div className="rounded-lg border border-stone/80 bg-surface p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-xs font-semibold text-ink">
-                      {t("deskSkillRecipeTitle")}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const ok = await copyTextToClipboard(skillRecipe);
-                        if (!ok) return;
-                        setCopiedDesk("skill");
-                        window.setTimeout(
-                          () =>
-                            setCopiedDesk((cur) =>
-                              cur === "skill" ? null : cur,
-                            ),
-                          2000,
-                        );
-                      }}
-                      className="shrink-0 rounded-md border border-cedar/40 bg-cedar/10 px-2.5 py-1 text-xs font-semibold text-cedar-deep transition hover:bg-cedar/15"
-                    >
-                      {copiedDesk === "skill"
-                        ? t("deskCopied")
-                        : t("deskCopySkillForClaude")}
-                    </button>
-                  </div>
-                  <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded border border-stone bg-surface-subtle p-2 text-[10px] leading-relaxed text-stone-dark">
-                    {skillRecipe}
-                  </pre>
-                </div>
-              </div>
-            </div>
-          ) : null}
         </div>
       )}
     </div>
