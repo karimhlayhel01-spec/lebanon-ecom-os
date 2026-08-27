@@ -978,7 +978,7 @@
       },
       "contentEnAr": {
         "title": "Add EN + AR product content",
-        "body": "In Shopify Admin → Products:\n\n• Open your product (or create it).\n• Starter EN/AR text lives under the button “Show EN/AR content + policy drafts” below this checklist (not always visible — click to expand).\n• Paste a clear English title + description from the EN draft (edit to match the real item).\n• Add Arabic the same way — use the AR draft, or a translation app, then proofread.\n• Add at least one real product photo.\n• Themes differ for bilingual layout; some use a language app or separate metafields. Search Help for “multiple languages” if needed.\n\nDone when: Shoppers can read the offer in English and Arabic on the product page."
+        "body": "In Shopify Admin → Products:\n\n• Open your product (or create it).\n• Starter EN/AR text lives under “Make the page stronger” below this checklist — Copy the drafts, then paste into Admin (this OS does not write to Shopify).\n• Paste a clear English title + description from the EN draft (edit to match the real item).\n• Add Arabic the same way — use the AR draft, or a translation app, then proofread.\n• Add at least one real product photo.\n• Themes differ for bilingual layout; some use a language app or separate metafields. Search Help for “multiple languages” if needed.\n\nDone when: Shoppers can read the offer in English and Arabic on the product page."
       },
       "productPublished": {
         "title": "Publish the product",
@@ -998,7 +998,7 @@
       },
       "shortPolicies": {
         "title": "Add short policies",
-        "body": "In Shopify Admin → Online Store → Pages (or Settings → Policies):\n\n• Starter policy text lives under the button “Show EN/AR content + policy drafts” below this checklist (click to expand — not always visible).\n• Add short Shipping, Returns, and Payment/COD pages — use the policies draft as a start.\n• State clearly: pay the delivery person in cash on delivery; returns window; damaged/wrong item contact via WhatsApp.\n• Link policies in the footer of your theme.\n• Keep them short; buyers skim.\n\nDone when: Shipping + returns (+ COD terms) are published and linked from the storefront."
+        "body": "In Shopify Admin → Online Store → Pages (or Settings → Policies):\n\n• Starter policy text lives under “Make the page stronger” below this checklist — Copy the policies draft, then paste into Admin (this OS does not write to Shopify).\n• Add short Shipping, Returns, and Payment/COD pages — use the policies draft as a start.\n• State clearly: pay the delivery person in cash on delivery; returns window; damaged/wrong item contact via WhatsApp.\n• Link policies in the footer of your theme.\n• Keep them short; buyers skim.\n\nDone when: Shipping + returns (+ COD terms) are published and linked from the storefront."
       },
       "whatsappConnected": {
         "title": "Show WhatsApp to buyers",
@@ -1039,12 +1039,12 @@
     "checklistHint": {
       "shopifyCreated": "Create the store, add a product, pick a clean theme, save the URL here.",
       "currencyUsd": "Settings → General → store currency USD; price products in USD.",
-      "contentEnAr": "Open “Show EN/AR content + policy drafts” below for starter copy.",
+      "contentEnAr": "Starter copy is under “Make the page stronger” below — Copy, then paste into Shopify Admin.",
       "productPublished": "Make the product live (not draft) in Shopify Admin.",
       "codPrimary": "Buyer pays you in cash to the delivery person on arrival — not a supplier payment.",
       "optionalPayments": "Optional — skip if COD-only (mark done when you skip).",
       "courierSelected": "v1 list may be placeholders — pick your real door-delivery company when you have one; save it here.",
-      "shortPolicies": "Starter text under “Show EN/AR content + policy drafts” below — keep policies short.",
+      "shortPolicies": "Starter policy text is under “Make the page stronger” below — Copy, then paste into Admin. Keep policies short.",
       "whatsappConnected": "Add your number on the theme/page and save it in this OS — no native Shopify connect.",
       "sellToLebanon": "Settings → Markets: include Lebanon as a country you sell & ship to.",
       "shippingRates": "Set rates for delivery to Lebanon addresses.",

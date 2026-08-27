@@ -1,3 +1,5 @@
+import { readFileSync } from "fs";
+import path from "path";
 import { describe, expect, it } from "vitest";
 import {
   buildTemplateStorePageCopy,
@@ -175,5 +177,60 @@ describe("improveStoreShopPageCopyWithGemini fail-closed", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toBe("missing_key");
+  });
+});
+
+describe("Store how-to points at Make the page stronger", () => {
+  it("EN+AR howto and checklist hints name the live section, not the old drafts button", () => {
+    const en = JSON.parse(
+      readFileSync(path.join(process.cwd(), "messages/en.json"), "utf8"),
+    ) as {
+      Store: {
+        pageStrongerTitle: string;
+        howto: { contentEnAr: { body: string }; shortPolicies: { body: string } };
+        checklistHint: { contentEnAr: string; shortPolicies: string };
+      };
+    };
+    const ar = JSON.parse(
+      readFileSync(path.join(process.cwd(), "messages/ar.json"), "utf8"),
+    ) as {
+      Store: {
+        pageStrongerTitle: string;
+        howto: { contentEnAr: { body: string }; shortPolicies: { body: string } };
+        checklistHint: { contentEnAr: string; shortPolicies: string };
+      };
+    };
+    const deadEn = /Show EN\/AR content \+ policy drafts/i;
+    const deadAr = /عرض مسودّات المحتوى والسياسات/;
+    expect(en.Store.pageStrongerTitle).toBe("Make the page stronger");
+    expect(ar.Store.pageStrongerTitle).toBe("اجعل الصفحة أقوى");
+    for (const text of [
+      en.Store.howto.contentEnAr.body,
+      en.Store.howto.shortPolicies.body,
+      en.Store.checklistHint.contentEnAr,
+      en.Store.checklistHint.shortPolicies,
+    ]) {
+      expect(text).toContain(en.Store.pageStrongerTitle);
+      expect(text).not.toMatch(deadEn);
+      expect(text).toMatch(/paste|Admin/i);
+      expect(text).not.toMatch(/connect/i);
+    }
+    for (const text of [
+      ar.Store.howto.contentEnAr.body,
+      ar.Store.howto.shortPolicies.body,
+      ar.Store.checklistHint.contentEnAr,
+      ar.Store.checklistHint.shortPolicies,
+    ]) {
+      expect(text).toContain(ar.Store.pageStrongerTitle);
+      expect(text).not.toMatch(deadAr);
+      expect(text).toMatch(/الصق|Admin|Shopify/);
+      expect(text).not.toMatch(/ربط Shopify|Connect/i);
+    }
+    const panel = readFileSync(
+      path.join(process.cwd(), "src/components/store/StorePanel.tsx"),
+      "utf8",
+    );
+    expect(panel).toContain("pageStrongerTitle");
+    expect(panel).not.toContain("showDrafts");
   });
 });
