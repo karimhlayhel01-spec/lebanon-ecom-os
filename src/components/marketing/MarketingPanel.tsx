@@ -747,12 +747,55 @@ function IntroAccordionRow({
               category={category}
               isAr={isAr}
             />
+          ) : section.id === "ai_video_seedance" ? (
+            <SeedanceLiteracyBody teachingBody={body} isAr={isAr} />
           ) : (
             <LessonBody text={body} />
           )}
         </div>
       )}
     </li>
+  );
+}
+
+function SeedanceLiteracyBody({
+  teachingBody,
+  isAr,
+}: {
+  teachingBody: string;
+  isAr: boolean;
+}) {
+  const t = useTranslations("Marketing");
+  return (
+    <div className="space-y-3">
+      <LessonBody text={teachingBody} />
+      <div
+        className="space-y-1 text-[10px] leading-relaxed text-stone-dark"
+        dir={isAr ? "rtl" : undefined}
+      >
+        <p>
+          {t("visualSeedanceHowTo2")}{" "}
+          <a
+            href={HIGGSFIELD_MCP_CONNECTOR_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-sea underline-offset-2 hover:underline"
+          >
+            {HIGGSFIELD_MCP_CONNECTOR_URL}
+          </a>
+        </p>
+        <p>{t("visualSeedanceHowTo3")}</p>
+        <p>{t("visualSeedanceHowTo4")}</p>
+      </div>
+      <a
+        href={CLAUDE_APP_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-block text-[10px] font-medium text-sea underline-offset-2 hover:underline"
+      >
+        {t("visualSeedanceOpenClaude")}
+      </a>
+    </div>
   );
 }
 
@@ -1691,8 +1734,7 @@ function CreativeCard({
                 const nanoSku = visualGen?.skuId ?? photoPackUi?.skuId;
                 const nanoKit = visualGen?.kitId ?? photoPackUi?.kitId;
                 if (
-                  (visual.tool === "nano_banana" ||
-                    visual.tool === "seedance") &&
+                  visual.tool === "nano_banana" &&
                   nanoSku &&
                   nanoKit
                 ) {
@@ -1809,6 +1851,7 @@ function CreativeCard({
                 </a>
               </p>
               <p>{t("visualSeedanceHowTo3")}</p>
+              <p>{t("visualSeedanceHowTo4")}</p>
               <a
                 href={CLAUDE_APP_URL}
                 target="_blank"

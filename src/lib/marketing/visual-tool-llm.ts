@@ -84,7 +84,7 @@ Keep tool choice fixed as "${baseline.tool}" — do not change it.
 Name product "${name}" in promptEn. No Lebanon Ecom OS, Topic A, unlocks, capacity, ROAS, or COD-as-wow.
 Plain founder language. Keep prompts practical and short.
 If tool is nano_banana: one photograph only (not a grid, collage, moodboard, or multi-panel). Hook is mood, not overlay text. Product-only: no hands, no faces, no people. True-to-life scale (not fill-frame, giant, or monumental). Setting from category habitat + pack photos + this card's beat. Rings that charge go in the charging case, never a dinner plate. Indoor product setting — no village or postcard landscape. Do not invent mug, tea, plate, book, or phone as scale props. Pack photos are look and scale. No letters, words, slogans, watermarks, logos, app UI, or captions on the image. Do not restore a full slide list, "shoot N frames" how-to, text overlays, 0–3s film beats, or hand/face action. Output is a short visual brief only — no WAVE, LOCKED, or OS meta.
-If tool is seedance: one short motion clip (not a grid or collage). Same habitat, charging-case, no-village, no-kitchenware, no-hands, no-slogan-on-frames rules as nano_banana. Hook is mood/action, not overlay text. Pack photos are look and scale. Output is a short video brief only — no WAVE, LOCKED, or OS meta.`,
+If tool is seedance: one short motion clip (not a grid or collage). Same habitat, charging-case, no-village, no-kitchenware, no-hands, no-slogan-on-frames rules as nano_banana. Hook is mood/action, not overlay text. Do not mention pack photos. Output is a short video brief only — no WAVE, LOCKED, or OS meta.`,
             },
           ],
         },
@@ -186,7 +186,7 @@ Rules (use while writing; do not paste this meta into the prompts):
 
 const SEEDANCE_BRIEF_SYSTEM = `You rewrite a Lebanon ecommerce kit shot list into a Higgsfield Seedance motion prompt.
 Think like an Ask agent writing a Build prompt for a VIDEO model.
-SoT for the beat: this card's hook, full shots, how-to, pack photos (look and scale), and categoryHabitat.
+SoT for the beat: this card's hook, full shots, how-to, and categoryHabitat.
 Do NOT copy film-plan sentences verbatim. Do NOT put WAVE, LOCKED, dates, caps, fail-closed, or OS names in the output.
 Return ONLY JSON: {"promptEn":"...","promptAr":"..."}.
 promptEn/promptAr are short video briefs: product name, true-to-life scale, light, where it sits, simple camera/motion, visual don'ts as scene facts.
@@ -195,8 +195,8 @@ Rules (use while writing; do not paste this meta into the prompts):
 - Hook is mood/action, not overlay text. No letters, words, slogans, watermarks, logos, app UI, or captions on the frames. Product engraving on the item is fine.
 - No hands, no faces, no people. No "text overlay", no "shoot N frames" how-to dump, no slide 2–5 dumps, no hand/finger/placing action.
 - True-to-life scale: real object size. Not giant, not filling the frame, not a sculpture.
-- Habitat: use categoryHabitat. Pack photos win if they conflict. Do not put a ring charging case on a lamp, pan, or other non-ring SKU.
-- If this SKU is a ring / RingConn / smart ring: the ring sits in its charging case or dock (from pack photos). Never a dinner plate, saucer, or kitchen dish.
+- Habitat: use categoryHabitat. Do not put a ring charging case on a lamp, pan, or other non-ring SKU.
+- If this SKU is a ring / RingConn / smart ring: the ring sits in its charging case or dock. Never a dinner plate, saucer, or kitchen dish.
 - Indoor / product setting from habitat. No village, countryside, travel postcard, mountain town, souk, or wide scenic landscape.
 - Do not invent mug, tea, plate, book, or phone as scale props.
 - Name the product exactly as given. No Lebanon Ecom OS, Topic A, unlocks, capacity, ROAS, or COD-as-wow.`;

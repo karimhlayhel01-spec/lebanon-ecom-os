@@ -94,7 +94,7 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 - Named **packs**: each pack = photos of the **same product look** (a few angles) + optional **one** short product-motion clip when the motion is the proof (collapse/pour). **Not** a finished social Reel.
 - One pack is **default**. On each **Nano** card, founder may pick which pack **this post** uses (same SKU, different look). If they never pick, use default. **Seedance cards have no pack picker** (Generate off; Copy + Claude).
 - **Not** a shop-wide folder library and **not** “create a folder named folder then rename then attach to every product.” Packs live on **this SKU**.
-- **Bold HOW TO PHOTOGRAPH** (full checklist) at the **top of the upload page only**: window light, product fills the frame, a few angles, less clutter; optional short clip only if motion is the proof; bad photos → weak Nano/Seedance. **Do not** repeat this essay on every kit card.
+- **Bold HOW TO PHOTOGRAPH** (full checklist) at the **top of the upload page only**: window light, product fills the frame, a few angles, less clutter; optional short clip only if motion is the proof; bad photos → weak Nano Banana stills. **Do not** repeat this essay on every kit card.
 - **Nano** card with **no pack**: short pointer to the upload page (e.g. add product photos; how to shoot them is on that page). **Not** a second shot list. Seedance cards do not show this pointer.
 - **No** AI photo-approval / Gemini judging uploads.
 
@@ -125,13 +125,13 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 | Rule | Detail |
 | --- | --- |
 | **SoT** | Kit shots + How to shoot + hook stay on the card for **phone**. Do not rewrite `creatives.ts` shot lists. |
-| **Rewrite** | On **Generate** and **Copy prompt** (Approach A — not page load): Gemini reads this card (product, stage, hook, full shots, how-to) and writes Higgsfield `promptEn`/`promptAr` — a still for Nano, a short clip for Seedance. Same meaning. Not the same sentences. |
+| **Rewrite** | **Nano** Generate and Copy prompt (Approach A — not page load): Gemini reads this card (product, stage, hook, full shots, how-to) and writes a Higgsfield still `promptEn`/`promptAr`. Same meaning. Not the same sentences. **Seedance Copy does not rewrite.** |
 | **Engineering rules** | Nano: one photograph. Seedance: one short motion clip. No grid/collage. No letters/slogans/overlays in pixels. No hands / faces / people. Hook is mood, not overlay. **True-to-life scale** (not fill-frame). Scene from **shot-list beat / hook** (not mug/tea/plate/book/phone props). Pack photos = look **and scale**; do not invent a hand. Stage-soft rules stay. |
 | **Validate** | If Gemini returns overlay, hands/faces, slide dumps, fill-frame/giant product, tea/mug/plate kitchen still-life, or OS meta → **discard** and fail-closed to product-only sanitize (`suggestCreativeVisualTool`). |
-| **Spend** | Counts as **Marketing Gemini** (`MARKETING_GEMINI_MONTHLY_CAP`), not visual/Higgsfield. Copy then Generate = **two** calls. At/over cap or no key → sanitize, no silent spend. |
-| **Copy prompt** | Nano **and Seedance**: server action copies the **engineered** text. On miss, copy sanitize + calm honesty. |
-| **Preview** | Skills sanitize may show until Copy/Generate click. Do not call Gemini on page load. |
-| **Seedance** | Gemini rewrite + habitat stay for **Copy prompt**. In-OS Generate is **off** (LOCKED 2026-08-27) — Cloud REST 404s this key; teach Claude ↔ Higgsfield. No 2.0 OpenAPI path. No Kling/Veo. |
+| **Spend** | Nano Copy/Generate counts as **Marketing Gemini** (`MARKETING_GEMINI_MONTHLY_CAP`), not visual/Higgsfield. Nano Copy then Generate = **two** calls. At/over cap or no key → sanitize, no silent spend. **Seedance Copy does not spend.** |
+| **Copy prompt** | **Nano:** server action copies the **engineered** text. On miss, copy sanitize + calm honesty (`visualToolCopyCap` / `visualToolCopyFail` — still-prompt wording is Nano-only). **Seedance:** copies the visible skills prompt (`suggestCreativeVisualTool` / the `<pre>`). Instant. No Gemini. No Rewriting…. Does not hit those honesty keys. |
+| **Preview** | Skills sanitize may show until Nano Copy/Generate click. Do not call Gemini on page load. Seedance `<pre>` is the copied text. |
+| **Seedance** | Copy = skills clipboard + Claude ↔ Higgsfield. In-OS Generate is **off** (LOCKED 2026-08-27) — Cloud REST 404s this key. No 2.0 OpenAPI path. No Kling/Veo. |
 | **Honesty** | Still a draft. No JPEG referee. No second LLM. |
 | **Out** | Phone-film, Higgsfield host, popup/visual caps/flags, Supplier, Discovery, Shopify, desk, Claude API, Kling/Veo as a silent Seedance stand-in. |
 
@@ -173,8 +173,8 @@ In-OS **Nano Banana stills** + **Seedance clips** via the Higgsfield **generate 
 | Rule | Detail |
 | --- | --- |
 | **Seedance Generate** | **Off** in OS. No Generate / Regenerate / result popup on Seedance cards. No pack picker / empty “add product photos” pointer. |
-| **Copy prompt** | **On.** Same paired Gemini rewrite (`copyNanoVisualPromptAction` / `resolveSeedanceHiggsfieldPrompt`). Fail-closed to skills sanitize. |
-| **Teach** | Three-line Claude ↔ Higgsfield connector how-to. Connector `https://mcp.higgsfield.ai`. Optional **Open Claude** (`https://claude.ai`). |
+| **Copy prompt** | **On.** Copies the visible skills prompt (`suggestCreativeVisualTool` / the `<pre>`). Instant. No Gemini. No `copyNanoVisualPromptAction`. No Rewriting…. No `MARKETING_GEMINI_MONTHLY_CAP`. |
+| **Teach** | Claude ↔ Higgsfield connector how-to. Connector `https://mcp.higgsfield.ai`. Attach **1–3 product photos in Claude** when running Seedance (no pack picker on the card). Optional **Open Claude** (`https://claude.ai`). |
 | **Nano Generate** | **Stays.** |
 | **Out** | iframe `higgsfield.ai`; Next.js calling `mcp.higgsfield`; Kling/Veo; hiding Nano Generate. |
 
@@ -212,7 +212,7 @@ Shopify, Instagram publish, Phase 4, AI photo referee, generate-all, footage-fix
 
 - Creative stages only (`pre_launch` / `launch` / `weekly_refresh`). **No** FSM rewrite; Phase 4 parked; no in-app visual gen.
 - Skills-first routing by format: `post`/`carousel` → Nano Banana; `reel`/`story`/`ugc` → Seedance; `testimonial` → phone film (no AI).
-- Each kit card: tool label, one-line why, **Copy prompt**. **Nano and Seedance (paired brief):** Copy/Generate click rewrites the card shot list via Gemini into a Higgsfield-safe still or motion prompt (fail-closed to habitat sanitize). Preview may show sanitize until click. **Phone film:** product + hook + elaborated shots + how-to. Plain founder language — no OS / Topic A / unlocks meta.
+- Each kit card: tool label, one-line why, **Copy prompt**. **Nano (paired brief):** Copy/Generate click rewrites the card shot list via Gemini into a Higgsfield-safe still (fail-closed to habitat sanitize). Preview may show sanitize until click. **Seedance:** Copy copies the visible skills prompt — no Gemini, no Rewriting…. **Phone film:** product + hook + elaborated shots + how-to. Plain founder language — no OS / Topic A / unlocks meta.
 - Optional Gemini polish of why/prompt via `MarketingLlmProvider.polishCreativeVisualSuggestion` — fail-closed to skills text; UI uses skills on render (no spend / no file write / OS does not open tools).
 
 ---
@@ -255,7 +255,7 @@ Intent remains: one next creative, Posted / Skipped honor-system, OS SoT (no Cal
 
 - Canonical section **ids** remain `INTRO_LESSON_SECTION_IDS` in `src/lib/marketing/intro-lesson.ts` (`hook`, `niche_signal`, `why_follow`, `reply_loop`, `series`, `three_metrics`, `dm_order_clarity`, `journey_map`).
 - **Titles** come from code / i18n by id — UI must **not** depend on model-supplied titles.
-- Gemini fills **`bodyEn` / `bodyAr`** for **core** sections (`hook`…`journey_map`) only. After assemble, literacy (`ai_image_nano`, `ai_video_seedance`, `ai_competitors_xpoz`) is **overwritten** from `buildIntroLesson` for that product. On failure fall back to deterministic `buildIntroLesson`.
+- Gemini fills **`bodyEn` / `bodyAr`** for **core** sections (`hook`…`journey_map`) only. Literacy (`ai_image_nano`, `ai_video_seedance`, `ai_competitors_xpoz`) is **overwritten** from `buildIntroLesson` for that product on assemble **and on load**. On failure fall back to deterministic `buildIntroLesson`.
 
 ### 4.2 AI literacy block (fixed titles)
 
@@ -265,7 +265,9 @@ Calm, fixed-title block (not model-authored titles). Canonical ids in `INTRO_LIT
 - `ai_video_seedance` — Seedance: **Copy kit prompt + Claude Higgsfield** (`https://mcp.higgsfield.ai`); not in this OS. No film-plan / overlay / hands-as-how-to novels.
 - `ai_competitors_xpoz` — Xpoz (Claude connector): competitor **discover-then-study**. Not in this OS. Not a kit card. Not Higgsfield. Connector `https://mcp.xpoz.ai/mcp`. Copy uses a deterministic helper (`buildXpozClaudePrompt`); do not parse lesson bodies.
 
-After Gemini assemble (`validateAndAssembleIntroLesson`), literacy bodies are **template SoT** (`applyTemplateLiteracyBodies`). Core hook…journey_map stay Gemini. Persisted Gemini literacy novels stay until Generate / Try AI fill / audit regen.
+Kicker (`lessonAiLiteracyIntro`): Nano Generate is in this app; Seedance runs in Claude with the Higgsfield connector; competitor study runs in Claude with the Xpoz connector; do not mix the two connectors. No OS / unlocks jargon in that sentence.
+
+Literacy bodies are **template SoT** on assemble **and on load** (`applyTemplateLiteracyBodies` / `ensureIntroLessonComplete` / `parseKitItems`). Core hook…journey_map stay Gemini. Persisted Gemini literacy novels are overwritten on load — they do **not** stay until Generate / Try AI fill / audit regen. Audit regenerate is **not** a live control. Try AI fill remains template-only (`source === "template"`). Intro rail Generate stays hidden when `hasKit`.
 
 `ai_captions`, `ai_chat_claude`, and `ai_cursor_optional` **removed 2026-08-27**. Persisted intros drop retired ids on load via `ensureIntroLessonComplete` — no regen required. Missing `ai_competitors_xpoz` is **backfilled** on load. Kit Seedance Open Claude stays.
 
@@ -275,6 +277,7 @@ Same Intro accordion under a literacy subheading.
 
 - Keep existing Intro accordion + `LessonBody`.
 - Harden layout for **long AI text** (readable scroll / density — no FSM change).
+- Intro rail **Generate** stays hidden when `hasKit`. Amber **Try AI fill again** only when `source === "template"`. Audit regenerate is not a live control.
 - Fail-closed without `GEMINI_API_KEY` (or Marketing-specific Gemini env if introduced): show deterministic Intro + clear “AI unavailable” honesty — never invent bodies.
 
 ### 4.4 Provider seam
@@ -319,6 +322,12 @@ Never commit secrets.
 
 | Date | Change |
 | --- | --- |
+| 2026-08-27 | **Literacy SoT = template on assemble and load** — `ai_*` from `applyTemplateLiteracyBodies` / `ensureIntroLessonComplete`. Core hook…journey_map stay Gemini. Audit regenerate is not a live control. Try AI fill remains template-only. Intro rail Generate stays hidden when `hasKit`. Novels do not wait for Generate / Try AI fill / audit regen. |
+| 2026-08-27 | **Literacy kicker names two Claude connectors** — `lessonAiLiteracyIntro`: Nano Generate in this app; Seedance = Claude + Higgsfield; competitor study = Claude + Xpoz; do not mix. No OS/unlocks jargon. |
+| 2026-08-27 | **Pack how-to quality = Nano stills** — `photoPacksHowToQuality` names Nano Banana only. Packs do not feed Seedance in this OS. |
+| 2026-08-27 | **Seedance prompts: no pack photos** — skills + Gemini Seedance briefs drop pack-photo language. Teach attach 1–3 product photos in Claude. Pack picker stays Nano-only. |
+| 2026-08-27 | **Seedance Copy = visible skills prompt** — Copy copies the `<pre>` (`suggestCreativeVisualTool`). Instant. No Gemini rewrite, no Rewriting…, no `MARKETING_GEMINI_MONTHLY_CAP`. Nano Copy/Generate rewrite stays. Generate stays off for Seedance. |
+| 2026-08-27 | **Intro literacy pin on load** — `ensureIntroLessonComplete` always overwrites `ai_*` from `buildIntroLesson`. Core stays Gemini. Persisted literacy novels are overwritten on load; no Generate / Try AI fill / audit regen required. |
 | 2026-08-27 | **Intro literacy = template after Gemini assemble** — overwrite `ai_*` from `buildIntroLesson`; core stays Gemini. Seedance = Copy + Claude Higgsfield. Gemini must not invent Seedance film-plans. |
 | 2026-08-27 | **TEMPORARY Intro lesson-block Regenerate (audit) — removed** — rail stays fixed. Successful Intro stays fixed on the rail. |
 | 2026-08-27 | **Intro literacy: Xpoz third row** — `ai_competitors_xpoz` (Claude + Xpoz MCP). Discover-then-study competitors; not in this OS; not a kit card; not Higgsfield. Copy helper `buildXpozClaudePrompt`. Nano + Seedance stay. Kits / Seedance Generate-off / pack picker unchanged. Backfill on load. |
@@ -326,7 +335,7 @@ Never commit secrets.
 | 2026-08-27 | **Intro literacy: drop AI for captions** — `ai_captions` accordion gone. Kicker no longer names captions. Kit captions stay on cards. Persisted intros strip the section on load (no regen). Claude / Nano / Seedance / Cursor literacy stay. |
 | 2026-08-27 | **Seedance cards: no pack picker** — empty “add product photos” pointer and pack select are Nano only. Kit-top Add product photos stays. Copy prompt + Open Claude unchanged. |
 | 2026-08-27 | **More help · Claude removed** — no whole-kit paste, Skill recipe, or Open Claude Skills on the kit. Seedance Copy prompt + Open Claude stays. Intro Claude literacy stays. `deskCopied` kept for Copy prompt flash. |
-| 2026-08-27 | **Intro literacy Nano = in-OS Generate** — `ai_image_nano` no longer says open Nano Banana externally. Template + Gemini prompt: Generate on post/carousel cards; Copy prompt backup; packs; draft; caption carries the line. No Higgsfield name. Literacy kicker (`lessonAiLiteracyIntro`) no longer says all tools are external. Captions/Claude/Cursor stay external. Seedance literacy unchanged. Persisted Gemini Intro bodies keep old text until Generate lesson / Try AI fill. |
+| 2026-08-27 | **Intro literacy Nano = in-OS Generate** — `ai_image_nano` no longer says open Nano Banana externally. Template + Gemini prompt: Generate on post/carousel cards; Copy prompt backup; packs; draft; caption carries the line. No Higgsfield name. Literacy kicker (`lessonAiLiteracyIntro`) no longer says all tools are external. Captions/Claude/Cursor stay external. Seedance literacy unchanged. Literacy bodies pin from template on assemble and load (core stays Gemini). |
 | 2026-08-27 | **Seedance = Copy prompt + Claude↔Higgsfield** — in-OS Generate **off** (Cloud REST 404 `model_not_found`; website/MCP Seedance works). Copy prompt **on**. Three-line Claude connector how-to (`https://mcp.higgsfield.ai`) + optional Open Claude. Nano Generate stays. Out: iframe higgsfield.ai, Next.js MCP, Kling/Veo. |
 | 2026-08-27 | **Seedance not on this Cloud key** — api `pro/fast` and `lite` both 404 `model_not_found`. Generate retries the same Seedance paths on `platform.higgsfield.ai`. Still 404 → honesty: video model isn't on this account; Copy prompt. No Kling/Veo. No Seedance 2.0 REST path. |
 | 2026-08-27 | **Seedance 404 → lite fallback** — Cloud `pro/fast` returns `model_not_found` on this account. Generate retries `/bytedance/seedance/v1/lite/{image,text}-to-video`. Still Seedance. No Kling/Veo. |

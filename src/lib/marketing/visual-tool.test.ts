@@ -157,10 +157,18 @@ describe("suggestCreativeVisualTool", () => {
       stage: "pre_launch",
     });
     expect(reel.tool).toBe("seedance");
+    expect(reel.whyEn).toMatch(/Copy the prompt/i);
+    expect(reel.whyEn).toMatch(/Claude \(Higgsfield\)/);
+    expect(reel.whyEn).toMatch(/not Generate here/i);
+    expect(reel.whyAr).toMatch(/انسخ الموجّه/);
+    expect(reel.whyAr).toMatch(/Claude \(Higgsfield\)/);
+    expect(reel.whyAr).toMatch(/ليس Generate هنا/);
     expect(reel.promptEn.toLowerCase()).toMatch(/soft teaser|follow/);
     expect(reel.promptEn).toMatch(/short motion clip|kitchen counter|window light/i);
     expect(reel.promptEn).not.toMatch(/How to shoot:/i);
     expect(reel.promptEn).not.toMatch(/\b(mug|tea|plate|village)\b/i);
+    expect(reel.promptEn).not.toMatch(/pack photos/i);
+    expect(reel.promptAr).not.toMatch(/صور الحزمة/);
     expect(validateVisualSuggestion(reel, "GlowLamp Pro")).toBe(true);
 
     const testimonial = suggestCreativeVisualTool({
@@ -242,6 +250,17 @@ describe("polishCreativeVisualSuggestion (provider)", () => {
     expect(src).toMatch(/Do not restore a full slide list/);
     expect(src).toMatch(/If tool is seedance/);
     expect(src).toMatch(/rewrite a Lebanon ecommerce kit shot list into a Higgsfield Seedance/);
+    const seedanceBrief = src.slice(
+      src.indexOf("const SEEDANCE_BRIEF_SYSTEM"),
+      src.indexOf("export async function engineerNanoHiggsfieldBriefWithGemini"),
+    );
+    expect(seedanceBrief).toMatch(/categoryHabitat/);
+    expect(seedanceBrief).not.toMatch(/pack photos/i);
+    const nanoBrief = src.slice(
+      src.indexOf("const NANO_BRIEF_SYSTEM"),
+      src.indexOf("const SEEDANCE_BRIEF_SYSTEM"),
+    );
+    expect(nanoBrief).toMatch(/pack photos/);
   });
 });
 
@@ -536,5 +555,36 @@ describe("engineerSeedanceHiggsfieldBriefWithGemini", () => {
     expect(resolved.promptEn).toMatch(/short motion clip/i);
     expect(resolved.promptEn).toMatch(/charging case/i);
     expect(resolved.promptEn).not.toMatch(/How to shoot:/i);
+  });
+});
+
+describe("Seedance Copy is skills clipboard (panel source)", () => {
+  it("does not call copyNanoVisualPromptAction or show Rewriting for Seedance", () => {
+    const panel = readFileSync(
+      path.join(process.cwd(), "src/components/marketing/MarketingPanel.tsx"),
+      "utf8",
+    );
+    const copyAt = panel.indexOf("copyNanoVisualPromptAction(");
+    expect(copyAt).toBeGreaterThan(0);
+    const gate = panel.slice(Math.max(0, copyAt - 400), copyAt + 120);
+    expect(gate).toMatch(/visual\.tool === "nano_banana"/);
+    expect(gate).not.toMatch(/seedance/);
+    expect(panel).toMatch(/copyTextToClipboard\(visualPrompt\)/);
+    expect(panel).toMatch(/visualToolCopyPending/);
+    const pendingAt = panel.indexOf('t("visualToolCopyPending")');
+    expect(pendingAt).toBeGreaterThan(0);
+    expect(panel.slice(Math.max(0, pendingAt - 80), pendingAt)).toMatch(
+      /copyPromptPending/,
+    );
+
+    const gen = readFileSync(
+      path.join(process.cwd(), "src/lib/marketing/visual-gen.ts"),
+      "utf8",
+    );
+    const copyFn = gen.slice(
+      gen.indexOf("export async function copyCreativeNanoPrompt"),
+    );
+    expect(copyFn).toMatch(/tool === "nano_banana"/);
+    expect(copyFn).not.toMatch(/resolveSeedanceHiggsfieldPrompt/);
   });
 });

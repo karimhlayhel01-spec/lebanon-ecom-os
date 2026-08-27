@@ -89,27 +89,35 @@ describe("buildIntroLesson", () => {
     ]);
   });
 
-  it("literacy kicker does not say every tool is external", () => {
+  it("literacy kicker names Nano in-app vs Higgsfield vs Xpoz connectors", () => {
     const en = JSON.parse(
       readFileSync(path.join(process.cwd(), "messages/en.json"), "utf8"),
     ) as { Marketing: Record<string, string> };
     const ar = JSON.parse(
       readFileSync(path.join(process.cwd(), "messages/ar.json"), "utf8"),
     ) as { Marketing: Record<string, string> };
-    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/Nano Generate is in this OS/i);
-    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/stills/i);
-    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/motion/i);
-    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/Xpoz/i);
-    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/outside/i);
-    expect(en.Marketing.lessonAiLiteracyIntro).not.toMatch(/tools stay external/i);
-    expect(en.Marketing.lessonAiLiteracyIntro).not.toMatch(/every tool is external/i);
+    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(
+      /Nano Generate is in this app/i,
+    );
+    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/Seedance/);
+    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/Higgsfield/);
+    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/Xpoz/);
+    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/Claude/);
+    expect(en.Marketing.lessonAiLiteracyIntro).toMatch(/Do not mix/i);
+    expect(en.Marketing.lessonAiLiteracyIntro).not.toMatch(/\bOS\b/);
+    expect(en.Marketing.lessonAiLiteracyIntro).not.toMatch(/unlock/i);
     expect(en.Marketing.lessonAiLiteracyIntro).not.toMatch(/captions/i);
     expect(en.Marketing.lessonAiLiteracyIntro).not.toMatch(/strategy/i);
     expect(en.Marketing.lessonAiLiteracyIntro).not.toMatch(/Cursor/i);
-    expect(ar.Marketing.lessonAiLiteracyIntro).toMatch(/توليد Nano داخل هذا النظام/);
+    expect(ar.Marketing.lessonAiLiteracyIntro).toMatch(
+      /توليد Nano داخل هذا التطبيق/,
+    );
+    expect(ar.Marketing.lessonAiLiteracyIntro).toMatch(/Higgsfield/);
     expect(ar.Marketing.lessonAiLiteracyIntro).toMatch(/Xpoz/);
-    expect(ar.Marketing.lessonAiLiteracyIntro).toMatch(/خارجاً/);
-    expect(ar.Marketing.lessonAiLiteracyIntro).not.toMatch(/الأدوات خارجية/);
+    expect(ar.Marketing.lessonAiLiteracyIntro).toMatch(/موصل/);
+    expect(ar.Marketing.lessonAiLiteracyIntro).toMatch(/لا تخلط/);
+    expect(ar.Marketing.lessonAiLiteracyIntro).not.toMatch(/النظام/);
+    expect(ar.Marketing.lessonAiLiteracyIntro).not.toMatch(/فتح المراحل/);
     expect(ar.Marketing.lessonAiLiteracyIntro).not.toMatch(/التعليقات/);
     expect(ar.Marketing.lessonAiLiteracyIntro).not.toMatch(/الاستراتيجية/);
     expect(ar.Marketing.lessonAiLiteracyIntro).not.toMatch(/Cursor/);
@@ -121,13 +129,19 @@ describe("buildIntroLesson", () => {
       category: "beauty_personal_care",
     });
     const seedance = lesson.sections.find((s) => s.id === "ai_video_seedance")!;
-    expect(seedance.bodyEn).toMatch(/Copy a Seedance prompt/);
     expect(seedance.bodyEn).toContain("Gua Sha Set");
-    expect(seedance.bodyEn).toContain("https://mcp.higgsfield.ai");
+    expect(seedance.bodyEn).toMatch(/Reel, Story, and UGC/i);
+    expect(seedance.bodyEn).toMatch(/teaching only/i);
     expect(seedance.bodyEn).toMatch(/not generated in this OS/i);
-    expect(seedance.bodyEn).toMatch(/ask Claude to run Seedance/);
-    expect(seedance.bodyAr).toContain("https://mcp.higgsfield.ai");
+    expect(seedance.bodyEn).not.toMatch(/from the kit card/i);
+    expect(seedance.bodyEn).not.toMatch(/Copy a Seedance prompt/i);
+    expect(seedance.bodyEn).not.toMatch(/https:\/\/mcp\.higgsfield\.ai/);
+    expect(seedance.bodyEn).not.toMatch(/pack photos/i);
     expect(seedance.bodyAr).toContain("Gua Sha Set");
+    expect(seedance.bodyAr).toMatch(/Reel/);
+    expect(seedance.bodyAr).toMatch(/تعليم فقط/);
+    expect(seedance.bodyAr).toMatch(/لا يُولَّد Seedance/);
+    expect(seedance.bodyAr).not.toMatch(/https:\/\/mcp\.higgsfield\.ai/);
   });
 
   it("teaches Xpoz competitor discover-then-study (not in this OS)", () => {
@@ -138,12 +152,16 @@ describe("buildIntroLesson", () => {
     const xpoz = lesson.sections.find((s) => s.id === "ai_competitors_xpoz")!;
     expect(xpoz.titleEn).toBe("Competitors with Xpoz");
     expect(xpoz.bodyEn).toContain("Gua Sha Set");
-    expect(xpoz.bodyEn).toContain("mcp.xpoz.ai");
     expect(xpoz.bodyEn).toMatch(/not this OS/i);
+    expect(xpoz.bodyEn).toMatch(/find Lebanon shops/i);
+    expect(xpoz.bodyEn).not.toMatch(/mcp\.xpoz\.ai/);
+    expect(xpoz.bodyEn).not.toMatch(/Copy the prompt/i);
+    expect(xpoz.bodyEn).not.toMatch(/add the Xpoz connector/i);
     expect(xpoz.bodyEn).not.toMatch(/Higgsfield/i);
     expect(xpoz.bodyEn).not.toMatch(/scrape/i);
     expect(xpoz.bodyAr).toContain("Gua Sha Set");
-    expect(xpoz.bodyAr).toContain("mcp.xpoz.ai");
+    expect(xpoz.bodyAr).toMatch(/ليس هذا النظام/);
+    expect(xpoz.bodyAr).not.toMatch(/mcp\.xpoz\.ai/);
   });
 
   it("buildXpozClaudePrompt names product + Lebanon + find first + ideas only", () => {
@@ -445,14 +463,14 @@ describe("validateAndAssembleIntroLesson", () => {
 
     const seedance = r.lesson.sections.find((s) => s.id === "ai_video_seedance")!;
     expect(seedance.bodyEn).toContain("RingConn");
-    expect(seedance.bodyEn).toMatch(/Copy a Seedance prompt/);
-    expect(seedance.bodyEn).toContain("https://mcp.higgsfield.ai");
-    expect(seedance.bodyEn).toMatch(/Claude/);
+    expect(seedance.bodyEn).toMatch(/Reel, Story, and UGC/i);
+    expect(seedance.bodyEn).toMatch(/teaching only/i);
     expect(seedance.bodyEn).toMatch(/not generated in this OS/i);
+    expect(seedance.bodyEn).not.toMatch(/Copy a Seedance prompt/);
     expect(seedance.bodyEn).not.toMatch(/text overlay/i);
     expect(seedance.bodyEn).not.toMatch(/hand putting/i);
     expect(seedance.bodyEn).not.toMatch(/5-slide collage/i);
-    expect(seedance.bodyAr).toContain("https://mcp.higgsfield.ai");
+    expect(seedance.bodyEn).not.toMatch(/https:\/\/mcp\.higgsfield\.ai/);
 
     const nano = r.lesson.sections.find((s) => s.id === "ai_image_nano")!;
     expect(nano.bodyEn).toMatch(/Generate for a draft still/);
@@ -460,9 +478,8 @@ describe("validateAndAssembleIntroLesson", () => {
     expect(nano.bodyEn).not.toMatch(/Higgsfield/i);
 
     const xpoz = r.lesson.sections.find((s) => s.id === "ai_competitors_xpoz")!;
-    expect(xpoz.bodyEn).toContain("mcp.xpoz.ai");
     expect(xpoz.bodyEn).toMatch(/find Lebanon shops/i);
-    expect(xpoz.bodyEn).toMatch(/ideas only/i);
+    expect(xpoz.bodyEn).not.toMatch(/mcp\.xpoz\.ai/);
     expect(xpoz.bodyEn).not.toMatch(/ROAS/);
     expect(xpoz.bodyEn).not.toMatch(/Higgsfield/i);
   });
@@ -555,10 +572,6 @@ describe("ensureIntroLessonComplete / applyCanonicalTitles", () => {
     expect(oldTwo.sections.map((s) => s.id)).not.toContain(
       "ai_competitors_xpoz",
     );
-    const nanoBefore = oldTwo.sections.find((s) => s.id === "ai_image_nano")!;
-    const seedanceBefore = oldTwo.sections.find(
-      (s) => s.id === "ai_video_seedance",
-    )!;
     const fixed = ensureIntroLessonComplete(oldTwo);
     expect(fixed.sections.map((s) => s.id)).toEqual([
       ...ALL_INTRO_SECTION_IDS,
@@ -566,12 +579,109 @@ describe("ensureIntroLessonComplete / applyCanonicalTitles", () => {
     expect(fixed.sections.find((s) => s.id === "ai_competitors_xpoz")!.bodyEn).toContain(
       "Old Kit Product",
     );
-    expect(fixed.sections.find((s) => s.id === "ai_image_nano")!.bodyEn).toBe(
-      nanoBefore.bodyEn,
+    expect(fixed.sections.find((s) => s.id === "ai_competitors_xpoz")!.bodyEn).toMatch(
+      /find Lebanon shops/i,
     );
-    expect(
-      fixed.sections.find((s) => s.id === "ai_video_seedance")!.bodyEn,
-    ).toBe(seedanceBefore.bodyEn);
+  });
+
+  it("overwrites persisted Gemini literacy novels on load; core stays Gemini", () => {
+    const full = buildIntroLesson({
+      name: "RingConn",
+      category: "health_wellness",
+    });
+    const hookGemini =
+      "When you sell RingConn, the first 1–3 seconds decide if anyone stays. Gemini wrote this core hook for RingConn specifically and it must survive load.";
+    const persisted = {
+      ...full,
+      source: "gemini" as const,
+      sections: full.sections.map((s) => {
+        if (s.id === "hook") {
+          return { ...s, bodyEn: hookGemini, bodyAr: hookGemini };
+        }
+        if (s.id === "ai_video_seedance") {
+          return {
+            ...s,
+            bodyEn:
+              "Seedance film-plan for RingConn: 0–3s text overlay on the hand putting on the ring, then a 5-slide collage of evening stretches.",
+            bodyAr:
+              "خطة تصوير Seedance لـ RingConn مع نص على الصورة واليد ثم كولاج.",
+          };
+        }
+        if (s.id === "ai_image_nano") {
+          return {
+            ...s,
+            bodyEn:
+              "Try this overlay slogan on a hand holding RingConn next to tea.",
+            bodyAr: "جرّب شعاراً على الصورة مع يد تمسك RingConn.",
+          };
+        }
+        return s;
+      }),
+    };
+    const fixed = ensureIntroLessonComplete(persisted);
+    expect(fixed.source).toBe("gemini");
+    expect(fixed.sections.find((s) => s.id === "hook")!.bodyEn).toBe(
+      hookGemini,
+    );
+
+    const seedance = fixed.sections.find((s) => s.id === "ai_video_seedance")!;
+    expect(seedance.bodyEn).toContain("RingConn");
+    expect(seedance.bodyEn).toMatch(/Reel, Story, and UGC/i);
+    expect(seedance.bodyEn).toMatch(/teaching only/i);
+    expect(seedance.bodyEn).toMatch(/not generated in this OS/i);
+    expect(seedance.bodyEn).not.toMatch(/text overlay/i);
+    expect(seedance.bodyEn).not.toMatch(/hand putting/i);
+    expect(seedance.bodyEn).not.toMatch(/5-slide collage/i);
+
+    const nano = fixed.sections.find((s) => s.id === "ai_image_nano")!;
+    expect(nano.bodyEn).toMatch(/Generate for a draft still/);
+    expect(nano.bodyEn).not.toMatch(/overlay slogan/i);
+
+    const template = buildIntroLesson({
+      name: "RingConn",
+      category: "health_wellness",
+    });
+    expect(seedance.bodyEn).toBe(
+      template.sections.find((s) => s.id === "ai_video_seedance")!.bodyEn,
+    );
+    expect(nano.bodyEn).toBe(
+      template.sections.find((s) => s.id === "ai_image_nano")!.bodyEn,
+    );
+  });
+
+  it("does not coerce missing source to template (old Gemini intros)", () => {
+    const full = buildIntroLesson({
+      name: "RingConn",
+      category: "health_wellness",
+    });
+    const hookGemini =
+      "When you sell RingConn, the first 1–3 seconds decide if anyone stays. This assembled core hook must not look like a template fallback.";
+    const { source: _drop, ...sourceless } = full;
+    const persisted = {
+      ...sourceless,
+      sections: full.sections.map((s) =>
+        s.id === "hook"
+          ? { ...s, bodyEn: hookGemini, bodyAr: hookGemini }
+          : s,
+      ),
+    };
+    expect(persisted).not.toHaveProperty("source");
+    const fixed = ensureIntroLessonComplete(persisted);
+    expect(fixed.source).toBeUndefined();
+    expect(fixed.source).not.toBe("template");
+    expect(fixed.sections.find((s) => s.id === "hook")!.bodyEn).toBe(
+      hookGemini,
+    );
+  });
+
+  it("preserves explicit template and gemini source on load", () => {
+    const template = buildIntroLesson({
+      name: "RingConn",
+      category: "health_wellness",
+    });
+    expect(ensureIntroLessonComplete(template).source).toBe("template");
+    const gemini = { ...template, source: "gemini" as const };
+    expect(ensureIntroLessonComplete(gemini).source).toBe("gemini");
   });
 });
 
@@ -647,16 +757,45 @@ describe("Intro Xpoz accordion (panel source)", () => {
     const xpozSlice = panel.slice(xpozAt, xpozAt + 2500);
     expect(xpozSlice).not.toMatch(/generateVisualAction/);
 
-    const seedanceHowTo = panel.slice(
-      panel.indexOf("visualSeedanceHowTo1"),
-      panel.indexOf("visualSeedanceOpenClaude") + 80,
-    );
+    const kitHowToStart = panel.indexOf("visualSeedanceHowTo1");
+    expect(kitHowToStart).toBeGreaterThan(0);
+    const seedanceHowTo = panel.slice(kitHowToStart, kitHowToStart + 900);
     expect(seedanceHowTo).toMatch(/HIGGSFIELD_MCP_CONNECTOR_URL/);
     expect(seedanceHowTo).not.toMatch(/Xpoz|xpoz|XPOZ/);
 
     const genAt = panel.indexOf("generateVisualAction(");
     expect(genAt).toBeGreaterThan(0);
     expect(panel.slice(genAt, genAt + 400)).not.toMatch(/Xpoz|xpoz|XPOZ/);
+
+    const copyAt = panel.indexOf("copyNanoVisualPromptAction(");
+    expect(copyAt).toBeGreaterThan(0);
+    expect(panel.slice(Math.max(0, copyAt - 400), copyAt)).toMatch(
+      /visual\.tool === "nano_banana"/,
+    );
+    expect(panel.slice(Math.max(0, copyAt - 400), copyAt)).not.toMatch(
+      /seedance/,
+    );
+    expect(panel).toMatch(/copyTextToClipboard\(visualPrompt\)/);
+
+    const seedanceLitAt = panel.indexOf(
+      'section.id === "ai_video_seedance"',
+    );
+    expect(seedanceLitAt).toBeGreaterThan(0);
+    expect(panel).toMatch(/function SeedanceLiteracyBody\(/);
+    const seedanceLit = panel.slice(
+      panel.indexOf("function SeedanceLiteracyBody("),
+      panel.indexOf("function XpozLiteracyBody("),
+    );
+    expect(seedanceLit).toMatch(/HIGGSFIELD_MCP_CONNECTOR_URL/);
+    expect(seedanceLit).toMatch(/CLAUDE_APP_URL/);
+    expect(seedanceLit).toMatch(/visualSeedanceHowTo2/);
+    expect(seedanceLit).toMatch(/visualSeedanceHowTo3/);
+    expect(seedanceLit).toMatch(/visualSeedanceHowTo4/);
+    expect(seedanceLit).toMatch(/visualSeedanceOpenClaude/);
+    expect(seedanceLit).not.toMatch(/visualSeedanceHowTo1/);
+    expect(seedanceLit).not.toMatch(/copyTextToClipboard/);
+    expect(seedanceLit).not.toMatch(/buildXpozClaudePrompt/);
+    expect(seedanceLit).not.toMatch(/Xpoz|xpoz|XPOZ/);
 
     const en = JSON.parse(
       readFileSync(path.join(process.cwd(), "messages/en.json"), "utf8"),
@@ -695,6 +834,19 @@ describe("Intro rail stays fixed (panel source)", () => {
     expect(tryAt).toBeGreaterThan(0);
     const beforeTry = introBlock.slice(0, tryAt);
     expect(beforeTry).toMatch(/lesson\.source === "template"/);
+    expect(beforeTry).not.toMatch(/lesson\.source !== "gemini"/);
+    expect(beforeTry).not.toMatch(/!lesson\.source/);
+
+    const service = readFileSync(
+      path.join(process.cwd(), "src/lib/marketing/service.ts"),
+      "utf8",
+    );
+    const parseIntro = service.slice(
+      service.indexOf("function parseKitItems("),
+      service.indexOf("const creativesKit = parseCreativesKitItems"),
+    );
+    expect(parseIntro).toMatch(/source: lesson\.source \?\? null/);
+    expect(parseIntro).not.toMatch(/\?\? "template"/);
 
     const stageCard = panel.slice(
       panel.indexOf("function StageCard("),

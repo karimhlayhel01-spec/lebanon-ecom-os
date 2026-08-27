@@ -202,29 +202,19 @@ function buildLiteracySections(name: string): IntroLessonSection[] {
       id: "ai_video_seedance",
       ...INTRO_SECTION_TITLES.ai_video_seedance,
       bodyEn: [
-        `Copy a Seedance prompt for ${name} from the kit card.`,
-        `In Claude, add the Higgsfield connector (https://mcp.higgsfield.ai). Seedance is not generated in this OS.`,
-        `Paste the prompt and ask Claude to run Seedance. Film on your phone when you can.`,
+        `Motion Copy for ${name} lives on later Reel, Story, and UGC kit cards after that stage unlocks. This Intro is teaching only.`,
+        `Seedance is not generated in this OS.`,
       ].join("\n\n"),
       bodyAr: [
-        `انسخ موجّه Seedance لـ ${name} من بطاقة الحزمة.`,
-        `في Claude أضف موصل Higgsfield (https://mcp.higgsfield.ai). لا يُولَّد Seedance داخل هذا النظام.`,
-        `الصق الموجّه واطلب من Claude تشغيل Seedance. صوّر بهاتفك عندما تستطيع.`,
+        `نسخ موجّه الحركة لـ ${name} يعيش على بطاقات Reel وStory وUGC لاحقاً بعد فتح تلك المرحلة. هذا الدرس تعليم فقط.`,
+        `لا يُولَّد Seedance داخل هذا النظام.`,
       ].join("\n\n"),
     },
     {
       id: "ai_competitors_xpoz",
       ...INTRO_SECTION_TITLES.ai_competitors_xpoz,
-      bodyEn: [
-        `Claude + Xpoz (not this OS) can find Lebanon shops selling like ${name}, then study recent posts.`,
-        `In Claude, add the Xpoz connector (${XPOZ_MCP_CONNECTOR_URL}). Copy the prompt below, paste it, and ask Claude to run the study.`,
-        `Find shops first if you do not know handles. Two or three foreign accounts are ideas only — do not copy them as a brand.`,
-      ].join("\n\n"),
-      bodyAr: [
-        `Claude + Xpoz (ليس هذا النظام) يمكنه إيجاد متاجر لبنانية تبيع مثل ${name}، ثم دراسة المنشورات الأخيرة.`,
-        `في Claude أضف موصل Xpoz (${XPOZ_MCP_CONNECTOR_URL}). انسخ الموجّه أدناه، الصقه، واطلب من Claude تشغيل الدراسة.`,
-        `ابحث عن المتاجر أولاً إذا لم تعرف المعرّفات. حسابان أو ثلاثة أجنبية أفكار فقط — لا تنسخها كعلامة.`,
-      ].join("\n\n"),
+      bodyEn: `Claude + Xpoz (not this OS) can find Lebanon shops selling like ${name}, then study recent posts.`,
+      bodyAr: `Claude + Xpoz (ليس هذا النظام) يمكنه إيجاد متاجر لبنانية تبيع مثل ${name}، ثم دراسة المنشورات الأخيرة.`,
     },
   ];
 }
@@ -443,8 +433,8 @@ export function applyCanonicalTitles(
 }
 
 /**
- * After Gemini assemble: literacy how-to is template SoT (Nano / Seedance / Xpoz).
- * Core hook…journey_map bodies stay as passed.
+ * Literacy how-to is template SoT (Nano / Seedance / Xpoz) after Gemini
+ * assemble and on load. Core hook…journey_map bodies stay as passed.
  */
 export function applyTemplateLiteracyBodies(
   lesson: IntroLessonPayload,
@@ -472,9 +462,9 @@ export function applyTemplateLiteracyBodies(
 }
 
 /**
- * Ensure literacy sections exist (older kits may only have the 8 core ids).
- * Preserves existing bodies; fills missing literacy from templates.
- * Drops retired ids (ai_captions, ai_chat_claude, ai_cursor_optional).
+ * Complete on load: drop retired ids, backfill missing literacy (incl.
+ * ai_competitors_xpoz), pin ai_* bodies from the template. Core
+ * hook…journey_map bodies stay as persisted (Gemini or template).
  */
 export function ensureIntroLessonComplete(
   lesson: IntroLessonPayload,
@@ -504,14 +494,15 @@ export function ensureIntroLessonComplete(
     }
     return fallback;
   });
-  return applyCanonicalTitles({
-    ...lesson,
-    kind: "intro_lesson",
-    productName: name,
-    category: lesson.category || template.category,
-    source: lesson.source ?? "template",
-    sections,
-  });
+  return applyTemplateLiteracyBodies(
+    applyCanonicalTitles({
+      ...lesson,
+      kind: "intro_lesson",
+      productName: name,
+      category: lesson.category || template.category,
+      sections,
+    }),
+  );
 }
 
 /** True if any intro body pitches COD / cash-on-delivery as a marketing wow. */

@@ -66,8 +66,8 @@ function toolWhy(tool: "nano_banana" | "seedance"): { en: string; ar: string } {
     };
   }
   return {
-    en: "Short motion fits Seedance — turn the hook + shots into a quick clip.",
-    ar: "الحركة القصيرة تناسب Seedance — حوّل الخطّاف واللقطات إلى مقطع سريع.",
+    en: "Short motion fits Seedance — Copy the prompt and run Seedance in Claude (Higgsfield), not Generate here.",
+    ar: "الحركة القصيرة تناسب Seedance — انسخ الموجّه وشغّل Seedance في Claude (Higgsfield)، ليس Generate هنا.",
   };
 }
 
@@ -318,7 +318,7 @@ function buildSeedancePrompt(args: {
       `الحركة (هذا المقطع): ${beat}`,
       `المكان: ${habitatLine}`,
       `قواعد: ${args.rules}`,
-      `مقطع واحد قصير — ليست شبكة أو كولاج. حجم حقيقي. المشهد من مزاج البطاقة وصور الحزمة.`,
+      `مقطع واحد قصير — ليست شبكة أو كولاج. حجم حقيقي. المشهد من مزاج البطاقة.`,
       `بلا حروف أو شعارات على الإطارات. بلا أيدٍ أو وجوه أو أشخاص. إضاءة طبيعية، إيقاع سريع.`,
     ].join("\n");
   }
@@ -328,7 +328,7 @@ function buildSeedancePrompt(args: {
     `Motion (this clip): ${beat}`,
     `Setting: ${habitatLine}`,
     `Rules: ${args.rules}`,
-    `One short clip — not a grid, collage, or multi-panel. True-to-life scale. Scene from this card's mood and pack photos.`,
+    `One short clip — not a grid, collage, or multi-panel. True-to-life scale. Scene from this card's mood.`,
     `No letters or slogans on the frames. No hands, no faces, no people. Natural light, fast pacing.`,
   ].join("\n");
 }

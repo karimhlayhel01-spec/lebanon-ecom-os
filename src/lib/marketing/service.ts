@@ -221,6 +221,7 @@ function parseKitItems(raw: string): {
         kind: "intro_lesson",
         creatives: [],
         lesson,
+        // Missing source stays null — do not coerce to template (amber / Try AI fill).
         source: lesson.source ?? null,
         fillError: null,
         templateCount: 0,

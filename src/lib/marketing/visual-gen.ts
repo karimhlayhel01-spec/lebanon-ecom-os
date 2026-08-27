@@ -504,7 +504,8 @@ export type CopyNanoPromptResult =
     }
   | { ok: false; error: "not_found" };
 
-/** Approach A Copy prompt for Nano — Gemini rewrite, fail-closed to skills sanitize. */
+/** Approach A Copy prompt for Nano — Gemini rewrite, fail-closed to skills sanitize.
+ * Seedance Copy is client-side skills `<pre>` (no Gemini, no spend). */
 export async function copyCreativeNanoPrompt(args: {
   workspaceId: string;
   skuId: unknown;
@@ -533,18 +534,6 @@ export async function copyCreativeNanoPrompt(args: {
   const tool = routeCreativeVisualTool(loaded.creative.format);
   if (tool === "nano_banana") {
     const resolved = await resolveNanoHiggsfieldPrompt(briefInput, {
-      env: args.env ?? process.env,
-      workspaceId: args.workspaceId,
-    });
-    return {
-      ok: true,
-      text: args.locale === "ar" ? resolved.promptAr : resolved.promptEn,
-      source: resolved.source,
-      honesty: resolved.honesty,
-    };
-  }
-  if (tool === "seedance") {
-    const resolved = await resolveSeedanceHiggsfieldPrompt(briefInput, {
       env: args.env ?? process.env,
       workspaceId: args.workspaceId,
     });

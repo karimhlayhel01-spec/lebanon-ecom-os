@@ -154,6 +154,10 @@ describe("Phase 6c source locks", () => {
     expect(gen).toMatch(/resolveNanoHiggsfieldPrompt/);
     expect(gen).toMatch(/resolveSeedanceHiggsfieldPrompt/);
     expect(gen).toMatch(/tool === "nano_banana"/);
+    const copyFn = gen.slice(
+      gen.indexOf("export async function copyCreativeNanoPrompt"),
+    );
+    expect(copyFn).not.toMatch(/resolveSeedanceHiggsfieldPrompt/);
     expect(gen).not.toMatch(/recordMarketingGeminiCalls/);
     expect(gen).not.toMatch(/marketingGeminiUsage/);
     expect(gen).not.toMatch(/MARKETING_GEMINI_MONTHLY_CAP/);

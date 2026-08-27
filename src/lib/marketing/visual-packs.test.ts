@@ -274,6 +274,7 @@ describe("Phase 6b UI source", () => {
     expect(panel).toMatch(/visualSeedanceHowTo1/);
     expect(panel).toMatch(/visualSeedanceHowTo2/);
     expect(panel).toMatch(/visualSeedanceHowTo3/);
+    expect(panel).toMatch(/visualSeedanceHowTo4/);
     expect(panel).toMatch(/visualSeedanceOpenClaude/);
     expect(panel).toMatch(/HIGGSFIELD_MCP_CONNECTOR_URL/);
     expect(panel).toMatch(/CLAUDE_APP_URL/);
@@ -283,9 +284,17 @@ describe("Phase 6b UI source", () => {
     expect(panel).not.toMatch(/iframe/);
     const copyAt = panel.indexOf("copyNanoVisualPromptAction(");
     expect(copyAt).toBeGreaterThan(0);
-    expect(panel.slice(Math.max(0, copyAt - 500), copyAt)).toMatch(
-      /visual\.tool === "seedance"/,
+    const nanoCopyGate = panel.slice(Math.max(0, copyAt - 400), copyAt + 80);
+    expect(nanoCopyGate).toMatch(/visual\.tool === "nano_banana"/);
+    expect(nanoCopyGate).not.toMatch(/seedance/);
+    expect(panel).toMatch(/copyTextToClipboard\(visualPrompt\)/);
+    const skillsStart = panel.indexOf("copyTextToClipboard(visualPrompt)");
+    const skillsCopy = panel.slice(
+      skillsStart,
+      panel.indexOf("className=", skillsStart),
     );
+    expect(skillsCopy).toMatch(/setCopyPromptHonesty\(null\)/);
+    expect(skillsCopy).not.toMatch(/visualToolCopyCap|visualToolCopyFail|visualToolCopyPending/);
     const genAt = panel.indexOf("generateVisualAction(");
     expect(genAt).toBeGreaterThan(0);
     expect(panel.slice(Math.max(0, genAt - 400), genAt)).toMatch(
@@ -388,6 +397,7 @@ describe("Phase 6b UI source", () => {
       "visualSeedanceHowTo1",
       "visualSeedanceHowTo2",
       "visualSeedanceHowTo3",
+      "visualSeedanceHowTo4",
       "visualSeedanceOpenClaude",
     ];
     for (const key of keys) {
@@ -404,6 +414,10 @@ describe("Phase 6b UI source", () => {
     expect(en.Marketing.visualSeedanceHowTo2).toMatch(/Higgsfield/);
     expect(en.Marketing.visualSeedanceHowTo2).toMatch(/Claude/);
     expect(en.Marketing.visualSeedanceHowTo3).toMatch(/Seedance/);
+    expect(en.Marketing.visualSeedanceHowTo4).toMatch(/1–3 product photos/i);
+    expect(en.Marketing.visualSeedanceHowTo4).toMatch(/Claude/);
+    expect(ar.Marketing.visualSeedanceHowTo4).toMatch(/١–٣/);
+    expect(ar.Marketing.visualSeedanceHowTo4).toMatch(/Claude/);
     expect(en.Marketing.visualSeedanceOpenClaude).toMatch(/Open Claude/i);
     expect(ar.Marketing.visualSeedanceHowTo2).toMatch(/Higgsfield/);
     expect(ar.Marketing.visualSeedanceOpenClaude).toMatch(/Claude/);
@@ -412,6 +426,11 @@ describe("Phase 6b UI source", () => {
     expect(ar.Marketing.photoPacksNanoChoice).toMatch(/صورة/);
     expect(ar.Marketing.photoPacksNanoChoice).not.toMatch(/مقطع الذكاء/);
     expect(en.Marketing.photoPacksHowToTitle).toMatch(/HOW TO PHOTOGRAPH/i);
+    expect(en.Marketing.photoPacksHowToQuality).toMatch(/Nano Banana/);
+    expect(en.Marketing.photoPacksHowToQuality).toMatch(/stills/i);
+    expect(en.Marketing.photoPacksHowToQuality).not.toMatch(/Seedance/i);
+    expect(ar.Marketing.photoPacksHowToQuality).toMatch(/Nano Banana/);
+    expect(ar.Marketing.photoPacksHowToQuality).not.toMatch(/Seedance/i);
     expect(en.Marketing.photoPacksNewName).toMatch(/optional/i);
     expect(en.Marketing.photoPacksNewNamePlaceholder).toMatch(/Pack 1/);
     expect(ar.Marketing.photoPacksNewNamePlaceholder).toMatch(/Pack 1/);
@@ -432,5 +451,9 @@ describe("Phase 6b UI source", () => {
     expect(ar.Marketing.visualToolHintInApp).not.toMatch(/خارج هذا التطبيق/);
     expect(en.Marketing.visualToolHintPhoneFilm).toMatch(/no AI generate/i);
     expect(en.Marketing.visualToolHintPhoneFilm).not.toMatch(/stay outside/i);
+    expect(en.Marketing.visualToolCopyCap).toMatch(/still prompt/i);
+    expect(en.Marketing.visualToolCopyFail).toMatch(/still prompt/i);
+    expect(ar.Marketing.visualToolCopyCap).toMatch(/الموجّه الآمن/);
+    expect(ar.Marketing.visualToolCopyFail).toMatch(/الموجّه الآمن/);
   });
 });
